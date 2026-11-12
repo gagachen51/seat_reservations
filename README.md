@@ -1,1 +1,1 @@
-# smart_system
+# seat_reservations
