@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A-需求分析质量验证报告</title>
+<style>
+@page { size: A4; margin: 16mm 14mm; }
+* { box-sizing: border-box; }
+body {
+  font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+  font-size: 10.5pt; line-height: 1.72; color: #16233a; margin: 0 auto; max-width: 900px; padding: 8px 6px 40px;
+}
+h1 { font-size: 19pt; border-bottom: 2px solid #2f5da8; padding-bottom: 6px; margin: 18px 0 12px; }
+h2 { font-size: 15pt; border-left: 5px solid #2f5da8; padding-left: 8px; margin: 20px 0 10px; }
+h3 { font-size: 12.5pt; color: #2f5da8; margin: 16px 0 8px; }
+h4, h5, h6 { font-size: 11.5pt; margin: 14px 0 6px; }
+p { margin: 7px 0; }
+ul, ol { margin: 7px 0 7px 22px; padding: 0; }
+li { margin: 3px 0; }
+table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 9.5pt; page-break-inside: auto; }
+th, td { border: 1px solid #c8d4e8; padding: 5px 7px; text-align: left; vertical-align: top; word-break: break-word; }
+th { background: #eef3fb; font-weight: 600; }
+tr { page-break-inside: avoid; }
+code { background: #f1f5fb; border-radius: 4px; padding: 1px 4px; font-family: Consolas, "Courier New", monospace; font-size: 9.5pt; }
+pre { background: #f6f8fc; border: 1px solid #d8e2f2; border-radius: 6px; padding: 10px; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+blockquote { margin: 10px 0; padding: 8px 12px; background: #fff8e8; border-left: 4px solid #c9820a; }
+hr { border: none; border-top: 1px solid #d8e2f2; margin: 18px 0; }
+a { color: #2f5da8; }
+h1, h2, h3 { page-break-after: avoid; }
+</style>
+</head>
+<body>
+<h1>A. 需求分析质量验证报告</h1>
+<p><strong>项目名称</strong>：智慧自习室预约管理系统　｜　<strong>小组编号</strong>：<code>25</code>　｜　<strong>提交阶段</strong>：需求分析　｜　<strong>报告版本</strong>：v1.0（本次提交的最终版本）</p>
+<h2>A.1 提交信息</h2>
+<ul>
+<li>小组编号：<code>25</code></li>
+<li>项目名称：智慧自习室预约管理系统</li>
+<li>成员名单：<code>陈景标</code>、<code>沈家炜</code>、<code>陈高阳</code>、<code>刘建修</code></li>
+</ul>
+<h3>使用工具与 AI</h3>
+<table><thead><tr><th>工具 / AI 名称</th><th>使用用途</th></tr></thead><tbody>
+<tr><td>Reasonix 编码智能体（AI，模型 deepseekv4flash）</td><td>文档要求解析与交付物结构梳理（AI-01）；候选业务规则生成与来源性质标注（AI-02）；PlantUML 图模型草拟与 AI 反向走查（AI-03）；原型与自动化测试草拟、缺陷定位（AI-04）；页面交互走查与证据整理（AI-05）。<strong>所有输出均经人工质疑、修改与核对</strong>，详见 B 报告与附件 <code>B-01-AI关键任务交互记录.md</code></td></tr>
+<tr><td>PlantUML 1.2024.8（含 Java 运行时）</td><td>绘制目标树、系统上下文图、用例图、活动图、领域类图、状态图，并导出 SVG/PNG</td></tr>
+<tr><td>Node.js v24.13.0（node:test）</td><td>运行领域逻辑自动化测试与页面交互走查（无第三方依赖）</td></tr>
+<tr><td>Visual Studio Code / 文本编辑器</td><td>编写与检查 Markdown 文档、PlantUML 源文件与原型代码</td></tr>
+<tr><td>浏览器（Chrome/Edge）</td><td>打开可点击原型（<code>prototype/index.html</code>）进行人工页面走查</td></tr>
+<tr><td>Markdown 预览 / 打印为 PDF</td><td>报告阅读与提交版本导出</td></tr>
+</tbody></table>
+<h3>文档版本说明</h3>
+<ul>
+<li>最终版本：Markdown 主报告（本文件）</li>
+<li>提交版本号：v1.0（2026-10-15 定稿；2026-10-29 提交，未改变编号体系）</li>
+<li>提交日期：<code>2026-10-29</code></li>
+<li>配套文件：</li>
+<li>课程要求文档：<code>学生需求分析与AI智能体使用验证报告.md</code>（全文 492 行，证据 <strong>E-01</strong>）——本报告 A.1~A.8 小节的撰写依据</li>
+<li><code>需求规格说明书.md</code>（v1.2，需求基线，见证据 E-04）</li>
+<li><code>B-AI智能体使用验证报告.md</code>（v1.0；B.2 的关键交互记录，原文见 E-19~E-23）</li>
+<li>附件：<code>attachments/A-01</code>~<code>A-06</code>、<code>attachments/B-01</code>、<code>B-02</code>、<code>attachments/evidence/</code>（E-TEST-01、E-TEST-02、E-CD-01；AI 会话导出 E-19~E-23）</li>
+<li>图模型：<code>models/src/</code>（可编辑源文件）+ <code>models/export/</code>（SVG、PNG 导出版本）</li>
+<li>原型：<code>prototype/</code>（可点击界面 + 自动化测试）</li>
+<li>已提供 PDF 版本（<code>A-需求分析质量验证报告.pdf</code>），其内容与本次提交的 Markdown 最终版本一致</li>
+</ul>
+<hr>
+<h2>A.2 关键事实与业务规则确认</h2>
+<p><strong>口径说明</strong>：</p>
+<ol>
+<li>本表只列<strong>影响较大的事实、业务参数、权限或范围决定</strong>；每条关联需求或规则编号，并标注<strong>来源性质</strong>（原始资料 / AI 候选 / 分析推导）。</li>
+<li>确认活动采用课程允许的<strong>教学模拟</strong>方式：由小组成员扮演业务人员、学生用户、教师开展讨论，记录参与者、模拟角色、日期与结论，并在状态栏注明&quot;（教学模拟）&quot;。<strong>这不代表真实业务方或任课教师已经确认。</strong></li>
+<li><strong>确认结论由参与学生作出并记录</strong>；AI 的自检或 AI 扮演角色的回答<strong>不作为</strong>学生已完成确认的证明（本组对 AI 输出一律先质疑、再核查、再由团队决定，见 B 报告 B.2）。</li>
+<li>使用真实业务资料或真实人员确认记录时如实注明来源与身份 —— <strong>本项目不存在此类资料</strong>（见附件 <code>A-01-业务依据与原始资料摘要.md</code>，证据 <strong>E-03</strong>），因此全部确认均为教学模拟。</li>
+<li>确认记录原文位置：附件 <code>A-02-教学模拟确认记录.md</code>（TR-01~TR-04）；讨论参与者姓名与日期已按本组实际信息填写。A.2 表中的确认日期取 TR 记录日期（2026-10-08），不是提交日期。</li>
+<li><strong>角色口径</strong>：本项目把学生用户视为业务方一侧（座位使用方）。因此“模拟学生用户”对应的“业务方已确认（教学模拟）”表示教学模拟中的<strong>用户侧确认</strong>；它与“模拟业务人员”的业务方确认、以及“模拟教师”的教师确认分开记录，均不代表真实业务方或任课教师认可。</li>
+</ol>
+<h3>关键事实与业务规则确认台账</h3>
+<table><thead><tr><th>需求或规则编号</th><th>内容及来源性质</th><th>依据或确认记录编号</th><th>确认人员、角色与状态</th><th>未确认时的处理</th></tr></thead><tbody>
+<tr><td>M-01-1（BR-04）</td><td>签到窗口＝时段开始前 15 分钟至开始后 15 分钟；来源性质：AI 候选，教学模拟</td><td>TR-02 议题 1（附件 A-02）</td><td><code>沈家炜</code>；模拟学生用户；<code>2026-10-08</code>；业务方已确认（教学模拟）</td><td>—（已确认；<strong>边界口径</strong>另见 V-02：已明确为闭区间）</td></tr>
+<tr><td>M-01-2（BR-05）</td><td>暂离保留 30 分钟，超时自动释放；来源性质：AI 候选，教学模拟</td><td>TR-02 议题 2</td><td><code>沈家炜</code>；模拟学生用户；<code>2026-10-08</code>；业务方已确认（教学模拟）</td><td>—</td></tr>
+<tr><td>M-02-1（BR-06）</td><td>信用分初始 100；未签到 −10、暂离超时 −5、到点未签退 −5、虚假上报 −20、按时签到签退 +1（每日 ≤+2）；来源性质：AI 候选，教学模拟</td><td>TR-03 议题 1</td><td><code>陈高阳</code>；模拟教师；<code>2026-10-08</code>；教师已确认（教学模拟）</td><td>—</td></tr>
+<tr><td>M-02-2（BR-07）</td><td>信用分 &lt; 60 分禁止预约，恢复至 ≥60 自动解除；来源性质：AI 候选，教学模拟</td><td>TR-03 议题 2</td><td><code>陈高阳</code>；模拟教师；<code>2026-10-08</code>；教师已确认（教学模拟）</td><td>—</td></tr>
+<tr><td>M-02-3（BR-15）</td><td>连续 3 次未签到限制预约 7 天；来源性质：AI 候选，教学模拟</td><td>TR-03 议题 2</td><td><code>陈高阳</code>；模拟教师；<code>2026-10-08</code>；教师已确认（教学模拟）</td><td>—</td></tr>
+<tr><td>M-03-1（BR-01）</td><td>单次预约 0.5~4 小时，30 分钟粒度；来源性质：AI 候选，教学模拟</td><td>TR-01 议题 1</td><td><code>陈景标</code>；模拟业务人员；<code>2026-10-08</code>；业务方已确认（教学模拟）</td><td>—</td></tr>
+<tr><td>M-03-2（BR-02）</td><td>每人每天 ≤2 个时段且 ≤4 小时；<strong>计入口径</strong>：取消/违约/释放不计入；来源性质：AI 候选（数值）+ 分析推导（计入口径）</td><td>TR-01 议题 2；SC-07 步骤 3（V-01 修订）</td><td><code>陈景标</code>；模拟业务人员；<code>2026-10-08</code>；业务方已确认（教学模拟）；计入口径为团队已复核</td><td>—</td></tr>
+<tr><td>M-03-3（BR-03）</td><td>仅可预约未来 7 天内已开放时段；来源性质：AI 候选，教学模拟</td><td>TR-01 议题 3</td><td><code>陈景标</code>；模拟业务人员；<code>2026-10-08</code>；业务方已确认（教学模拟）</td><td>—</td></tr>
+<tr><td>M-03-4（BR-10）</td><td>开始前 ≥30 分钟取消不记违规；&lt;30 分钟取消 −5；开始后不可自助取消；来源性质：AI 候选，教学模拟</td><td>TR-02 议题 3</td><td><code>沈家炜</code>；模拟学生用户；<code>2026-10-08</code>；业务方已确认（教学模拟）</td><td>—</td></tr>
+<tr><td>M-04（AS-01）</td><td>假设：每位学生只有 1 个校园账号，信用分与账号一一对应；来源性质：AI 候选</td><td>TR-04 议题 1</td><td><code>陈景标</code>；团队复核；<code>2026-10-08</code>；团队已复核（<strong>假设，未获业务确认</strong>）</td><td>暂不作为确定规则；如后续接入真实身份系统，需重新核对&quot;一人多账号/账号共享&quot;的处理方式（责任人 <code>陈景标</code>）</td></tr>
+<tr><td>M-05（FR-24）</td><td>座位查询的筛选维度：日期、时段、自习室、座位类型；来源性质：AI 候选</td><td>TR-02（讨论提及）</td><td><code>沈家炜</code>；团队复核；<code>2026-10-08</code>；<strong>待确认</strong></td><td>保持候选：按现有 4 个维度实现；新增维度（区域/电源位/是否靠窗等）在实现前需讨论决定（责任人 <code>沈家炜</code>）</td></tr>
+<tr><td>M-06（KPI-01）</td><td>座位平均利用率目标 ≥65%（基线约 45% 为估算）；来源性质：AI 候选</td><td>TR-03 议题 4</td><td><code>陈高阳</code>；团队讨论；<code>2026-10-08</code>；<strong>待确认</strong></td><td>保持候选，<strong>不作为验收门槛</strong>；如需作为正式指标，须先取得真实基线数据（责任人 <code>陈高阳</code>）</td></tr>
+<tr><td>M-07（KPI-02）</td><td>预约后实际签到率 ≥90%；来源性质：AI 候选</td><td>TR-03 议题 4</td><td><code>陈高阳</code>；团队讨论；<code>2026-10-08</code>；<strong>待确认</strong></td><td>同上，保持候选、不作为门槛</td></tr>
+<tr><td>M-08（FR-22、IF-04）</td><td>特殊开放时段（考试周延长等）的规则与数据来源；来源性质：AI 候选</td><td>TR-01 议题 4</td><td><code>陈景标</code>；团队讨论；<code>2026-10-08</code>；<strong>待确认</strong></td><td>保持候选：接口按 IF-04 预留，本次仅实现常规开放时段（07:00—23:00）；确认前不实现特殊时段业务规则（责任人 <code>陈景标</code>）</td></tr>
+<tr><td>M-09（BR-08、FR-34）</td><td>候补：通知队首 3 人、确认时限 5 分钟、超时顺延；来源性质：AI 候选</td><td>TR-02 议题 4</td><td><code>沈家炜</code>；模拟学生用户；<code>2026-10-08</code>；<strong>待确认</strong>（教师确认未开展）</td><td>保持候选：参数实现为可配置（FR-71），原型按 3 人/5 分钟演示；确认前不对外承诺该口径（责任人 <code>沈家炜</code>）</td></tr>
+<tr><td>M-10（BR-12）</td><td>讨论间（4~8 人）整体预约、成员分别签到；来源性质：AI 候选</td><td>TR-02（讨论提及）</td><td><code>陈高阳</code>；团队讨论；<code>2026-10-08</code>；<strong>待确认</strong>（候选功能）</td><td>保持候选：原型仅实现&quot;整体预约 + 容量属性&quot;，未实现成员分别签到；确认前该功能不在承诺范围（责任人 <code>陈高阳</code>）</td></tr>
+<tr><td>M-11（BR-17、FR-53）</td><td>申诉窗口 3 日；申诉期间限制状态不解除；来源性质：AI 候选</td><td>TR-03 议题 1（讨论提及）</td><td><code>陈景标</code>；团队讨论；<code>2026-10-08</code>；<strong>待确认</strong></td><td>保持候选：原型按 3 日与&quot;申诉期间不解除&quot;实现；确认前不对外承诺（责任人 <code>陈景标</code>）</td></tr>
+<tr><td>M-12（BR-11、BR-09）</td><td>相邻预约之间是否设置&quot;清座缓冲期&quot;；封禁&quot;影响时段&quot;的表示粒度；来源性质：分析推导（与 V-06 相关）</td><td>TR-04 议题 2；A-06 V-06</td><td><code>陈景标</code>；团队讨论；<code>2026-10-08</code>；<strong>待确认</strong></td><td>保持候选：当前按&quot;相邻时段无缝衔接&quot;处理、封禁按&quot;该座位全部在途预约取消&quot;处理；确认后一并实现精确过滤（责任人 <code>陈景标</code>）</td></tr>
+</tbody></table>
+<h3>分析推导并已由团队复核的条目（无需业务确认，但已列入本组复核范围）</h3>
+<table><thead><tr><th>需求或规则编号</th><th>内容及来源性质</th><th>依据或确认记录编号</th><th>确认人员、角色与状态</th><th>未确认时的处理</th></tr></thead><tbody>
+<tr><td>M-13-1（BR-09、ST-11）</td><td>座位封禁须填原因与影响时段；受影响在途预约自动取消、不记违规、发送通知；来源性质：分析推导</td><td>TR-04 议题 2；A-04 SC-08；A-06 V-06</td><td>全组成员；团队复核；<code>2026-10-08</code>；团队已复核</td><td>—（&quot;影响时段精确过滤&quot;另见 M-12 待确认）</td></tr>
+<tr><td>M-13-2（BR-11、NFR-03）</td><td>同一账号同一时段仅 1 条有效预约；相邻时段不算重叠；来源性质：分析推导</td><td>TR-04 议题 1；E-08（T42）</td><td>全组成员；团队复核；<code>2026-10-08</code>；团队已复核</td><td>—</td></tr>
+<tr><td>M-13-3（BR-13、NFR-04）</td><td>签到凭证一次性、有效期 60 秒；同一账号同一时刻仅 1 条&quot;使用中&quot;；来源性质：分析推导</td><td>TR-04 议题 4；E-08（T17、T18、T45、T46）</td><td>全组成员；团队复核；<code>2026-10-08</code>；团队已复核</td><td>—</td></tr>
+<tr><td>M-13-4（BR-14、PR-13）</td><td>系统参数变更仅对新预约生效；来源性质：分析推导</td><td>TR-04 议题 3；E-08（T39）</td><td>全组成员；团队复核；<code>2026-10-08</code>；团队已复核</td><td>—</td></tr>
+<tr><td>M-13-5（BR-16、FR-36）</td><td>必须发送通知的事件清单（预约成功、开始前提醒、违约、候补补位、封禁取消）；来源性质：分析推导</td><td>TR-02 议题 5</td><td>全组成员；团队复核；<code>2026-10-08</code>；团队已复核</td><td>—</td></tr>
+<tr><td>M-13-6（PR-08）</td><td>管理员不得直接修改信用分，只能经申诉按规则恢复；来源性质：分析推导（含团队设计决定）</td><td>TR-04 议题 5；A-04 SC-04</td><td>全组成员；团队复核；<code>2026-10-08</code>；团队已复核</td><td>—</td></tr>
+<tr><td>M-13-7（PR-01、PR-11、PR-12）</td><td>学生仅可见本人记录；他人仅见占用状态；教师仅见本班汇总；来源性质：分析推导（隐私考虑）</td><td>A-04 SC-03、SC-14；E-08（T40、T41）</td><td>全组成员；团队复核；<code>2026-10-08</code>；团队已复核</td><td>—</td></tr>
+<tr><td>M-13-8（NFR-05、NFR-07）</td><td>操作步数与兼容性等质量要求；来源性质：分析推导</td><td>SRS 6.1 质量要求</td><td>全组成员；团队复核；<code>2026-10-08</code>；团队已复核</td><td>NFR-07 的浏览器兼容性<strong>未验证</strong>（见 A.6）</td></tr>
+</tbody></table>
+<blockquote>说明：以上 26 条（第一张表 18 条 + M-13-1~M-13-8 共 8 条）覆盖了影响范围较大的业务参数、权限与范围决定。未确认项（M-05~M-12）均有明确责任人与确认前的处理方式；<strong>未确认的数值在 SRS 与本文档中均保持候选状态，不因写入而视为已确认。</strong></blockquote>
+<hr>
+<h2>A.3 图模型的提交</h2>
+<h3>图模型清单</h3>
+<table><thead><tr><th>编号</th><th>图名称</th><th>建模对象</th><th>关联需求 / 用例编号</th><th>可编辑源文件</th><th>清晰导出版本</th></tr></thead><tbody>
+<tr><td>G-01</td><td>目标树</td><td>业务目标体系（含成功指标）</td><td>OBJ-01、OBJ-01-1~5；KPI-01~KPI-05</td><td><code>models/src/G-01-goal-tree.puml</code></td><td><code>models/export/G-01-goal-tree.svg</code> / <code>.png</code></td></tr>
+<tr><td>G-02</td><td>系统上下文图</td><td>系统边界、外部角色与外部系统</td><td>FR-01、FR-21~FR-24、FR-71；IF-01~IF-04</td><td><code>models/src/G-02-context-diagram.puml</code></td><td><code>models/export/G-02-context-diagram.svg</code> / <code>.png</code></td></tr>
+<tr><td>G-03</td><td>用例图</td><td>参与者与用例及其关系</td><td>UC-01~UC-17；FR、PR</td><td><code>models/src/G-03-use-case-diagram.puml</code></td><td><code>models/export/G-03-use-case-diagram.svg</code> / <code>.png</code></td></tr>
+<tr><td>G-04</td><td>活动图</td><td>预约—签到—使用—签退/超时释放主流程（含泳道、分支与异常）</td><td>UC-02~UC-10；FR-31~FR-45；BR-01~BR-11</td><td><code>models/src/G-04-activity-diagram.puml</code></td><td><code>models/export/G-04-activity-diagram.svg</code> / <code>.png</code></td></tr>
+<tr><td>G-05</td><td>领域类图</td><td>核心领域类、属性、关联与数量关系</td><td>SRS 3.3 数据字典；FR-31、FR-34、FR-51、FR-71</td><td><code>models/src/G-05-domain-class-diagram.puml</code></td><td><code>models/export/G-05-domain-class-diagram.svg</code> / <code>.png</code></td></tr>
+<tr><td>G-06</td><td>状态图 SM-01</td><td>预约记录（Reservation）状态机</td><td>ST-00~ST-13；BR-04、BR-05、BR-06、BR-09、BR-10</td><td><code>models/src/G-06-state-machine-reservation.puml</code></td><td><code>models/export/G-06-state-machine-reservation.svg</code> / <code>.png</code></td></tr>
+<tr><td>G-07</td><td>状态图 SM-02</td><td>座位（Seat）派生状态说明（由预约状态派生，非独立状态机）</td><td>FR-21、FR-23；SM-02；ST-00、ST-01、ST-05~ST-11</td><td><code>models/src/G-07-state-machine-seat.puml</code></td><td><code>models/export/G-07-state-machine-seat.svg</code> / <code>.png</code></td></tr>
+</tbody></table>
+<h3>提交要求对照</h3>
+<table><thead><tr><th>要求（原文档 A.3）</th><th>本组落实情况</th></tr></thead><tbody>
+<tr><td>每张图标明编号、名称、建模对象和关联需求或用例编号</td><td>在上表逐张汇总&quot;编号、名称、建模对象、关联需求/用例&quot;；图内 <code>title</code> 尽量同步（G-01/G-04 的 title 未写建模对象，G-07 的 title 未写关联需求/用例，以本表为准）</td></tr>
+<tr><td>可使用 PlantUML/Mermaid/draw.io 等，符号与声称的模型类型一致</td><td>统一使用 PlantUML 并按其 UML 语义绘制（actor/usecase/class/state/activity 各用对应关键字与符号）</td></tr>
+<tr><td>提供可编辑源文件及 SVG、PNG 或 PDF 等清晰导出版本；<strong>截图不能替代源文件</strong></td><td>源文件见 <code>models/src/<em>.puml</code>（可编辑），导出版本见 <code>models/export/</em>.svg</code>（矢量，宽度 1468~2870px）与 <code>*.png</code>（66~500KB，2026-10-29 重新导出）；<strong>未使用聊天截图替代图模型</strong></td></tr>
+<tr><td>分图时明确相互关系、命名一致</td><td>状态图分 SM-01（预约记录）与 SM-02（座位）并通过&quot;派生关系&quot;说明关联；角色名、状态名、术语与 SRS 3.1 术语表、3.3 数据字典、4.2 角色权限矩阵<strong>完全一致</strong>（如&quot;待签到/使用中/暂离/已完成/已取消/已违约/已释放&quot;）</td></tr>
+<tr><td>复杂条件放配套表格，用编号关联</td><td>状态转换条件集中在 A.4 节（ST-00~ST-13），图中只标转换编号与简要条件</td></tr>
+<tr><td>与文字说明、术语表、数据字典及相关模型一致</td><td>领域类 G-05 的属性与 SRS 3.3 数据字典逐项对齐；活动图 G-04 的判定条件逐条标注 BR 编号；用例图 G-03 的用例编号与 SRS 2.3 用例清单一致</td></tr>
+</tbody></table>
+<p><strong>图模型渲染与导出校验</strong>（证据 E-06）：7 张图全部成功导出（渲染进程退出码 0），逐张检查无语法错误（<code>errors=0</code>）；SVG 文本节点 37~123 个（含中文标签与英文属性名，G-04 为 99、G-06 为 52、G-07 为 37、G-05 为 123），说明中文与内嵌编号均正确渲染。G-01、G-05、G-06、G-07 于 2026-10-29 重新导出，SVG/PNG 与 <code>.puml</code> 源文件同步。</p>
+<hr>
+<h2>A.4 状态转换说明表</h2>
+<ul>
+<li><strong>关联状态图编号</strong>：SM-01（图形见 G-06；E-05/E-06）</li>
+<li><strong>建模对象</strong>：预约记录（Reservation）</li>
+<li>说明：本表同时记录<strong>正常状态转换、异常触发的状态转换，以及执行失败或被拒绝后的状态处理</strong>。失败或被拒绝时：<strong>ST-12</strong> 表示已存在记录的状态保持；<strong>ST-13</strong> 表示创建预约失败、<strong>不产生记录</strong>（无对象可“保持”）。两者都不表述为转换成功。状态图、本表与场景走查（A.5）沿用同一套编号。</li>
+<li><strong>编号演进说明</strong>：E-19、E-21 等历史会话导出中出现的“ST-12”是拆分前的合并编号；拆分后，ST-12 仅指已存在记录的状态保持，创建失败统一为 ST-13。历史原文不改写，引用时按本表口径解释。</li>
+</ul>
+<h3>SM-01 预约记录状态转换</h3>
+<table><thead><tr><th>转换编号</th><th>当前状态</th><th>触发事件</th><th>执行角色</th><th>条件或判定依据</th><th>目标状态及业务结果</th><th>失败或拒绝时处理</th></tr></thead><tbody>
+<tr><td>ST-00</td><td>—（无记录）</td><td>创建预约</td><td>学生（本人）</td><td>BR-01（时长/粒度）、BR-02（当日上限）、BR-03（7 天窗口）、BR-07（信用分）、BR-11（冲突/重叠）全部通过；座位处于空闲/已开放状态（BR-09）</td><td>状态 → 待签到；生成预约记录；座位派生为&quot;已预约&quot;；发送预约成功通知（BR-16）</td><td>任一条件不满足 → 转入 ST-13（不产生记录）；提示原因与规则编号</td></tr>
+<tr><td>ST-01</td><td>待签到</td><td>学生签到（扫码/闸机）</td><td>学生（本人）</td><td>执行者为预约本人（PR-02/PR-03）；凭证有效且未使用、未过期（BR-13）；当前时刻在签到窗口内：开始前 15 分钟 ≤ 时刻 ≤ 开始后 15 分钟（BR-04，闭区间，V-02）；本人当前无其他&quot;使用中&quot;记录（BR-13）</td><td>状态 → 使用中；记录签到时间与凭证；座位派生为&quot;使用中&quot;；业务结果：学生开始使用座位</td><td>凭证无效/过期/已使用 → 状态保持&quot;待签到&quot;并提示原因（BR-13）；已有其他&quot;使用中&quot; → 状态保持并提示先签退</td></tr>
+<tr><td>ST-02</td><td>待签到</td><td>定时任务扫描（签到窗口已过）</td><td>系统（UC-10，每分钟执行，NFR-02）</td><td>当前时刻 &gt; 开始后 15 分钟且状态仍为&quot;待签到&quot;（BR-04、BR-06）</td><td>状态 → 已违约；生成违规记录 −10 分；释放座位时段；触发候补补位；发送违约通知</td><td>幂等：同一记录已处理则跳过（AC-15）；释放失败时记录日志并重试，不产生重复违规</td></tr>
+<tr><td>ST-03</td><td>待签到</td><td>学生自助取消</td><td>学生（本人）</td><td>距开始时间 ≥ 30 分钟（BR-10）</td><td>状态 → 已取消；释放座位时段与当日额度；<strong>不记违规、不扣信用分</strong></td><td>非本人操作 → 拒绝（PR-03），状态保持</td></tr>
+<tr><td>ST-04</td><td>待签到</td><td>学生自助取消</td><td>学生（本人）</td><td>距开始时间 &gt; 0 且 &lt; 30 分钟（BR-10）</td><td>状态 → 已取消；记录违规 −5 分；释放座位时段与当日额度</td><td>同上；时段已开始 → 拒绝（须走申诉），状态保持&quot;待签到&quot;</td></tr>
+<tr><td>ST-05</td><td>使用中</td><td>学生发起&quot;暂时离开&quot;</td><td>学生（本人）</td><td>当前状态为&quot;使用中&quot;（BR-05）</td><td>状态 → 暂离；记录暂离开始时间与保留截止时间（+30 分钟）；座位派生为&quot;暂离保留&quot;</td><td>状态非&quot;使用中&quot; → 拒绝并提示（ST-12 行为），状态保持</td></tr>
+<tr><td>ST-06</td><td>暂离</td><td>学生返座确认</td><td>学生（本人）</td><td>当前时刻 ≤ 暂离保留截止时间（BR-05）</td><td>状态 → 使用中；清除暂离时限；座位派生为&quot;使用中&quot;</td><td>超过保留期 → 拒绝返座并转入 ST-07 处理</td></tr>
+<tr><td>ST-07</td><td>暂离</td><td>定时任务扫描（保留期已过）</td><td>系统（UC-10）</td><td>当前时刻 &gt; 暂离保留截止时间（BR-05、BR-06）</td><td>状态 → 已释放；违规 −5 分；座位释放；触发候补补位；发送通知</td><td>幂等处理；他人可随后预约该座位时段</td></tr>
+<tr><td>ST-08</td><td>使用中</td><td>学生主动签退</td><td>学生（本人）</td><td>当前时刻 ≤ 预约结束时间（BR-06）</td><td>状态 → 已完成（结束原因=正常签退）；记录签退时间；座位释放；信用奖励 +1（每人每日 ≤+2）</td><td>状态非&quot;使用中/暂离&quot; → 拒绝（ST-12 行为），状态保持</td></tr>
+<tr><td>ST-09</td><td>使用中</td><td>定时任务扫描（已超过预约结束时间）</td><td>系统（UC-10）</td><td>当前时刻 &gt; 预约结束时间且仍为&quot;使用中&quot;（BR-06）</td><td>状态 → 已完成（结束原因=超时未签退）；违规 −5 分；座位释放；触发候补补位</td><td>幂等处理；若学生在任务执行前已签退，则按 ST-08 处理</td></tr>
+<tr><td>ST-10</td><td>待签到 / 使用中 / 暂离</td><td>管理员强制释放</td><td>自习室管理员</td><td>仅自习室管理员可执行（PR-07）；<strong>必须填写原因</strong>；系统管理员与学生均被拒绝（PR-07）</td><td>状态 → 已释放（结束原因=管理员释放）；座位释放；写审计日志（操作人、前后状态、原因）；<strong>不记违规</strong></td><td>未填原因 → 拒绝，状态保持；角色不符 → 拒绝（PR-07），状态保持且不写审计日志（拒绝不产生数据变化）</td></tr>
+<tr><td>ST-11</td><td>待签到 / 使用中</td><td>管理员封禁座位</td><td>自习室管理员 / 系统管理员</td><td>座位封禁需填原因与影响时段（BR-09）；受影响预约为&quot;待签到/使用中&quot;</td><td>状态 → 已取消（结束原因=座位封禁取消）；座位 → 维护中；发送通知；<strong>不记违规、不扣信用分</strong></td><td>权利边界见 V-06（影响时段未精确过滤，暂缓）：超出影响时段的在途预约也可能被一并取消，已记录并在实现前按&quot;全部取消&quot;告知</td></tr>
+<tr><td>ST-12</td><td>待签到 / 使用中 / 暂离（已存在的记录）</td><td>签到、取消、暂离、返座、签退等校验失败</td><td>学生 / 系统</td><td>已存在记录但不满足操作前置条件：BR-04（签到窗口外）、BR-10（开始后取消）、BR-13（凭证无效/过期/已用）、PR-02/PR-03（权限）等</td><td><strong>状态保持：当前状态与目标状态一致</strong>；不产生新记录、不扣信用分、不产生违规</td><td>提示具体失败原因与规则编号；仅记录事件日志（被拒绝的操作），<strong>不写业务数据</strong>；状态保持</td></tr>
+<tr><td>ST-13</td><td>—（无记录）</td><td>创建预约的校验失败</td><td>学生</td><td>任一创建条件不满足：BR-01（时长/粒度）、BR-02（当日上限）、BR-03（7 天窗口）、BR-07（信用分）、BR-11（冲突/重叠）、BR-09（座位维护中/停用）、PR-02（角色）</td><td><strong>不产生预约记录</strong>（无对象可保持）；座位不被占用；不扣信用分、不产生违规</td><td>提示具体失败原因与规则编号；仅记录事件日志（被拒绝的操作），<strong>不写业务数据</strong>；不得表述为“状态保持”</td></tr>
+</tbody></table>
+<h3>SM-02 座位状态由预约记录状态派生</h3>
+<table><thead><tr><th>座位状态</th><th>派生条件</th><th>关联转换</th></tr></thead><tbody>
+<tr><td>空闲</td><td>无有效预约占用该时段</td><td>ST-02、ST-03、ST-04、ST-07、ST-08、ST-09、ST-10、ST-11</td></tr>
+<tr><td>已预约</td><td>存在&quot;待签到&quot;预约且占用该时段</td><td>ST-00（创建成功）</td></tr>
+<tr><td>使用中</td><td>对应预约处于&quot;使用中&quot;</td><td>ST-01、ST-06</td></tr>
+<tr><td>暂离保留</td><td>对应预约处于&quot;暂离&quot;</td><td>ST-05</td></tr>
+<tr><td>维护中</td><td>管理员封禁（填原因与影响时段）</td><td>ST-11、UC-12</td></tr>
+<tr><td>停用</td><td>资源停用（FR-21）</td><td>UC-11</td></tr>
+</tbody></table>
+<p><strong>一致性说明</strong>：本表与 G-06/G-07 表达同一套规则；条件中的业务参数（15 分钟、30 分钟、60 分、7 天等）沿用 A.2 节台账的确认状态 —— <strong>未确认的候选值不会因写入本表而变为已确认规则</strong>。修改状态规则时，已同步更新相关用例（UC-03、UC-07、UC-08、UC-09、UC-10、UC-12、UC-13）、权限规则（PR-02、PR-03、PR-07）与验收场景（AC-02~AC-04、AC-08、AC-11）以及原型实现与测试（E-08）。</p>
+<p><strong>SM-02 的口径</strong>：SM-02 是“座位资源状态由预约记录派生”的<strong>派生状态说明</strong>，不是独立状态机；G-07 中的“解封、停用、启用”属于资源管理操作（UC-11/UC-12），不单列 ST 转换编号。创建预约成功时座位派生为“已预约”（ST-00）；创建失败按 ST-13 处理，座位不被占用。</p>
+<hr>
+<h2>A.5 场景走查</h2>
+<h3>目的与走查方式</h3>
+<p>业务场景走查用于检查需求能否支撑完整业务流程，重点核对角色权限、业务规则、数据变化、状态转换和异常处理是否完整、合理且一致。本组结合实际开展情况如下：</p>
+<table><thead><tr><th>走查方式</th><th>是否开展</th><th>开展方式与记录要求</th></tr></thead><tbody>
+<tr><td>本组自走查</td><td><strong>已开展</strong></td><td>成员分别承担业务角色（学生/系统/管理员）、检查与记录工作，逐步推演核心场景；记录见附件 A-04 各场景的&quot;参与者姓名、走查分工及日期&quot;</td></tr>
+<tr><td>AI 反向走查</td><td><strong>已开展</strong></td><td>由 AI 扮演测试工程师检查遗漏、冲突与边界情况（AI-03）；AI 提出的问题作为<strong>候选意见</strong>，由团队逐条核查后记录（如 SC-10 的窗口边界疑点 → V-02；封禁时段疑点 → V-06）</td></tr>
+<tr><td>交叉走查</td><td><strong>未开展</strong></td><td>本次未邀请其他组同学参与；如实标注，不虚构结论。后续如有条件，可请同学按&quot;任务情境&quot;独立推演流程并记录</td></tr>
+<tr><td>任课教师抽查</td><td><strong>未开展</strong></td><td>本次未请教师抽查复杂场景；如实标注</td></tr>
+</tbody></table>
+<h3>走查依据</h3>
+<ul>
+<li>用户故事与用例描述（SRS 2.1 用户故事清单、2.3 用例清单、2.4 关键用例详细说明）</li>
+<li>业务流程图/活动图（G-04）与状态图（G-06、G-07）</li>
+<li>角色权限矩阵（SRS 4.2、附件 <code>A-03-角色权限矩阵.md</code>，证据 <strong>E-16</strong>）</li>
+<li>A.2 节关键事实与业务规则确认台账（M-01-1~M-13-8）</li>
+<li>A.3 节的图模型（G-01~G-07）与 A.4 节状态转换说明表（ST-00~ST-13）</li>
+<li>验收标准草稿（SRS 7.1 验收标准 AC-01~AC-15）</li>
+<li><strong>走查依据与核对版本</strong>：走查时（2026-10-12/13）依据 <strong>SRS v0.9、图模型 v1.0、原型 v1.0</strong>；提交前按 <strong>SRS v1.2、原型 v2.0</strong> 回溯核对（章节号差异见 SRS 附录 D），本文的编号与结论以提交版为准。</li>
+</ul>
+<h3>场景类型覆盖</h3>
+<table><thead><tr><th>场景类型</th><th>覆盖场景编号</th><th>重点检查内容</th></tr></thead><tbody>
+<tr><td>正常主流程</td><td>SC-01（预约—签到—使用—签退）、SC-02（候补补位）；SC-20（补充摘要，正常/异常）</td><td>核心业务任务的成功路径是否完整，操作、响应与业务结果能否衔接</td></tr>
+<tr><td>权限流程</td><td>SC-03、SC-04、SC-11、SC-12、SC-14、SC-15；SC-16、SC-17（补充摘要）</td><td>不同角色是否只能执行允许的操作；权限不足是否明确拒绝；数据与状态如何处理</td></tr>
+<tr><td>状态转换流程</td><td>SC-05、SC-06、SC-10（含边界）</td><td>核心对象的当前状态、触发事件、判定条件与结果状态是否符合状态图与转换说明表</td></tr>
+<tr><td>异常流程</td><td>SC-07、SC-08、SC-09、SC-13；SC-18、SC-19、SC-21（补充摘要）</td><td>逾期、退回、撤销、失败或违规等情况的提示、处置方式与数据、状态结果</td></tr>
+</tbody></table>
+<h3>走查基本信息与记录</h3>
+<p><strong>15 个完整走查记录（SC-01~SC-15）+ 6 个补充场景摘要（SC-16~SC-21）</strong>均见附件 <strong><code>A-04-场景走查记录.md</code></strong>（证据 E-11）。其中 SC-01~SC-15 含逐步走查表（步骤 / 角色 / 操作 / 预期系统响应 / 涉及数据、状态及转换编号 / 发现的问题）；SC-16~SC-21 仅记录任务情境、初始状态、参与者与关联编号，其操作与观察结果由 PV-09~PV-12 承担。基本信息汇总如下：</p>
+<table><thead><tr><th>编号</th><th>场景名称</th><th>类型</th><th>走查方式</th><th>走查依据及版本</th><th>参与者与分工</th><th>关联需求、用例与规则</th><th>关联状态图及转换</th></tr></thead><tbody>
+<tr><td>SC-01</td><td>预约 → 签到 → 使用 → 签退</td><td>正常主流程</td><td>本组自走查</td><td>SRS v0.9→v1.2 / G-04 / SM-01</td><td><code>沈家炜</code>（学生）、<code>陈高阳</code>（系统响应）、<code>陈景标</code>（记录），<code>2026-10-13</code></td><td>FR-24、FR-31、FR-41、FR-43；UC-02/03/07/09；BR-01~04、06、11</td><td>SM-01：ST-01、ST-08</td></tr>
+<tr><td>SC-02</td><td>候选 → 释放通知 → 候补补位</td><td>正常主流程</td><td>本组自走查</td><td>SRS v0.9→v1.2 / G-04</td><td><code>沈家炜</code>（学生）、<code>陈景标</code>（管理员）、<code>陈高阳</code>（记录），<code>2026-10-13</code></td><td>FR-34、FR-36；UC-05/06/13；BR-08、BR-16、BR-11</td><td>SM-01：ST-10（释放触发）</td></tr>
+<tr><td>SC-03</td><td>学生越权执行管理员操作</td><td>权限流程</td><td>本组自走查</td><td>SRS v0.9→v1.2 / PR 矩阵（A-03）</td><td><code>沈家炜</code>（学生）、<code>陈景标</code>（核对数据）、<code>陈高阳</code>（记录），<code>2026-10-13</code></td><td>FR-23、FR-45、FR-61~63；UC-12/13/15/17；PR-05/06/07/11/12/15</td><td>—（不涉及状态变化）</td></tr>
+<tr><td>SC-04</td><td>管理员尝试直接修改信用分</td><td>权限流程</td><td>本组自走查</td><td>SRS v0.9→v1.2 / A-03</td><td><code>陈景标</code>（管理员）、<code>陈高阳</code>（学生）、<code>沈家炜</code>（记录），<code>2026-10-13</code></td><td>FR-52、FR-53；UC-14；PR-08、PR-10；BR-06、BR-17</td><td>—</td></tr>
+<tr><td>SC-05</td><td>超过签到窗口未签到自动违约</td><td>状态转换流程</td><td>自走查 + AI 反向走查</td><td>SRS v0.9→v1.2 / SM-01 / G-04</td><td><code>陈高阳</code>（系统）、<code>陈景标</code>（核对）、<code>沈家炜</code>（记录），<code>2026-10-13</code></td><td>FR-44、FR-51、FR-52；UC-10；BR-04、BR-06、BR-15、BR-16</td><td>SM-01：ST-02</td></tr>
+<tr><td>SC-06</td><td>暂离超时自动释放座位</td><td>状态转换流程</td><td>本组自走查</td><td>SRS v0.9→v1.2 / SM-01</td><td><code>沈家炜</code>（学生）、<code>陈高阳</code>（系统）、<code>陈景标</code>（记录），<code>2026-10-13</code></td><td>FR-42、FR-44；UC-08、UC-10；BR-05、BR-06</td><td>SM-01：ST-05、ST-06、ST-07</td></tr>
+<tr><td>SC-07</td><td>时段冲突 / 当日上限 / 取消判定</td><td>异常流程</td><td>自走查 + AI 反向走查</td><td>SRS v0.9→v1.2 / SM-01 / G-04</td><td><code>沈家炜</code>（学生）、<code>陈高阳</code>（系统）、<code>陈景标</code>（问题判定），<code>2026-10-13</code></td><td>FR-31~FR-33；UC-03、UC-04；BR-02、BR-10、BR-11</td><td>SM-01：ST-03、ST-04、ST-12</td></tr>
+<tr><td>SC-08</td><td>座位封禁导致预约自动取消</td><td>异常流程</td><td>本组自走查</td><td>SRS v0.9→v1.2 / SM-01、SM-02</td><td><code>陈景标</code>（管理员）、<code>沈家炜</code>（学生）、<code>陈高阳</code>（记录），<code>2026-10-13</code></td><td>FR-23、FR-36、FR-45；UC-12；BR-09、BR-16</td><td>SM-01：ST-11；SM-02：维护中</td></tr>
+<tr><td>SC-09</td><td>信用分不足拒绝预约</td><td>异常流程</td><td>本组自走查</td><td>SRS v0.9→v1.2 / SM-01</td><td><code>陈高阳</code>（学生）、<code>陈景标</code>（核对）、<code>沈家炜</code>（记录），<code>2026-10-13</code></td><td>FR-32、FR-52；UC-03；BR-06、BR-07</td><td>SM-01：ST-13（创建失败，不产生记录）</td></tr>
+<tr><td>SC-10</td><td>签到窗口边界时刻</td><td>边界流程</td><td><strong>AI 反向走查</strong> + 本组复核</td><td>SRS v0.9→v1.2 / BR-04 / SM-01</td><td><code>陈高阳</code>（执行核实）、<code>陈景标</code>（判定）、<code>沈家炜</code>（记录），<code>2026-10-13</code></td><td>FR-41；UC-07；BR-04、BR-06</td><td>SM-01：ST-01、ST-02</td></tr>
+<tr><td>SC-11</td><td>维护自习室与开放时段</td><td>权限流程</td><td>本组自走查</td><td>SRS v0.9→v1.2 / G-03</td><td><code>陈景标</code>（管理员）、<code>沈家炜</code>（越权尝试）、<code>陈高阳</code>（记录），<code>2026-10-13</code></td><td>FR-21、FR-22；UC-11；PR-05、PR-06；BR-09、BR-14</td><td>SM-02：停用/维护中</td></tr>
+<tr><td>SC-12</td><td>管理员强制释放座位</td><td>权限流程</td><td>本组自走查</td><td>SRS v0.9→v1.2 / SM-01 / PR-07</td><td><code>陈景标</code>（管理员）、<code>陈高阳</code>（越权尝试）、<code>沈家炜</code>（记录），<code>2026-10-13</code></td><td>FR-45；UC-13；PR-07；NFR-09</td><td>SM-01：ST-10</td></tr>
+<tr><td>SC-13</td><td>违规申诉与审核</td><td>异常流程</td><td>本组自走查</td><td>SRS v0.9→v1.2 / G-04</td><td><code>陈高阳</code>（学生）、<code>陈景标</code>（管理员）、<code>沈家炜</code>（记录），<code>2026-10-13</code></td><td>FR-53、FR-54；UC-14；PR-09、PR-10；BR-06、BR-17</td><td>—（违规记录状态：生效→申诉中→已撤销）</td></tr>
+<tr><td>SC-14</td><td>看板与报表的可见范围</td><td>权限流程</td><td>本组自走查</td><td>SRS v0.9→v1.2 / PR 矩阵（A-03）</td><td><code>陈景标</code>（管理员）、<code>沈家炜</code>（教师）、<code>陈高阳</code>（学生），<code>2026-10-13</code></td><td>FR-61~FR-63；UC-15；PR-11、PR-12；NFR-06</td><td>—</td></tr>
+<tr><td>SC-15</td><td>参数变更生效口径与审计留痕</td><td>状态转换/权限流程</td><td>本组自走查</td><td>SRS v0.9→v1.2 / BR-14 / PR-13</td><td><code>陈景标</code>（系统管理员）、<code>陈高阳</code>（越权尝试）、<code>沈家炜</code>（核对既有预约），<code>2026-10-13</code></td><td>FR-71、FR-72；UC-16、UC-17；PR-13、PR-15；BR-14</td><td>—（规则边界：仅新预约生效）</td></tr>
+<tr><td>SC-16</td><td>预约与违规综合查询（按来源与关键词）</td><td>权限流程</td><td>补充摘要（验证见 PV-09）</td><td>SRS v0.9→v1.2 / FR-64</td><td><code>陈高阳</code>（执行筛选与检索）、<code>沈家炜</code>（核对数据）、<code>陈景标</code>（记录），<code>2026-10-14</code></td><td>FR-54、FR-64；UC-18；PR-01、PR-11</td><td>—（不涉及状态变化）</td></tr>
+<tr><td>SC-17</td><td>现场巡检与手动违约登记（双模式）</td><td>权限流程</td><td>补充摘要（验证见 PV-10）</td><td>SRS v0.9→v1.2 / BR-18 / PR-17</td><td><code>陈景标</code>（管理员处置）、<code>陈高阳</code>（学生视角越权）、<code>沈家炜</code>（记录），<code>2026-10-14</code></td><td>FR-65；UC-19；BR-18；PR-06、PR-17</td><td>SM-01：ST-10、ST-12</td></tr>
+<tr><td>SC-18</td><td>投诉提交与反馈闭环</td><td>异常流程</td><td>补充摘要（验证见 PV-11）</td><td>SRS v0.9→v1.2 / BR-19</td><td><code>沈家炜</code>（学生提交）、<code>陈景标</code>（管理员反馈）、<code>陈高阳</code>（记录），<code>2026-10-14</code></td><td>FR-66；UC-20；BR-19</td><td>—</td></tr>
+<tr><td>SC-19</td><td>信用档案与黑名单（自动触发 + 人工处置）</td><td>异常流程</td><td>补充摘要（验证见 PV-11）</td><td>SRS v0.9→v1.2 / BR-20</td><td><code>陈景标</code>（管理员解封/拉黑）、<code>陈高阳</code>（核对状态）、<code>沈家炜</code>（记录），<code>2026-10-14</code></td><td>FR-67；UC-21；BR-20、PR-18</td><td>—（限制状态非预约状态转换）</td></tr>
+<tr><td>SC-20</td><td>座位与环境评价（含差评联动维护）</td><td>正常/异常流程</td><td>补充摘要（验证见 PV-11）</td><td>SRS v0.9→v1.2 / BR-21</td><td><code>沈家炜</code>（学生评价）、<code>陈景标</code>（管理员回复/维护联动）、<code>陈高阳</code>（记录），<code>2026-10-14</code></td><td>FR-68；UC-22；BR-21、PR-18</td><td>SM-01：ST-11（联动维护导致预约取消）</td></tr>
+<tr><td>SC-21</td><td>运营看板刷新与网络异常容错</td><td>异常流程</td><td>补充摘要（AI 反向走查 + 本组复核，验证见 PV-12）</td><td>SRS v0.9→v1.2 / NFR-10</td><td><code>陈高阳</code>（执行看板/容错）、<code>沈家炜</code>（核对快照）、<code>陈景标</code>（记录），<code>2026-10-14</code></td><td>FR-69；UC-23；NFR-10</td><td>—</td></tr>
+</tbody></table>
+<blockquote><strong>时间线说明</strong>：SC-01~SC-15 的完整走查在 2026-10-12/13 进行（当时 SRS v0.9、原型 v1.0）；SC-16~SC-21 的补充摘要在 2026-10-14 形成（原型 v2.0）；2026-10-29 按 SRS v1.2 与原型 v2.0 统一复核。表中“日期”是走查日期，不是提交日期。</blockquote>
+<h3>代表性场景走查表（完整示例）</h3>
+<p>以下给出 SC-01 与 SC-07 两个场景的完整走查表作为示例；<strong>其余 13 个完整记录（SC-02~SC-06、SC-08~SC-15）见证据 E-11（附件 A-04）</strong>，避免重复抄写。SC-16~SC-21 为补充摘要，不设逐步走查表。</p>
+<p><strong>SC-01 预约 → 签到 → 使用 → 签退</strong>（正常主流程）</p>
+<ul>
+<li>初始数据与状态：张小明信用分 100；当日已有 1 条 14:00—15:00 待签到预约；A101-004 在 16:00—17:00 空闲</li>
+</ul>
+<table><thead><tr><th>步骤</th><th>角色</th><th>操作</th><th>预期系统响应</th><th>涉及数据、状态及转换编号</th><th>发现的问题</th></tr></thead><tbody>
+<tr><td>1</td><td>学生</td><td>查询 2025-10-20 16:00—17:00 空闲座位并选择 A101-004</td><td>返回可用性示意，A101-004 显示&quot;空闲&quot;</td><td>座位 A101-004=空闲；BR-11</td><td>无</td></tr>
+<tr><td>2</td><td>系统</td><td>校验信用分、可预约窗口、时长与当日上限</td><td>全部通过：信用分 100 ≥ 60（BR-07）；在 7 天窗口内（BR-03）；60 分钟符合 30 分钟粒度（BR-01）；当日第 2 个时段未超上限（BR-02）</td><td>当日计时段数 1 → 2；BR-01/02/03/07/11</td><td>无</td></tr>
+<tr><td>3</td><td>系统</td><td>生成预约记录并发送通知</td><td>生成&quot;待签到&quot;预约并占用 A101-004 的 16:00—17:00；通知含签到时间窗 15:45—16:15</td><td>预约状态=待签到；座位→已预约；通知类型=预约成功（BR-16）</td><td>无</td></tr>
+<tr><td>4</td><td>学生</td><td>16:00 扫码签到</td><td>在 BR-04 窗口内，签到成功</td><td>待签到 → 使用中（ST-01）；座位→使用中</td><td>无</td></tr>
+<tr><td>5</td><td>学生</td><td>16:50 签退</td><td>签退成功，释放座位并记信用奖励</td><td>使用中 → 已完成（ST-08）；座位→空闲；信用 +1（BR-06，每日 ≤+2）</td><td>无</td></tr>
+</tbody></table>
+<p><strong>SC-07 时段冲突 / 当日上限 / 取消判定</strong>（异常流程）</p>
+<ul>
+<li>初始数据与状态：王芳 09:00—10:00 占用 B201-002；张小明当日已有 1 条 14:00—15:00 预约；信用分 100</li>
+</ul>
+<table><thead><tr><th>步骤</th><th>角色</th><th>操作</th><th>预期系统响应</th><th>涉及数据、状态及转换编号</th><th>发现的问题</th></tr></thead><tbody>
+<tr><td>1</td><td>学生</td><td>预约 B201-002 09:30—10:30（座位被占）</td><td>拒绝，提示冲突并建议加入候补</td><td>不产生预约记录（<strong>状态保持</strong>）；BR-11</td><td>无</td></tr>
+<tr><td>2</td><td>学生</td><td>预约 A101-004 14:00—15:00（本人同段已有预约）</td><td>拒绝，提示&quot;该时段已有其他有效预约&quot;</td><td>不产生预约记录；BR-11</td><td>无</td></tr>
+<tr><td>3</td><td>学生</td><td>创建当日第 3 个时段</td><td>拒绝，提示当日上限 2 个时段</td><td>不产生预约记录（状态保持）；<strong>BR-02 计入口径不明确</strong></td><td><strong>V-01</strong></td></tr>
+<tr><td>4</td><td>学生</td><td>距开始 40 分钟取消</td><td>取消成功，不记违规，释放座位与当日额度</td><td>待签到 → 已取消（ST-03）；BR-10</td><td>无</td></tr>
+<tr><td>5</td><td>学生</td><td>距开始 10 分钟取消另一条预约</td><td>取消成功但记违规 −5</td><td>待签到 → 已取消（ST-04）；信用 −5</td><td>无</td></tr>
+<tr><td>6</td><td>学生</td><td>时段开始后尝试自助取消</td><td>拒绝，提示须走申诉</td><td>状态保持&quot;待签到&quot;（<strong>未转换为已取消</strong>）；BR-10</td><td>无</td></tr>
+</tbody></table>
+<h3>走查结论与问题汇总</h3>
+<ul>
+<li><strong>15 个完整走查场景中，11 个未发现问题、4 个记录到问题（SC-05、SC-07、SC-08、SC-10）；6 个补充摘要场景中，SC-17、SC-21 分别关联 V-08、V-09，其验证由 PV-09~PV-12 承担。</strong></li>
+<li>上述 4 个完整场景对应 V-01（SC-05/SC-07）、V-02（SC-07/SC-10）、V-06（SC-08）；另有 V-05 在原型页面走查阶段发现，均在 A.7 节汇总处理。</li>
+<li><strong>SC-16~SC-21 为补充场景摘要</strong>，未单独编制逐步走查表，不计入上述“15 个完整记录”的 11/4 统计；</li>
+<li>权限流程与异常流程的<strong>拒绝路径均不产生数据变化</strong>（不生成记录、不改状态、不写业务数据），符合 PR 通用要求；</li>
+<li>状态转换的当前状态、目标状态与执行角色名称与 A.4 表、G-06/G-07 完全一致（沿用同一编号 ST-00~ST-13）；</li>
+<li>候选或待确认规则（M-05~M-12）继续保留原确认状态：<strong>推演符合预期不等于规则已得到业务方认可</strong>；</li>
+<li>未开展的交叉走查与教师抽查已在本文中如实标注。</li>
+</ul>
+<hr>
+<h2>A.6 原型走查与验证结果</h2>
+<h3>原型基本信息</h3>
+<table><thead><tr><th>项</th><th>内容</th></tr></thead><tbody>
+<tr><td>原型名称、类型与版本</td><td>智慧自习室预约管理系统 · 交互验证原型｜<strong>v2.0</strong>（纯静态：HTML + CSS + 原生 JavaScript，<strong>零第三方依赖、可完全离线运行</strong>）</td></tr>
+<tr><td>原型入口、打开或启动方法及必要环境</td><td><code>prototype/index.html</code>（浏览器直接打开）；或 <code>cd prototype &amp;&amp; python -m http.server 8000</code> 后访问 8000 端口。自动化测试需 Node.js ≥ 18（本次复核 v24.18.0），无第三方依赖</td></tr>
+<tr><td>本次可走查的页面或可执行的核心功能</td><td><strong>6 个功能页</strong>：① 座位资源与预约（区域/状态/座位属性筛选、预约、候补）；② 我的预约与签到（签到/取消/暂离/返座/签退 + 异常演练 + 评价）；③ 预约与违规综合查询（区分系统自动与管理员手动）；④ 现场巡检与手动违约（双模式处置）；⑤ 评价·投诉·黑名单（反馈闭环、信用档案）；⑥ 运营数据看板（6 项 KPI + 4 张图表 + 10 秒自动刷新与容错）</td></tr>
+<tr><td>使用的模拟数据或模拟接口及其范围</td><td>模拟数据：3 间自习室 / 21 个座位（含 1 个维护中，带电源·靠窗·护眼台灯属性）/ 7 个账号（含 1 名黑名单学生）/ 13 条预约（含近 7 天历史）/ 11 条违规（系统自动 + 管理员手动）/ 2 条投诉 / 1 条评价。模拟接口：登录（视角切换代替 CAS）、签到凭证（界面生成代替扫码/闸机）、通知（页面消息代替 IF-03）、看板轮询（前端定时器代替服务端推送）</td></tr>
+<tr><td>尚未实现或未验证的功能与限制</td><td><strong>未实现</strong>：真实后端与数据库持久化、真实 CAS/ACS 接入、短信与公众号渠道、报表 CSV 导出（FR-62 部分）、角色权限分配界面（PR-14）、数据保留与清理策略（FR-73）；<strong>未验证</strong>：真实浏览器视觉与兼容性（NFR-07）、后端性能与并发指标（NFR-01/02/03 的运行数据）</td></tr>
+<tr><td>复用的场景走查编号</td><td>完整记录：SC-01~SC-15（其中 SC-03/SC-04 为权限拒绝走查，未单独设 PV 编号）；补充摘要：SC-16 综合查询、SC-17 手动违约、SC-18 投诉反馈、SC-19 黑名单、SC-20 评价、SC-21 看板与容错（验证见 PV-09~PV-12）</td></tr>
+<tr><td>AI 参与原型或测试的任务记录编号</td><td>AI-03（反向走查）、AI-04（原型与测试草拟、缺陷定位）、AI-05（页面走查与证据整理）；详见 B 报告 B.2 与证据 E-14</td></tr>
+<tr><td>人工走查或执行验证者及日期</td><td>本组自走查：<code>沈家炜</code>（扮演学生/执行操作）、<code>陈高阳</code>（核对响应与数据）、<code>陈景标</code>（记录与判定）；执行验证（自动化测试与页面脚本走查）由 <code>沈家炜</code> 执行；日期 <code>2026-10-14</code> 至 <code>2026-10-15</code>（v2.0 复验；初步走查在 2026-10-13 的 v1.0 上完成）</td></tr>
+</tbody></table>
+<blockquote>详细说明见 <code>prototype/README.md</code>（含&quot;哪些已实现、哪些为模拟&quot;的对照表与人工走查步骤）。</blockquote>
+<blockquote>原型界面截图（<strong>Edge 无头模式生成，覆盖 6 个功能页</strong>）见证据 <strong>E-18</strong>（<code>attachments/evidence/screenshots/</code>），用于辅助核验布局、文案与规则标注；<strong>未做人工目视、响应式与多浏览器兼容性走查</strong>（NFR-07 未验证）。</blockquote>
+<h3>与场景走查的关联</h3>
+<ul>
+<li>沿用 A.5 的 <strong>15 个完整记录 + 6 个补充摘要</strong>编号（SC-01~SC-21），复用其任务情境、初始条件、业务规则与预期行为，并补充本次采用的具体输入数据（如&quot;2025-10-20 16:00—17:00、A101-004、签到时刻 16:00&quot;）；</li>
+<li><strong>A.5 已用原型做过初步走查，A.6 是在 v2.0 上的复验</strong>；原 A.5 的推演结论不作为本节 v2.0 的验证结果，本节记录的是原型 v2.0 上实际执行后的观察结果；</li>
+<li>已有状态转换说明表，通过转换编号（ST-00~ST-13）关联，补充本场景的具体条件与预期结果；</li>
+<li>状态名称、执行角色与业务规则与前文一致；候选规则继续保留原确认状态 —— <strong>原型能执行规则不等于规则已获业务方认可</strong>。</li>
+</ul>
+<h3>原型走查与验证记录</h3>
+<table><thead><tr><th>验证编号及关联需求、场景</th><th>操作与输入条件</th><th>预期结果</th><th>实际结果</th><th>发现的问题</th><th>结论与证据位置</th></tr></thead><tbody>
+<tr><td>PV-01　FR-01、FR-02；SC-08 前置</td><td>切换四种角色账号</td><td>各角色进入对应视图；学生不显示管理入口</td><td>界面按角色正确切换，学生视角管理视图隐藏</td><td>无</td><td><strong>通过，模拟交互走查</strong>（登录为模拟）；E-09（U1、U5~U7）</td></tr>
+<tr><td>PV-02　FR-24、FR-31、FR-41、FR-43；SC-01；AC-01、AC-02</td><td>查询 16:00—17:00 → 选 A101-004 → 预约 → 推进时钟至 16:00 → 签到 → 16:50 签退</td><td>预约成功；窗口内签到成功；签退释放并记奖励</td><td>状态依次 待签到→使用中→已完成；座位状态同步；日志含 ST-01/ST-08</td><td>无</td><td><strong>通过，页面流程走查 + 功能验证</strong>；E-08（T01、T14、T22）、E-09（U2、U4）</td></tr>
+<tr><td>PV-03　FR-34、FR-36；SC-02；AC-10</td><td>满员座位加入候补 → 管理员释放 → 时限内确认补位</td><td>候补登记成功；释放后通知；确认生成预约</td><td>候补状态 排队中→已通知→已确认；生成&quot;待签到&quot;预约（来源=候补）</td><td>无（候补参数为候选值 M-09）</td><td><strong>通过，功能验证</strong>；E-08（T29、T30）</td></tr>
+<tr><td>PV-04　FR-41、FR-44；SC-05、SC-10；AC-02、AC-03</td><td>13:44 / 13:45 / 14:15 / 14:16 四次签到尝试 + 定时任务</td><td>13:44 拒绝（状态保持）；两个边界时刻成功；14:16 违约扣 10 分</td><td>与预期一致；违约后座位释放并通知</td><td><strong>V-02</strong>（边界口径）→ 已修改并复核</td><td><strong>通过，功能验证</strong>；E-08（T13~T16）、E-09（U4）</td></tr>
+<tr><td>PV-05　FR-42、FR-44；SC-06；AC-04</td><td>暂离 → 30 分钟内返座 → 再暂离超时 → 定时任务</td><td>返座恢复使用；超时释放并扣 5 分</td><td>状态链 使用中→暂离→使用中→暂离→已释放 正确</td><td>无</td><td><strong>通过，功能验证</strong>；E-08（T20、T21）、E-09（U4）</td></tr>
+<tr><td>PV-06　FR-32、FR-33、FR-52；SC-07、SC-09；AC-05~AC-07</td><td>① 占用冲突 ② 本人重叠 ③ 当日第 3 时段 ④ 提前 40 分钟取消 ⑤ 提前 10 分钟取消 ⑥ 信用分 55 预约</td><td>①②③⑥ 拒绝且不产生记录；④ 不记违规；⑤ 记 −5</td><td>各拒绝分支给出原因与规则编号，未产生新记录；④⑤ 符合预期</td><td><strong>V-01</strong>（计入口径）→ 已修改并复核</td><td><strong>通过，页面流程走查 + 功能验证</strong>；E-08（T04~T10、T26、T27、T42）、E-09（U3）</td></tr>
+<tr><td>PV-07　FR-45、FR-53；SC-12、SC-13；AC-11、AC-12</td><td>① 未填原因释放 ② 越权释放 ③ 填写原因释放 ④ 提交申诉 ⑤ 非管理员审核 ⑥ 审核成立</td><td>①② 拒绝 ③ 成功且留痕 ④ 受理 ⑤ 拒绝（PR-10）⑥ 撤销并恢复信用</td><td>与预期一致；审计日志含操作人/角色/对象/前后状态/原因</td><td>无</td><td><strong>通过，功能验证</strong>；E-08（T32、T33、T36）</td></tr>
+<tr><td>PV-08　FR-23、FR-61、FR-71、FR-72；SC-08、SC-11、SC-14、SC-15；AC-08、AC-13、AC-14</td><td>① 封禁 B201-002 ② 尝试预约维护座位 ③ 翻看板 ④ 学生访问统计 ⑤ 教师查看汇总 ⑥⑦ 改参数 ⑧ 查审计</td><td>① 取消受影响预约且不记违规、有通知 ② 拒绝 ③ 随参数刷新 ④ 拒绝 ⑤ 仅本班汇总 ⑥ 拒绝 ⑦ 仅影响新预约 ⑧ 仅系统管理员可查</td><td>与预期一致；封禁后预约显示&quot;已取消（seat_blocked）&quot;、信用分不变</td><td><strong>V-06</strong>（封禁时段未精确过滤，暂缓）</td><td><strong>通过，模拟交互走查 + 功能验证</strong>；E-08（T12、T34、T37~T40）、E-09（U5~U7）</td></tr>
+</tbody></table>
+<p>| <strong>PV-09</strong> FR-64、FR-54；SC-16；AC-13 | 管理员在「预约与违规查询」按违规来源筛选「管理员手动」、再用关键词搜索学生姓名 | 只显示手动登记的违规；关键词命中赵敏的记录；学生视角仅见本人记录 | 与预期一致：筛选后不再出现&quot;系统自动&quot;标签，搜索过滤正常 | 无 | <strong>通过，页面流程走查 + 功能验证</strong>（见截图 <code>screenshots/queries.png</code>）。证据：E-TEST-02（U12） |</p>
+<p>| <strong>PV-10</strong> FR-65、BR-18、PR-17；ST-10、ST-12；SC-17；AC-11 | 管理员对在途预约登记手动违约：①「仅登记警告」②「违约并释放座位」；再由学生视角尝试同一操作 | ① 预约与座位状态保持（ST-12）② 预约转已释放、座位空闲（ST-10）③ 学生被执行拒绝（PR-17） | 与预期一致；两种模式均写入审计日志（含核实说明），学生无法执行 | 无 | <strong>通过，功能验证 + 页面走查</strong>（见截图 <code>screenshots/admin.png</code>）。证据：E-TEST-02（U6、U11） |</p>
+<p>| <strong>PV-11</strong> FR-66~FR-68；BR-19~BR-21、PR-18；SC-18~SC-20；AC-12 | ① 学生提交投诉 → 管理员填写反馈并办结（含联动违约）② 管理员解封黑名单学生、拉黑另一名学生 ③ 对已完成预约提交评价、对未完成预约提交评价 | ① 反馈学生端可见、状态置&quot;已办结&quot;、联动生成违约记录 ② 黑名单状态即时变化并通知 ③ 前者成功、后者被 BR-21 拒绝 | 与预期一致；未完成预约的评价被拒绝且不产生新记录 | 无 | <strong>通过，功能验证 + 页面走查</strong>（见截图 <code>screenshots/community.png</code>）。证据：E-TEST-02（U7、U8、U9） |</p>
+<p>| <strong>PV-12</strong> FR-69、NFR-10；SC-21 | ① 切换看板区域维度并刷新 ② 打开「模拟网络异常」后再次刷新 ③ 暂停/恢复自动刷新 | ① 指标与图表按区域重新聚合 ② 保留上一轮有效快照并显示容错横幅，操作不中断 ③ 倒计时状态正确切换 | 与预期一致；6 项 KPI 与 4 张图表均由真实记录聚合（非硬编码） | 无 | <strong>通过，功能验证 + 页面走查</strong>（见截图 <code>screenshots/analytics.png</code>）。证据：E-TEST-02（U10） |</p>
+<p>| <strong>PV-13</strong> V-03；BR-13、NFR-04；FR-41；SC-01；AC-02 | 首次按 T17 输入已过期凭证；修复后按 T45/T46 复验：签发满 60 秒、61 秒、已用凭证复用 | 首次：过期凭证仍通过（<strong>失败</strong>）；修复后：60 秒有效、61 秒拒绝、已用凭证拒绝 | 首次 T17 失败；<code>checkIn</code> 改为按秒比较后，T17/T45/T46 通过，过期被拒时状态保持&quot;待签到&quot; | <strong>V-03</strong>（凭证有效期单位错误）→ 已修改并复核 | <strong>失败→修复后通过，功能验证</strong>；E-08（T17、T45、T46）；E-22 §第 3~5 轮 |</p>
+<p>| <strong>PV-14</strong> V-04；SRS 3.3 数据字典；FR-51、FR-54、FR-72；NFR-09；SC-12、SC-13；AC-13 | 首次按 T23 检查按日过滤；修复后检查信用记录、通知、审计日志的时间字段类型 | 首次：时间字段为 <code>Date</code> 对象，按日过滤失败；修复后：统一为 <code>YYYY-MM-DD HH:MM</code> 字符串 | 首次 T23 失败；新增 <code>stamp()</code> 并应用后，T22/T23/T36/T39 通过 | <strong>V-04</strong>（时间字段类型不一致）→ 已修改并复核 | <strong>失败→修复后通过，功能验证</strong>；E-08（T22、T23、T36、T39）；E-22 §第 4 轮 |</p>
+<p>| <strong>PV-15</strong> V-05；FR-24、FR-31、FR-32；BR-03；NFR-05；SC-01、SC-07；AC-01、AC-05 | 首次按 U3/U4 走查：查询日期为空/默认值不一致时预约被拒；修复后复验日期控件与预约主流程 | 首次：提示&quot;不能预约过去的日期&quot;（<strong>失败</strong>）；修复后：默认值与上下限统一由 <code>state.TODAY</code> 写入，U3/U4 通过 | 首次 U3/U4 失败；<code>bindControls()</code> 统一由种子状态写入后，U3/U4 通过，页面接口一致性检查无缺失 | <strong>V-05</strong>（页面与逻辑日期口径不一致）→ 已修改并复核 | <strong>失败→修复后通过，页面流程走查</strong>；E-09（U3、U4）；E-10；E-23 §第 2 轮 |</p>
+<blockquote>完整表格（含每一步的操作输入、观察结果与证据位置）见证据 <strong>E-12</strong>（附件 <code>A-05-原型走查与验证记录.md</code>）。PV-13~PV-15 记录的是&quot;首次失败→修复→复验&quot;的失败项，不是新增功能验证。</blockquote>
+<h3>结论口径与范围（重要）</h3>
+<ol>
+<li><strong>结论使用&quot;通过 + 范围&quot;表述</strong>，并区分类别：<code>通过，功能验证</code>（<code>domain.js</code> 真实实现的规则，由自动化测试实际执行，证据 E-08）、<code>通过，页面流程走查</code> / <code>通过，模拟交互走查</code>（真实 <code>app.js</code> 被加载并模拟点击，证据 E-09）、<code>未验证</code>（未开展或未实现项）；</li>
+<li><strong>&quot;可点击界面通过&quot;不等于&quot;业务功能通过&quot;</strong>：页面走查覆盖界面与逻辑链路；业务结果正确性由功能验证（E-08）承担；</li>
+<li><strong>未验证项（如实记录，不表述为通过）</strong>：</li>
+</ol>
+<ul>
+<li>已生成 Edge 无头截图用于辅助核验；<strong>未做人工目视、响应式与多浏览器兼容性走查</strong>（NFR-07 未验证）；</li>
+<li>真实校园统一身份认证（CAS/IF-01）、门禁闸机与扫码（ACS/IF-02）、短信与公众号通知（NOTIFY/IF-03）的集成；</li>
+<li>后端持久化、并发与性能指标（NFR-01、NFR-02 的运行表现、NFR-03 的数据库级约束 —— 仅做了逻辑层的并发唯一性验证 T42）；</li>
+<li>CSV 报表导出、角色权限分配界面（PR-14）、数据保留与清理策略（FR-73/PR-16）；</li>
+</ul>
+<ol>
+<li><strong>失败项与修改</strong>：原型验证过程中的失败项均已在 A.7 节记录（V-02 边界口径、V-03 凭证有效期、V-04 时间字段类型、V-05 页面日期口径），并注明修改内容、位置与复验结果；其中 V-03/V-04/V-05 的&quot;首次失败→修复→复验&quot;另见上表 <strong>PV-13~PV-15</strong>；</li>
+<li>原型中发现的新问题已回转至相关场景、业务规则、用例与模型（BR-02、BR-04 文本修订；BR-09 时段语义登记；SC-05、SC-07、SC-08、SC-10 记录更新）。</li>
+</ol>
+<hr>
+<h2>A.7 问题处理与复核</h2>
+<ul>
+<li><strong>检查范围及依据版本</strong>：SRS v1.2（提交版；走查时依据 v0.9，提交前回溯核对，差异见 SRS 附录 D）、图模型 G-01~G-07 v1.0、原型 v2.0（提交版；初次走查 v1.0，A.6 在 v2.0 上复验）、附件 A-04/A-05 v1.0；检查对象为需求文本、业务规则与状态转换、权限矩阵、原型实现与页面脚本</li>
+<li><strong>检查人员及日期</strong>：本组自走查 <code>陈景标</code>、<code>沈家炜</code>、<code>陈高阳</code>（分工见 A.5 各场景）；<code>刘建修</code> 负责提交前编号一致性与引用核对；AI 反向走查由 <code>陈高阳</code> 组织并由团队逐条核查（反向走查会话原文见 <strong>E-21</strong>）；日期 <code>2026-10-13</code> 至 <code>2026-10-15</code>，提交前复核 <code>2026-10-29</code></li>
+<li><strong>检查结论</strong>：共发现问题 <strong>12 项</strong>，其中 <strong>11 项已修改并复核</strong>（V-01~V-05、V-07~V-12），<strong>1 项暂缓</strong>（V-06，已说明剩余影响与下一步）；<strong>15 个完整走查场景中 11 个未发现问题、4 个记录到问题</strong>（SC-05、SC-07、SC-08、SC-10，共 V-01、V-02、V-06）；SC-16~SC-21 为补充摘要，不计入该统计。<strong>未开展</strong>的检查（交叉走查、教师抽查、真实浏览器目视走查、后端性能验证）已标注&quot;未开展/未验证&quot;，不按&quot;未发现问题&quot;表述。</li>
+</ul>
+<h3>问题处理与复核表（摘要）</h3>
+<table><thead><tr><th>问题编号</th><th>问题及发现依据</th><th>影响需求</th><th>处理决定、理由及负责人</th><th>修改位置</th><th>复核结果、复核者及日期</th></tr></thead><tbody>
+<tr><td>V-01</td><td>BR-02&quot;当日预约额度&quot;未说明<strong>取消/违约/释放是否计入</strong>（发现依据：SC-07 步骤 3；AI 反向走查复核）</td><td>FR-32；BR-02、BR-05、BR-10；AC-05</td><td><strong>修改</strong>。理由：已释放的资源若继续占额度，与&quot;座位自动回收&quot;目标矛盾。负责人 <code>陈景标</code></td><td>SRS 第 4 章 BR-02（补计入口径）；<code>prototype/domain.js</code> 的 <code>DAILY_COUNTED_STATES</code>；附件 A-04 的 SC-05、SC-07</td><td><strong>已复核</strong>：文本与实现口径一致，SC-05/SC-07 复查通过，T04/T05/T31 通过；复核者 <code>陈高阳</code>，<code>2026-10-13</code></td></tr>
+<tr><td>V-02</td><td>BR-04 签到窗口<strong>未写明整分钟边界是否有效</strong>（发现依据：AI 反向走查提出，SC-10 用 13:44/13:45/14:15/14:16 复核）</td><td>FR-41；BR-04；ST-01、ST-02；AC-02、AC-03</td><td><strong>修改</strong>。理由：边界不明会导致同一时刻出现相反结论。结论：闭区间（边界有效）。负责人 <code>陈高阳</code></td><td>SRS 第 4 章 BR-04；<code>prototype/domain.js</code> 的 <code>checkIn</code> 比较；G-06 图注</td><td><strong>已复核</strong>：两端边界签到成功、外侧分别&quot;状态保持&quot;与&quot;违约&quot;；图注/文本/实现一致；T13~T16 通过；复核者 <code>陈景标</code>，<code>2026-10-13</code>；<strong>会话原文</strong>：AI 提出该边界疑点与四时刻实测记录见 <strong>E-21 §第 2 轮及人工批注</strong></td></tr>
+<tr><td>V-03</td><td>签到凭证<strong>有效期单位错误</strong>（分钟当秒比较），过期凭证仍可通过校验，削弱 BR-13/NFR-04（发现依据：原型功能验证 T17 首次失败）</td><td>FR-41；BR-13；NFR-04；AC-02</td><td><strong>修改</strong>。理由：属安全隐患。负责人 <code>沈家炜</code></td><td><code>prototype/domain.js</code> 的 <code>checkIn</code>（改为按秒比较）；新增回归测试 <code>prototype/tests/_probe.test.cjs</code> T45、T46；证据 E-08</td><td><strong>已复核</strong>：签发满 60 秒有效、61 秒失效且状态保持、已用凭证不可复用；全套 62 条测试通过（2026-10-29 复跑）；复核者 <code>陈高阳</code>，<code>2026-10-13</code>；<strong>会话原文</strong>：缺陷发现与修复过程见 <strong>E-22 §第 3~5 轮</strong></td></tr>
+<tr><td>V-04</td><td><strong>时间字段类型与数据字典不一致</strong>（写入 <code>Date</code> 对象而非字符串时间戳），影响按日统计与审计可读性（发现依据：原型功能验证 T23 失败）</td><td>SRS 3.3 数据字典；FR-51、FR-54、FR-72；NFR-09</td><td><strong>修改</strong>。理由：时间类型不统一会破坏按日统计（BR-02 额度、BR-06 每日奖励）。负责人 <code>沈家炜</code></td><td><code>prototype/domain.js</code> 新增 <code>stamp()</code> 并应用于 <code>logEvent</code>/<code>notify</code>/<code>audit</code>/<code>changeCredit</code></td><td><strong>已复核</strong>：信用记录、通知、审计日志时间统一为 <code>YYYY-MM-DD HH:MM</code>；T22/T23/T36/T39 通过；复核者 <code>陈景标</code>，<code>2026-10-13</code></td></tr>
+<tr><td>V-05</td><td><strong>页面查询日期默认值与逻辑层口径可能不一致</strong>：日期为空时预约被判&quot;不能预约过去的日期（BR-03）&quot;（发现依据：原型页面走查 U3/U4 首次失败）</td><td>FR-24、FR-31、FR-32；BR-03；NFR-05</td><td><strong>修改</strong>。理由：同一语义的默认值必须单一来源。负责人 <code>陈高阳</code></td><td><code>prototype/app.js</code> 的 <code>bindControls()</code>（日期与时段默认值统一由种子状态 <code>state.TODAY</code> 与 <code>ui.query.start</code> 写入页面控件）</td><td><strong>已复核</strong>：U3/U4 通过；接口一致性检查无缺失（E-10）；全套 62 条测试通过（2026-10-29 复跑）；复核者 <code>沈家炜</code>，<code>2026-10-13</code>；<strong>会话原文</strong>：缺陷定位过程见 <strong>E-23 §第 2 轮</strong></td></tr>
+<tr><td>V-06</td><td><strong>座位封禁的&quot;影响时段&quot;未按区间精确过滤</strong>：<code>blockSeat</code> 的区间判断恒为真，会取消该座位全部在途预约（发现依据：SC-08 步骤 1 + 代码走查）</td><td>FR-23；BR-09；ST-11；AC-08</td><td><strong>暂缓</strong>。理由：① 本次数据均为单日场景，走查未出现跨日封禁；② 当前行为不造成信用损失（不记违规、有通知）；③ 精确过滤需先明确影响时段语义（与 M-12 相关）。负责人 <code>陈景标</code>；开发迭代中处理</td><td>待修改（计划位置：<code>prototype/domain.js</code> 的 <code>blockSeat</code>；SRS BR-09 时段语义）</td><td><strong>已复核（暂缓决定）</strong>：确认不扣分、不漏通知；影响仅限&quot;跨日封禁时多取消若干预约&quot;，已在 SC-08 与 PV-08 如实记录；复核者 <code>陈高阳</code>，<code>2026-10-13</code>；<strong>会话原文</strong>：该疑点由 AI 反向走查提出、经团队逐条判定的记录见 <strong>E-21 §第 2 轮及人工批注</strong>。<strong>剩余影响与下一步</strong>：跨日封禁场景由 <code>陈景标</code> 在开发阶段实现精确过滤；在此之前，封禁操作按&quot;该座位全部在途预约将被取消&quot;告知学生</td></tr>
+<tr><td>V-07</td><td>原型 v2.0 之前的界面<strong>缺少操作引导</strong>，首次使用者需自行摸索（发现依据：教学模拟教师与组内同学试用反馈&quot;第一次用要琢磨半天&quot;）</td><td>FR-24、FR-31；NFR-05</td><td><strong>修改</strong>：每个功能页顶部增加&quot;这一页做什么 / 怎么用&quot;引导条；按钮标注对应规则编号；空状态给出下一步指引。负责人 <code>陈高阳</code></td><td><code>prototype/index.html</code>（6 个引导条）、<code>prototype/styles.css</code>（<code>.guide</code>）</td><td><strong>已复核</strong>：页面走查 U1~U16 通过，浏览器截图可见引导条与规则标注；复核者 <code>沈家炜</code>，2026-10-14</td></tr>
+<tr><td>V-08</td><td>手动违约登记若只有&quot;释放座位&quot;一种处置，容易误伤仅需提醒的学生（发现依据：对照课程参考原型，其处置方式单一）</td><td>FR-65、BR-18</td><td><strong>修改</strong>：实现<strong>双模式</strong>处置（仅登记警告＝状态保持 ST-12；强制释放＝ST-10），且必须填写现场核实说明。负责人 <code>陈景标</code></td><td>SRS 4.1 的 BR-18；<code>prototype/domain.js</code> 的 <code>manualViolation</code>；<code>index.html</code> 巡检页</td><td><strong>已复核</strong>：U6 验证两种模式结果正确、审计日志均留痕、学生视角被拒绝（PR-17）；复核者 <code>陈高阳</code>，2026-10-14</td></tr>
+<tr><td>V-09</td><td>看板整块重绘会丢失区域筛选状态，网络抖动时还会显示空白（发现依据：参考原型在同一问题上留有记录；本组走查 SC-21 复核）</td><td>FR-69、NFR-10</td><td><strong>修改</strong>：区域筛选状态由页面状态持有，刷新不重置筛选；轮询失败时<strong>保留上一轮有效快照</strong>并提示，不中断操作。负责人 <code>沈家炜</code></td><td><code>prototype/app.js</code> 的 <code>refreshDashboard</code> / <code>renderAnalytics</code>；SRS 6.1 的 NFR-10</td><td><strong>已复核</strong>：U10 验证容错横幅、快照保留与暂停/恢复刷新；复核者 <code>陈景标</code>，2026-10-14</td></tr>
+<tr><td>V-10</td><td><strong>日期选择控件未限制在模拟时钟的可预约窗口内</strong>：使用者按真实世界的日期选择&quot;明天&quot;（如 2026-10-16）时，被 BR-03 拒绝并弹出&quot;只能预约未来 7 天内&quot;，容易被误解为规则实现错误（发现依据：小组成员试用原型时反馈）</td><td>FR-24、FR-31；BR-03；NFR-05</td><td><strong>修改</strong>：① 日期控件设置 <code>min</code>/<code>max</code>（模拟今天 ~ 今天+7 天），浏览器层面即不可选出界外日期；② 页面明示可预约窗口（含模拟时钟基准）；③ 预约处于未来时段时，提示可用「+1 小时」推进模拟时钟到签到窗口。负责人：<code>陈高阳</code></td><td><code>prototype/app.js</code> 的 <code>boot()</code>（min/max 与窗口提示）与 <code>doBook()</code>（未来时段引导）；<code>prototype/index.html</code> 的 <code>#booking-window-hint</code></td><td><strong>已复核</strong>。检查内容：新增页面走查用例 U15 断言日期上下限与窗口提示，并验证窗口内日期（模拟时钟的&quot;明天&quot;）可预约成功；全套 61 条测试通过。复核者：<code>沈家炜</code>，日期 2026-10-15</td></tr>
+<tr><td>V-11</td><td><strong>切换功能页后视口未归位</strong>：顶部 1~6 标签栏是吸顶的，使用者滚到页面下方点击标签时，新页面内容虽已渲染，但视口仍停在原位置，容易被误认为&quot;点了没反应 / 要再点一次内容才出来&quot;（发现依据：组内成员试用反馈）</td><td>FR-03；NFR-05</td><td><strong>修改</strong>：新增 <code>switchTab()</code> —— 切页后调用 <code>scrollIntoView</code> 把视口带到内容区顶部，同步 URL 锚点（<code>#页面名</code>）使刷新或分享后仍停在原页；标签点击与角色切换统一走该函数。负责人：<code>陈高阳</code></td><td><code>prototype/app.js</code> 的 <code>switchTab()</code> 与事件委托（<code>data-tab</code>、角色切换分支）</td><td><strong>已复核</strong>。检查内容：新增页面走查用例 U16 断言&quot;切页触发视口归位 + URL 锚点同步 + 页面显隐正确&quot;；全套 <strong>62 条测试通过</strong>。复核者：<code>沈家炜</code>，日期 2026-10-15</td></tr>
+<tr><td>V-12</td><td>顶部标签栏采用 <code>position: sticky</code>，<strong>滚动到内容区后标签栏跑出视野</strong>，使用者必须滚回页面顶部才能再次切换功能页（发现依据：小组成员试用反馈&quot;跳转之后那个 123456 不能保留，我还得再划到最上面&quot;）</td><td>FR-03；NFR-05</td><td><strong>修改</strong>：顶栏与标签栏改为 <code>position: fixed</code> 固定头部，内容区以 <code>padding-top</code> 让出高度；头部高度由 <code>syncHeaderHeight()</code> <strong>动态测量</strong>（状态条换行会改变高度）写入 CSS 变量，窗口 resize 时更新；内容区设 <code>scroll-margin-top</code>，切页滚动不被头部遮挡。负责人：<code>陈高阳</code></td><td><code>prototype/styles.css</code>（<code>.topbar</code>/<code>.tabs</code> 固定定位、<code>body</code> 与 <code>.wrap</code> 的变量留白）、<code>prototype/app.js</code>（<code>syncHeaderHeight()</code>、<code>switchTab()</code>）</td><td><strong>已复核</strong>。检查内容：页面走查 U16 断言固定头部高度变量写入正确（顶栏 72px + 标签栏 46px）；全套 62 条测试通过；重新生成的 6 张浏览器截图可见标签栏始终固定在顶部。随后将内容区滚动改为<strong>单页长文档 + 平滑滚动定位</strong>（6 个部分依次展开，点击 1~6 平滑滚动到对应部分），并保留<strong>固定头部</strong>（标签栏常驻顶部可见），确保切换后一定停在&quot;该功能页第一屏&quot;且&quot;已切换&quot;可见（U16 断言 6 个部分全部展开、点标签触发平滑滚动且滚动目标为该部分位置）；复核者：<code>沈家炜</code>，日期 2026-10-15</td></tr>
+</tbody></table>
+<blockquote>完整表格（含每项的发现依据全文、复核检查内容与证据位置）见证据 <strong>E-13</strong>（附件 <code>A-06-问题处理与复核记录.md</code>）。处理负责人与复核者已分别说明；<strong>不存在&quot;只写已处理&quot;的复核记录</strong>。</blockquote>
+<hr>
+<h2>A.8 成员贡献与人工责任</h2>
+<blockquote>说明：以下每位成员一行，记录<strong>实际承担</strong>的职责、完成的任务、产物位置及本人参与的审核或取舍。同一产物由多人协作时分别说明各自承担的工作。<strong>所有 AI 辅助完成的任务，其核查、修改、确认与责任均由成员承担，AI 不作为最终确认者。</strong> 姓名与日期已按本组实际信息填写。</blockquote>
+<h3>成员贡献与人工责任表</h3>
+<table><thead><tr><th>成员</th><th>职责</th><th>实际完成的任务与产物位置</th><th>本人作出的审核或取舍及理由</th><th>协作与证据编号</th></tr></thead><tbody>
+<tr><td><code>陈景标</code></td><td><strong>需求分析与业务规则主责</strong>：需求获取与需求分析、业务规则与参数确认、BR-02/BR-09 修订负责人；模拟业务人员角色（TR-01）</td><td>① 主持教学模拟业务讨论（TR-01）并形成参数候选值；② 编写 SRS 第 1、3、4 部分与 BR-02 计入口径修订；③ 在原型走查中扮演管理员与系统管理员，执行 PV-08 的封禁与参数修改；④ 记录 A.7 的 V-01、V-06；⑤ 参与 AI-01 的团队决定：核对课程文档后拒绝 AI 提出的“提前做架构设计与技术选型”（会话中由 <code>沈家炜</code> 提出，<code>陈景标</code> 在人工批注中确认；见 <strong>E-19 §第 4 轮</strong>）</td><td>① <strong>拒绝</strong> AI 提出的&quot;押金/违约罚款机制&quot;建议（理由：超出 SRS 1.2 明确排除的资金结算范围，且引入新的合规风险）（<strong>会话原文见 E-20 §第 3 轮</strong>）；② <strong>部分采纳</strong> AI 的信用分扣分表，把&quot;虚假上报 −20&quot;保留但要求注明为 AI 候选（理由：无业务依据，不能写成已确认规则）；③ 对 V-06 作出&quot;暂缓&quot;决定（理由：本次无跨日封禁场景，且当前行为不造成信用损失，精确过滤需先确认时段语义）</td><td>TR-01、TR-04（E-02）；SRS 第 4 章（E-04）；SC-08、SC-11、SC-15（E-11）；PV-08（E-12）；V-01、V-06（E-13）；AI-01~AI-03（E-14；会话原文 E-19~E-21）</td></tr>
+<tr><td><code>沈家炜</code></td><td><strong>系统建模与实现主责</strong>：用例建模与状态建模、原型领域逻辑与自动化测试、缺陷定位；模拟学生用户角色（TR-02）</td><td>① 主持教学模拟学生访谈（TR-02）并形成签到/暂离/取消/候补候选规则；② 编写 SRS 第 2、5 部分与 AC/追踪矩阵；③ 实现 <code>prototype/domain.js</code>、<code>seed.js</code>、<code>tests/domain.test.cjs</code>，并定位 V-03、V-04 缺陷；④ 执行自动化测试与页面走查命令并保存证据</td><td>① 在 AI 生成的测试首次失败时<strong>拒绝</strong>&quot;直接改测试使其通过&quot;的做法，坚持先判断实现与测试哪一方错误 —— 结论为&quot;1 处实现缺陷（V-03）+ 1 处类型缺陷（V-04）&quot;，并补充回归测试 T45/T46（<strong>会话原文见 E-22 §第 3 轮</strong>）；② <strong>修正</strong>自己编写的 2 处错误测试用例（选取的时段与预置预约冲突）并说明理由；③ <strong>部分采纳</strong> AI 的候补规则（采用机制、保留参数待确认 M-09）</td><td>TR-02、TR-04（E-02）；SRS 第 2、5、7 部分（E-04）；G-04/G-06（E-05）；原型与测试（E-07）；E-08；V-03、V-04、V-05（E-13）；AI-02、AI-04（E-14；会话原文 E-20、E-22）</td></tr>
+<tr><td><code>陈高阳</code></td><td><strong>建模验证与质量保证主责</strong>：图模型编制、走查与验证证据、页面交互走查、缺陷复核；模拟教师角色（TR-03）</td><td>① 主持教学模拟教师讨论（TR-03）并形成扣分表与限制阈值候选；② 编制 G-01~G-07 图模型源文件与导出版本，并组织 AI 反向走查（SC-10 的边界疑点）；③ 实现页面交互走查 <code>tests/ui.test.cjs</code>（U1~U16）、证据 E-09 与 E-10，并发现 V-05；④ 编写附件 A-04、A-05、A-06 与 B-01</td><td>① <strong>采纳</strong> AI 反向走查提出的&quot;签到窗口边界&quot;疑点并要求用原型四个时刻实测确认（理由：边界口径会导致实现分歧），形成 V-02 并修订 BR-04；② <strong>拒绝</strong> AI 提出的&quot;人脸识别签到&quot;&quot;社交分享学习时长&quot;建议（理由：超出范围且涉及隐私与数据合规）（<strong>会话原文见 E-21 §第 3 轮</strong>）；③ <strong>明确</strong>&quot;DOM stub 页面走查不等于真实浏览器走查&quot;，在证据与结论中如实限定范围（未验证项不写成通过）</td><td>TR-03、TR-04（E-02）；G-01~G-07（E-05/E-06）；SC-01~SC-21（E-11）；PV-01~PV-15（E-12）；E-09、E-10；V-02、V-06（E-13）；AI-03、AI-05（E-14；会话原文 E-21、E-23）</td></tr>
+<tr><td><code>刘建修</code></td><td><strong>文档整合与配置管理主责</strong>：文档整合与版本管理、编号/引用一致性核对、交叉复核、提交前检查</td><td>① 核对 SRS、A 报告、B 报告、附件之间的 BR/ST/SC/PV/V/AI/E 编号与引用一致性（依据 E-03 第 1.1 节对照表、E-14、B-02“证据一致性说明”）；② 参与 TR-04 后的编号一致性核对（TR-04 讨论由 <code>陈景标</code>、<code>沈家炜</code>、<code>陈高阳</code> 进行，<code>刘建修</code> 负责提交前核对，不列为 TR-04 讨论参与者或主持人）；③ 执行提交前自查（按课程“提交材料说明”逐项核对交付物，依据 E-03 第 1.1 节）</td><td>① <strong>要求修改</strong>：AI 自检发现“状态机”同时出现 <code>SM</code> 与 <code>ST</code> 两个前缀、语义重叠，要求拆分固定为 <code>SM</code>（状态机本体）与 <code>ST</code>（状态转换条目）（<strong>E-19 §第 4 轮</strong>）；② <strong>要求修改</strong>：把“业务方已确认”统一改写为“业务方已确认（教学模拟）”，避免与真实业务确认混淆（<strong>E-02、A-02</strong>）</td><td>E-03（A-01 第 1.1 节）、E-13、E-14、E-19 §第 4 轮；B-01、B-02 证据一致性说明</td></tr>
+</tbody></table>
+<h3>人工审核与确认口径（与 A.2 一致）</h3>
+<ul>
+<li><strong>业务方确认（教学模拟）</strong>：由成员扮演业务人员完成，记录见 TR-01、TR-02，仅代表本次教学任务的设定；</li>
+<li><strong>教师确认（教学模拟）</strong>：由成员扮演教师完成，记录见 TR-03；</li>
+<li><strong>团队内部复核</strong>：分析与推导类规则（M-13-1~M-13-8）由全组成员复核，记录见 TR-04；</li>
+<li>以上均<strong>不等同于</strong>真实业务方或任课教师已经确认；成员不将团队复核表述为业务方认可。</li>
+</ul>
+<h3>答辩准备（成员应能说明）</h3>
+<ol>
+<li>自己列出的任务与产物位置（上表第 2 列）；</li>
+<li>重要判断的依据（如上表第 3 列的取舍与理由、V 编号对应的证据）；</li>
+<li><strong>采用或拒绝 AI 建议的理由</strong>（如拒绝押金机制、人脸识别；部分采纳候补与扣分规则并保留待确认）；</li>
+<li>实际使用的验证方法（自动化测试 E-08、页面交互走查 E-09、静态一致性检查 E-10、场景走查 E-11、原型验证 E-12）及其<strong>局限与未验证范围</strong>。</li>
+</ol>
+</body>
+</html>

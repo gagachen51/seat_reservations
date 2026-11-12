@@ -1,0 +1,54 @@
+@startuml
+title G-02 系统上下文图：智慧自习室预约管理系统（关联 FR-01、FR-21~FR-24、FR-71；外部接口 IF-01~IF-04）
+
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam rectangle {
+  BackgroundColor #F7FAFF
+  BorderColor #2F5DA8
+  FontColor #10305E
+}
+skinparam actor {
+  BackgroundColor #FFFFFF
+  BorderColor #444444
+}
+
+actor "学生\n（STU）" as STU
+actor "自习室管理员\n（ADM）" as ADM
+actor "系统管理员\n（SYS）" as SYS
+actor "教师\n（TCH）" as TCH
+
+rectangle "智慧自习室预约管理系统（系统边界）" as SYSAPP {
+  rectangle "① 预约管理\nFR-31~FR-36" as M1
+  rectangle "② 签到与使用管理\nFR-41~FR-45" as M2
+  rectangle "③ 违规与信用管理\nFR-51~FR-54" as M3
+  rectangle "④ 候补管理\nFR-34" as M4
+  rectangle "⑤ 资源管理\nFR-21~FR-24" as M5
+  rectangle "⑥ 统计报表\nFR-61~FR-63" as M6
+  rectangle "⑦ 参数与审计\nFR-71~FR-73" as M7
+  rectangle "⑧ 定时任务：超时释放\nFR-44 / UC-10" as M8
+}
+
+rectangle "校园统一身份认证系统\nCAS（IF-01）" as CAS
+rectangle "门禁/闸机与扫码系统\nACS（IF-02）" as ACS
+rectangle "消息通知服务\nNOTIFY（IF-03）" as NOTIFY
+rectangle "校历/考试安排数据\n（IF-04）" as CAL
+
+STU --> SYSAPP : 查询座位、创建/取消预约、签到/暂离/签退、\n候补登记、违规申诉、查个人信用记录
+ADM --> SYSAPP : 资源与开放时段维护、座位封禁、强制释放、\n申诉审核、使用率看板与报表
+SYS --> SYSAPP : 参数配置、角色权限、审计日志、数据导出
+TCH --> SYSAPP : 本班级使用汇总（只读）
+CAS --> SYSAPP : IF-01 登录令牌、学号/工号、姓名、院系班级
+ACS --> SYSAPP : IF-02 签到事件（凭证、时间、位置）
+SYSAPP --> NOTIFY : IF-03 预约成功/开始前提醒/违约/候补补位通知
+CAL --> SYSAPP : IF-04 特殊开放时段（考试周等）
+
+note bottom of M2
+  签到与使用管理只<b>读取</b>ACS 的签到结果，
+  不控制闸机硬件（SRS 1.2 明确排除范围）。
+end note
+note bottom of M8
+  定时任务运行在服务端，不依赖学生端/管理端在线（AS-05），
+  每分钟执行一次（NFR-02），要求幂等（AC-15）。
+end note
+@enduml

@@ -1,0 +1,136 @@
+@startuml
+title G-05 领域类图：智慧自习室预约管理系统核心领域模型（关联 SRS 3.3 数据字典与 3.1 术语表）
+
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam class {
+  BackgroundColor #F7FAFF
+  BorderColor #2F5DA8
+  FontColor #10305E
+  HeaderBackgroundColor #E6EFFC
+  AttributeFontSize 12
+  FontSize 13
+}
+
+class "用户 User" as User {
+  + 账号ID : String <<学号/工号，来自 CAS>>
+  + 姓名 : String
+  + 角色 : 枚举{学生, 教师, 自习室管理员, 系统管理员}
+  + 院系班级 : String
+  + 信用分 : Integer{0..100}
+  + 限制状态 : 枚举{正常, 信用分限制, 连续违约限制}
+  + 限制截止时间 : DateTime
+  + 状态 : 枚举{正常, 停用}
+}
+
+class "自习室 Room" as Room {
+  + 自习室编号 : String <<主键，如 A101>>
+  + 名称 : String
+  + 位置 : String
+  + 座位总数 : Integer
+  + 状态 : 枚举{开放, 停用}
+}
+
+class "座位 Seat" as Seat {
+  + 座位编号 : String <<主键，全局唯一>>
+  + 类型 : 枚举{普通位, 电源位, 静音区, 讨论间}
+  + 容量 : Integer <<普通位=1；讨论间 4~8>>
+  + 状态 : 枚举{空闲, 已预约, 使用中, 暂离保留, 维护中, 停用}
+  + 封禁原因 : String
+}
+
+class "时段 TimeSlot" as TimeSlot {
+  + 时段ID : String <<主键>>
+  + 日期 : Date
+  + 开始时间 : Time{粒度 30min}
+  + 结束时间 : Time
+  + 是否开放 : Boolean
+  + 来源 : 枚举{常规, 特殊(IF-04)}
+}
+
+class "预约记录 Reservation" as Reservation {
+  + 预约编号 : String <<主键>>
+  + 状态 : 枚举{待签到, 使用中, 暂离, 已完成, 已取消, 已违约, 已释放}
+  + 创建时间 : DateTime
+  + 签到时间 : DateTime <<须落在 BR-04 窗口>>
+  + 暂离开始时间 : DateTime
+  + 签退时间 : DateTime
+  + 签到凭证 : String <<一次性，有效期 60s>>
+  + 来源 : 枚举{本人预约, 候补补位}
+  + 结束原因 : 枚举{正常签退, 超时未签退, 暂离超时, 未签到, 管理员释放, 座位封禁取消}
+}
+
+class "违规记录 Violation" as Violation {
+  + 违规编号 : String <<主键>>
+  + 类型 : 枚举{未签到, 暂离超时, 超时未签退, 虚假上报, 冒用凭证}
+  + 扣分 : Integer <<负值，按 BR-06>>
+  + 发生时间 : DateTime
+  + 处理状态 : 枚举{生效, 已撤销, 申诉中}
+}
+
+class "信用记录 CreditLog" as CreditLog {
+  + 记录ID : String <<主键>>
+  + 变动分值 : Integer
+  + 变动后分值 : Integer
+  + 原因 : String
+  + 操作人 : String <<系统 或 管理员(申诉恢复)>>
+  + 发生时间 : DateTime
+}
+
+class "候补记录 Waitlist" as Waitlist {
+  + 候补编号 : String <<主键>>
+  + 加入时间 : DateTime
+  + 排序号 : Integer <<按加入时间排序 BR-08>>
+  + 状态 : 枚举{排队中, 已通知, 已确认, 已超时, 已取消}
+  + 通知时间 : DateTime
+  + 确认截止时间 : DateTime <<通知时间 + 5min>>
+}
+
+class "通知记录 Notification" as Notification {
+  + 通知编号 : String <<主键>>
+  + 类型 : 枚举{预约成功, 开始前提醒, 违约, 候补补位, 封禁取消}
+  + 内容 : String
+  + 渠道 : 枚举{站内, 短信, 公众号}
+  + 发送时间 : DateTime
+  + 结果 : 枚举{成功, 失败(重试3次)}
+}
+
+class "系统参数 SystemParam" as SystemParam {
+  + 参数编码 : String <<主键，如 BR04_CHECKIN_WINDOW_MIN>>
+  + 参数名称 : String
+  + 当前值 : String
+  + 候选值 : String <<AI 候选，确认状态见 A.2>>
+  + 确认状态 : 枚举{业务方已确认(教学模拟), 教师已确认(教学模拟), 团队已复核, 待确认}
+  + 生效时间 : DateTime
+}
+
+class "操作日志 AuditLog" as AuditLog {
+  + 日志编号 : String <<主键>>
+  + 操作类型 : String
+  + 变更前值 : String
+  + 变更后值 : String
+  + 时间 : DateTime
+  + 来源IP : String
+}
+
+Room "1" -- "1..*" Seat : 包含 >
+Seat "1" -- "0..*" Reservation : 被预约 >
+Reservation "1" -- "1..*" TimeSlot : 占用连续时段 >
+User "1" -- "0..*" Reservation : 创建（仅本人，PR-02/PR-03）>
+Reservation "1" -- "0..*" Violation : 触发（0..*，可无违规）>
+Violation "0..1" -- "0..*" CreditLog : 关联扣分记录 >
+User "1" -- "0..*" CreditLog : 信用分变动 >
+User "1" -- "0..*" Waitlist : 登记候补 >
+Seat "1" -- "0..*" Waitlist : 候补目标 >
+User "1" -- "0..*" Notification : 接收通知 >
+Reservation "0..1" -- "0..*" Notification : 关联业务事件 >
+User "1" -- "0..*" AuditLog : 产生操作日志 >
+SystemParam "1" -- "0..*" CreditLog : 以参数计算分值（BR-06/BR-07）>
+
+note bottom of Reservation
+  <b>关键约束（与数据字典、状态图一致）：</b>
+  同一座位 + 同一时段 最多 1 条有效预约（BR-11、NFR-03）；
+  同一用户同一时段最多 1 条有效预约（BR-11）；
+  座位状态由预约记录状态派生（SM-02）。
+end note
+@enduml

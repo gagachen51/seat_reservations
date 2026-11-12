@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#F2F2F7">
+  <meta name="color-scheme" content="light">
+  <title>自习室 · 座位预约</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/styles.css?v=20261031g">
+</head>
+<body>
+  <header class="titlebar" id="titlebar">
+    <div class="titlebar-brand">
+      <span class="titlebar-logo" aria-hidden="true">
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 29v-5a6 6 0 0 1 6-6h16a6 6 0 0 1 6 6v5"/>
+          <path d="M15 34a4 4 0 0 1 4-4h26a4 4 0 0 1 4 4v9H15z"/>
+          <path d="M21 43v6M43 43v6"/>
+        </svg>
+      </span>
+      <span>自习室预约</span>
+    </div>
+    <div class="titlebar-drag" id="titlebarDrag"></div>
+    <div class="titlebar-actions">
+      <button type="button" data-win="min" aria-label="最小化" title="最小化">
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2 6h8"/></svg>
+      </button>
+      <button type="button" data-win="max" aria-label="最大化" title="最大化">
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2.5" y="2.5" width="7" height="7" rx="1"/></svg>
+      </button>
+      <button type="button" data-win="close" aria-label="关闭" title="关闭">
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M3 3l6 6M9 3l-6 6"/></svg>
+      </button>
+    </div>
+  </header>
+  <div id="boot" class="boot" aria-hidden="true"><span class="spinner"></span></div>
+
+  <section id="login" class="login" hidden>
+    <aside class="login-aside">
+      <div class="login-aside-inner">
+        <div class="brand-lg">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 10V7.5A2.5 2.5 0 0 1 7.5 5h9A2.5 2.5 0 0 1 19 7.5V10"/>
+              <path d="M4 12.5A1.5 1.5 0 0 1 5.5 11h13A1.5 1.5 0 0 1 20 12.5V16H4z"/>
+              <path d="M6 16v3M18 16v3"/>
+            </svg>
+          </span>
+          <div>
+            <h1>自习室</h1>
+            <p>智慧座位预约</p>
+          </div>
+        </div>
+        <div class="login-copy">
+          <h2>把座位留给<br>真正来的人。</h2>
+          <p>预约、签到、暂离、现场处置与信用档案，在同一套规则下运转，每一步都有记录。</p>
+          <ul class="login-points">
+            <li>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15" rx="2.5"/><path d="M8 3v4M16 3v4M4 10h16"/></svg>
+              <span>预约、候补与超时自动释放</span>
+            </li>
+            <li>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L19 7"/></svg>
+              <span>扫码签到、暂离与签退闭环</span>
+            </li>
+            <li>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="m9 12 2 2 4-4"/></svg>
+              <span>现场巡检、信用限制与操作审计</span>
+            </li>
+          </ul>
+        </div>
+        <p class="login-aside-foot">校内私有部署 · 数据不出校</p>
+      </div>
+    </aside>
+    <div class="login-main">
+    <div class="login-wrap">
+      <div class="brand-lg login-brand-mobile">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 10V7.5A2.5 2.5 0 0 1 7.5 5h9A2.5 2.5 0 0 1 19 7.5V10"/>
+            <path d="M4 12.5A1.5 1.5 0 0 1 5.5 11h13A1.5 1.5 0 0 1 20 12.5V16H4z"/>
+            <path d="M6 16v3M18 16v3"/>
+          </svg>
+        </span>
+        <div>
+          <h1>自习室</h1>
+          <p>智慧座位预约</p>
+        </div>
+      </div>
+
+      <form id="loginForm" class="login-card" novalidate>
+        <h2>登录</h2>
+        <p class="login-sub">使用校园账号进入预约系统</p>
+        <label class="field">
+          <span>学号 / 工号</span>
+          <input id="username" name="username" autocomplete="username" spellcheck="false" required>
+        </label>
+        <label class="field">
+          <span>密码</span>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <button class="btn btn-primary btn-block" id="loginBtn" type="submit">登录</button>
+        <p class="form-error" id="loginError" hidden></p>
+      </form>
+
+      <div id="demoBox" class="demo" hidden></div>
+      <p class="login-foot">版本 2.0 · 演示模式仅用于验收</p>
+    </div>
+    </div>
+  </section>
+
+  <div id="app" class="app" hidden>
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark small" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 10V7.5A2.5 2.5 0 0 1 7.5 5h9A2.5 2.5 0 0 1 19 7.5V10"/>
+            <path d="M4 12.5A1.5 1.5 0 0 1 5.5 11h13A1.5 1.5 0 0 1 20 12.5V16H4z"/>
+            <path d="M6 16v3M18 16v3"/>
+          </svg>
+        </span>
+        <span class="brand-name">自习室</span>
+      </div>
+      <nav class="nav" id="nav" aria-label="主导航"></nav>
+      <div class="sidebar-footer" id="userCard"></div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-titles">
+          <h1 id="pageTitle">找座位</h1>
+          <p id="pageSubtitle">按日期与时段查看空闲座位</p>
+        </div>
+        <div class="topbar-actions">
+          <button class="icon-btn" id="bellBtn" type="button" aria-label="消息">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10.3 21a2 2 0 0 0 3.4 0"/></svg>
+            <span class="badge" id="bellBadge" hidden></span>
+          </button>
+          <button class="user-chip" id="userChip" type="button">
+            <span class="avatar" id="avatar">张</span>
+            <span class="user-meta"><strong id="userName">张伟</strong><small id="userRole">学生</small></span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+      </header>
+      <div id="view" class="view" role="main"></div>
+    </main>
+  </div>
+
+  <div id="overlay" class="overlay" hidden></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/static/app.js?v=20261031g" defer></script>
+</body>
+</html>

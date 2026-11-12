@@ -1,0 +1,11 @@
+# 运行时依赖（生产环境）
+fastapi==0.115.6
+uvicorn==0.34.0
+pydantic==2.10.4
+
+# 桌面窗口依赖（运行 desktop_launcher.py 需要；只用网页版可跳过）
+pywebview>=6.0,<7.0
+
+# 测试与开发依赖
+pytest==8.3.4
+httpx==0.28.1

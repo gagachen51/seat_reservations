@@ -1,0 +1,2168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>智慧自习室预约与管理系统 — 交互验证原型 (V1.2)</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+  <style>
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    .tab-active {
+      border-bottom: 2px solid #2563eb;
+      color: #1d4ed8;
+      font-weight: 600;
+      background-color: #eff6ff;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+
+  <!-- Top Header & Role Switcher -->
+  <header class="bg-slate-900 text-white shadow-md sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-lg shadow">智</div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-base sm:text-lg font-bold tracking-tight">智慧自习室预约与管理系统</h1>
+            <span class="text-xs px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-400/30">原型 V1.2 (PV-01~PV-05)</span>
+          </div>
+          <p class="text-xs text-slate-400">支持座位属性筛选 · 预约签到暂离签退 · 自动/手动双轨违约 · 投诉评价黑名单 · 10秒自动刷新图表</p>
+        </div>
+      </div>
+
+      <!-- Role & User Switcher -->
+      <div class="flex flex-wrap items-center gap-2 bg-slate-800 p-1.5 rounded-lg border border-slate-700">
+        <span class="text-xs text-slate-300 px-2">当前模拟视角：</span>
+        <button id="role-btn-stu1" type="button" class="px-2.5 py-1 rounded text-xs font-medium transition bg-blue-600 text-white">
+          学生：张伟 (信用正常)
+        </button>
+        <button id="role-btn-stu2" type="button" class="px-2.5 py-1 rounded text-xs font-medium transition text-slate-300 hover:bg-slate-700">
+          学生：李强 (黑名单受限)
+        </button>
+        <button id="role-btn-admin" type="button" class="px-2.5 py-1 rounded text-xs font-medium transition text-slate-300 hover:bg-slate-700">
+          管理员：陈明远
+        </button>
+      </div>
+    </div>
+
+    <!-- Current User Status Banner -->
+    <div class="bg-slate-800/90 border-t border-slate-700/80 text-xs">
+      <div class="max-w-7xl mx-auto px-4 py-1.5 flex flex-wrap items-center justify-between gap-2">
+        <div id="current-user-banner" class="flex flex-wrap items-center gap-3 text-slate-200">
+          <!-- Populated by JS -->
+        </div>
+        <div class="flex items-center gap-3 text-slate-300">
+          <span class="inline-flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            开放时段：07:00–22:30
+          </span>
+          <span id="header-refresh-badge" class="px-2 py-0.5 rounded bg-slate-700 text-blue-300 font-mono">
+            看板刷新倒计时: 10s
+          </span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Navigation Tabs -->
+  <nav class="bg-white border-b border-slate-200 shadow-sm sticky top-[88px] sm:top-[84px] z-20">
+    <div class="max-w-7xl mx-auto px-4 flex overflow-x-auto no-scrollbar">
+      <button type="button" data-tab="seats" class="nav-tab-btn tab-active px-4 py-3 text-xs sm:text-sm whitespace-nowrap transition">
+        1. 自习室与座位资源 (REQ-01/02)
+      </button>
+      <button type="button" data-tab="myres" class="nav-tab-btn px-4 py-3 text-xs sm:text-sm whitespace-nowrap text-slate-600 hover:text-slate-900 transition">
+        2. 预约/签到/暂离/自动违约 (REQ-03)
+      </button>
+      <button type="button" data-tab="queries" class="nav-tab-btn px-4 py-3 text-xs sm:text-sm whitespace-nowrap text-slate-600 hover:text-slate-900 transition">
+        3. 预约与违规综合查询 (REQ-04)
+      </button>
+      <button type="button" data-tab="admin-seats" class="nav-tab-btn px-4 py-3 text-xs sm:text-sm whitespace-nowrap text-slate-600 hover:text-slate-900 transition">
+        4. 实时座位管理与手动违约 (REQ-05)
+      </button>
+      <button type="button" data-tab="users" class="nav-tab-btn px-4 py-3 text-xs sm:text-sm whitespace-nowrap text-slate-600 hover:text-slate-900 transition">
+        5. 评价/投诉反馈/黑名单 (REQ-06)
+      </button>
+      <button type="button" data-tab="analytics" class="nav-tab-btn px-4 py-3 text-xs sm:text-sm whitespace-nowrap text-slate-600 hover:text-slate-900 transition">
+        6. 数据分析看板 [10秒刷新] (REQ-07)
+      </button>
+    </div>
+  </nav>
+
+  <!-- Toast Notification Bar -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 max-w-md space-y-2 pointer-events-none"></div>
+
+  <!-- Main Content Area -->
+  <main class="max-w-7xl w-full mx-auto px-4 py-5 flex-1 space-y-6">
+
+    <!-- TAB 1: 自习室与座位资源管理 & 预约申请 -->
+    <section id="tab-seats" class="tab-panel space-y-4">
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 class="text-base font-bold text-slate-900">自习室（座位）资源属性查询与预约</h2>
+          <p class="text-xs text-slate-500 mt-0.5">支持按区域、电源插座、靠窗、护眼台灯属性筛选（关联 BR-01, BR-06, ST-09）</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button id="btn-open-add-seat" type="button" class="hidden px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-medium hover:bg-slate-800 transition">
+            + 新增座位资源 (管理员)
+          </button>
+        </div>
+      </div>
+
+      <!-- Filter Controls -->
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+        <div>
+          <label for="filter-room" class="block text-xs font-medium text-slate-600 mb-1">自习室区域</label>
+          <select id="filter-room" class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="ALL">全部自习室区域</option>
+            <option value="A101">A101 沉浸静音自习室 (静音区)</option>
+            <option value="A102">A102 综合电源自习室 (普通区)</option>
+            <option value="B201">B201 协作研讨自习室 (研讨区)</option>
+          </select>
+        </div>
+        <div>
+          <label for="filter-status" class="block text-xs font-medium text-slate-600 mb-1">座位实时状态</label>
+          <select id="filter-status" class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="ALL">全部状态</option>
+            <option value="AVAILABLE">空闲 (可预约)</option>
+            <option value="RESERVED">已预约 (待签到)</option>
+            <option value="IN_USE">使用中</option>
+            <option value="AWAY">暂离中</option>
+            <option value="MAINTENANCE">维护停用</option>
+          </select>
+        </div>
+        <div>
+          <label for="booking-slot" class="block text-xs font-medium text-slate-600 mb-1">拟预约时段 (1~4小时)</label>
+          <select id="booking-slot" class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="14:00-16:00">今日 14:00–16:00 (2h)</option>
+            <option value="16:00-19:00">今日 16:00–19:00 (3h)</option>
+            <option value="19:00-22:00">今日 19:00–22:00 (3h)</option>
+            <option value="08:00-11:30">明日 08:00–11:30 (3.5h)</option>
+          </select>
+        </div>
+        <div class="lg:col-span-2 flex flex-wrap items-center gap-4 pt-2">
+          <label class="inline-flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer">
+            <input type="checkbox" id="filter-power" class="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+            <span>⚡ 带电源插座</span>
+          </label>
+          <label class="inline-flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer">
+            <input type="checkbox" id="filter-window" class="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+            <span>🪟 靠窗座位</span>
+          </label>
+          <label class="inline-flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer">
+            <input type="checkbox" id="filter-lamp" class="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+            <span>💡 护眼台灯</span>
+          </label>
+          <button id="btn-reset-seat-filter" type="button" class="ml-auto text-xs text-blue-600 hover:underline">重置筛选</button>
+        </div>
+      </div>
+
+      <!-- Seat Grid -->
+      <div id="seat-grid-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+        <!-- Populated by JS -->
+      </div>
+    </section>
+
+    <!-- TAB 2: 预约及取消、签到及签退、自动违约记录 -->
+    <section id="tab-myres" class="tab-panel hidden space-y-4">
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="text-base font-bold text-slate-900">预约管理、签到签退与自动违约演练台</h2>
+          <p class="text-xs text-slate-500 mt-0.5">
+            验证签到窗口 (BR-02/ST-01)、超时未签到自动违约 (ST-02)、预约取消 (BR-03/ST-03)、中途暂离与超时违约 (BR-04/ST-04~06)、正常签退 (ST-08)
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg text-xs text-amber-900">
+          <span class="font-semibold">教学模拟候选参数提示：</span>
+          <span>BR-03 提前30分钟临期取消、BR-04 用餐60分钟暂离、BR-06 满3次违约禁约7天当前为【待确认】候选值</span>
+        </div>
+      </div>
+
+      <div id="myres-list-container" class="space-y-3">
+        <!-- Populated by JS -->
+      </div>
+    </section>
+
+    <!-- TAB 3: 相关查询（预约查询、座位查询、违规记录查询） -->
+    <section id="tab-queries" class="tab-panel hidden space-y-5">
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 class="text-base font-bold text-slate-900">全馆预约记录与违规记录综合查询中心 (REQ-04)</h2>
+            <p class="text-xs text-slate-500">支持按预约状态、违约来源（系统自动违约 / 管理员手动违约登记）及关键词实时检索</p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <select id="query-res-status" class="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs">
+              <option value="ALL">全部预约状态</option>
+              <option value="RESERVED">待签到</option>
+              <option value="IN_USE">使用中</option>
+              <option value="AWAY">暂离</option>
+              <option value="COMPLETED">已完成</option>
+              <option value="CANCELLED">已取消</option>
+              <option value="BREACHED">已违约</option>
+            </select>
+            <select id="query-vio-source" class="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs">
+              <option value="ALL">全部违约来源</option>
+              <option value="AUTO">系统自动违约记录</option>
+              <option value="MANUAL">管理员手动违约登记</option>
+            </select>
+            <input id="query-keyword" type="text" placeholder="搜索姓名/学号/座位号..." class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs" />
+          </div>
+        </div>
+
+        <!-- Sub-section A: Reservation Records Table -->
+        <div class="pt-2">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">A. 座位使用与预约记录流水表</h3>
+          <div class="overflow-x-auto border border-slate-200 rounded-lg">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-100 text-slate-700">
+                <tr>
+                  <th class="p-2.5 border-b">预约单号</th>
+                  <th class="p-2.5 border-b">学生姓名(学号)</th>
+                  <th class="p-2.5 border-b">自习室与座位</th>
+                  <th class="p-2.5 border-b">预约时段</th>
+                  <th class="p-2.5 border-b">签到/签退时间</th>
+                  <th class="p-2.5 border-b">当前状态</th>
+                </tr>
+              </thead>
+              <tbody id="query-res-tbody" class="divide-y divide-slate-200"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Sub-section B: Violation Records Table -->
+        <div class="pt-3">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">B. 违规记录查询表（含系统自动违约与管理员手动违约登记）</h3>
+          <div class="overflow-x-auto border border-slate-200 rounded-lg">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-100 text-slate-700">
+                <tr>
+                  <th class="p-2.5 border-b">违约编号</th>
+                  <th class="p-2.5 border-b">违规学生</th>
+                  <th class="p-2.5 border-b">关联座位/预约单</th>
+                  <th class="p-2.5 border-b">违约来源</th>
+                  <th class="p-2.5 border-b">违规类型与处置方式</th>
+                  <th class="p-2.5 border-b">判定/巡检说明</th>
+                  <th class="p-2.5 border-b">记录时间</th>
+                </tr>
+              </thead>
+              <tbody id="query-vio-tbody" class="divide-y divide-slate-200"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: 管理员实时座位管理（手动违约登记） -->
+    <section id="tab-admin-seats" class="tab-panel hidden space-y-4">
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="text-base font-bold text-slate-900">管理员：实时座位监控与现场巡检【手动违约登记】(REQ-05 / BR-05)</h2>
+          <p class="text-xs text-slate-500 mt-0.5">
+            点击任意“使用中”或“暂离”座位，可执行【手动违约登记】，支持选择“仅登记违约警告（保持使用中）”或“强制释放座位（ST-07）”
+          </p>
+        </div>
+        <button id="btn-direct-manual-vio" type="button" class="px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-medium hover:bg-rose-700 transition shadow-sm">
+          + 发起手动违约登记
+        </button>
+      </div>
+
+      <div id="admin-permission-guard" class="hidden bg-amber-50 border border-amber-300 text-amber-900 p-3 rounded-xl text-xs flex items-center justify-between">
+        <span>⚠️ 当前处于【学生视角】，根据 RBAC 角色权限矩阵（SC-04 步骤 1），学生仅可浏览脱敏状态，无法查看他人实名信息或执行“手动违约登记”。</span>
+        <button id="btn-switch-to-admin-inline" type="button" class="px-2.5 py-1 rounded bg-amber-800 text-white font-medium hover:bg-amber-900">切换为管理员陈明远</button>
+      </div>
+
+      <div id="admin-seat-board" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+        <!-- Populated by JS -->
+      </div>
+    </section>
+
+    <!-- TAB 5: 用户管理（评价管理、用户投诉管理、投诉反馈信息、黑名单管理） -->
+    <section id="tab-users" class="tab-panel hidden space-y-6">
+      <!-- Section 5.1: 用户投诉管理与投诉反馈信息 -->
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 class="text-base font-bold text-slate-900">A. 用户投诉管理与【投诉反馈信息】闭环 (REQ-06 / BR-07 / PV-03)</h2>
+            <p class="text-xs text-slate-500">学生可提交占座/噪音/设施损坏投诉并查看反馈；管理员可填写【投诉反馈信息】并一键联动【手动违约登记】</p>
+          </div>
+          <button id="btn-open-complaint-modal" type="button" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition">
+            + 我要提交投诉 (学生)
+          </button>
+        </div>
+        <div id="complaints-list-container" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+      <!-- Section 5.2: 黑名单管理 -->
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 class="text-base font-bold text-slate-900">B. 用户信用档案与黑名单管理 (REQ-06 / BR-06 / PV-04)</h2>
+            <p class="text-xs text-slate-500">30天内累计有效违约达 3 次自动拉黑限制预约 7 天（候选值待确认）；管理员支持人工申诉解封或手动拉黑</p>
+          </div>
+        </div>
+        <div class="overflow-x-auto border border-slate-200 rounded-lg">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-100 text-slate-700">
+              <tr>
+                <th class="p-2.5 border-b">用户ID / 学号</th>
+                <th class="p-2.5 border-b">姓名与院系</th>
+                <th class="p-2.5 border-b">30天有效违约次数</th>
+                <th class="p-2.5 border-b">信用与黑名单状态</th>
+                <th class="p-2.5 border-b">黑名单原因及解封记录</th>
+                <th class="p-2.5 border-b">管理员操作</th>
+              </tr>
+            </thead>
+            <tbody id="users-blacklist-tbody" class="divide-y divide-slate-200"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Section 5.3: 评价管理 -->
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 class="text-base font-bold text-slate-900">C. 座位与环境评价管理 (REQ-06 / BR-07 / PV-01)</h2>
+            <p class="text-xs text-slate-500">学生仅能对“已完成”的预约单提交评价；管理员可回复评价或根据差评一键将故障座位设为“维护停用”</p>
+          </div>
+        </div>
+        <div id="evaluations-list-container" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 6: 数据分析看板（柱状图、折线图、统计数据，每 10 秒自动刷新） -->
+    <section id="tab-analytics" class="tab-panel hidden space-y-4">
+      <!-- Top Control & Auto-Refresh Bar -->
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div class="flex items-center gap-2">
+            <h2 class="text-base font-bold text-slate-900">实时运营数据分析看板（每 10 秒自动刷新）</h2>
+            <span id="analytics-countdown-pill" class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
+              自动刷新倒计时: 10s
+            </span>
+          </div>
+          <p class="text-xs text-slate-500 mt-0.5">
+            关联 REQ-07, BR-08, PV-05：采用 Chart.js 增量数据平滑更新（修复 V-04 闪烁与筛选重置问题），支持异常快照保持
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <label for="analytics-zone-filter" class="text-xs font-medium text-slate-600">区域维度筛选:</label>
+          <select id="analytics-zone-filter" class="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-medium bg-slate-50">
+            <option value="ALL">全馆汇总视图</option>
+            <option value="A101">A101 沉浸静音自习室</option>
+            <option value="A102">A102 综合电源自习室</option>
+            <option value="B201">B201 协作研讨自习室</option>
+          </select>
+          <button id="btn-refresh-now" type="button" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition">
+            立即刷新
+          </button>
+          <button id="btn-toggle-autorefresh" type="button" class="px-3 py-1.5 rounded-lg bg-slate-200 text-slate-800 text-xs font-medium hover:bg-slate-300 transition">
+            暂停自动刷新
+          </button>
+          <button id="btn-toggle-neterror" type="button" class="px-3 py-1.5 rounded-lg bg-amber-100 text-amber-900 border border-amber-300 text-xs font-medium hover:bg-amber-200 transition">
+            模拟网络异常: 关
+          </button>
+        </div>
+      </div>
+
+      <!-- Network Delay Fallback Alert (BR-08) -->
+      <div id="net-error-banner" class="hidden bg-amber-50 border border-amber-300 text-amber-900 px-4 py-2.5 rounded-xl text-xs flex items-center justify-between">
+        <span>⚠️ <strong>数据同步延迟提示 (BR-08 容错生效中)</strong>：最近一次 10 秒轮询请求模拟超时，系统已自动保留上一轮有效统计快照，不中断您的看板操作。</span>
+        <span id="last-valid-snapshot-time" class="font-mono text-amber-800"></span>
+      </div>
+
+      <!-- 6 Statistical KPI Cards -->
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+          <div class="text-xs text-slate-500">今日累计预约单</div>
+          <div id="kpi-total-res" class="text-2xl font-bold text-slate-900 mt-1">142</div>
+          <div class="text-[11px] text-emerald-600 mt-0.5">较昨日同期 +8.4%</div>
+        </div>
+        <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+          <div class="text-xs text-slate-500">当前在馆学习人数</div>
+          <div id="kpi-in-use" class="text-2xl font-bold text-blue-600 mt-1">86</div>
+          <div class="text-[11px] text-slate-500 mt-0.5">含暂离保留座位</div>
+        </div>
+        <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+          <div class="text-xs text-slate-500">实时座位使用率</div>
+          <div id="kpi-occ-rate" class="text-2xl font-bold text-indigo-600 mt-1">78.2%</div>
+          <div class="text-[11px] text-slate-500 mt-0.5">目标高峰占用 >75%</div>
+        </div>
+        <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+          <div class="text-xs text-slate-500">今日违约记录总数</div>
+          <div id="kpi-vio-count" class="text-2xl font-bold text-rose-600 mt-1">9</div>
+          <div id="kpi-vio-sub" class="text-[11px] text-slate-500 mt-0.5">自动 6 / 手动登记 3</div>
+        </div>
+        <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+          <div class="text-xs text-slate-500">待办用户投诉单</div>
+          <div id="kpi-pending-cmp" class="text-2xl font-bold text-amber-600 mt-1">1</div>
+          <div class="text-[11px] text-slate-500 mt-0.5">平均响应 < 12 分钟</div>
+        </div>
+        <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+          <div class="text-xs text-slate-500">黑名单受限人数</div>
+          <div id="kpi-blacklist-count" class="text-2xl font-bold text-slate-800 mt-1">1</div>
+          <div class="text-[11px] text-slate-500 mt-0.5">BR-06 (3次/7天候选)</div>
+        </div>
+      </div>
+
+      <!-- Charts Grid: 2 Bar Charts + 2 Line Charts -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <!-- Bar Chart 1 -->
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-sm font-bold text-slate-800">柱状图分析 1：各区域实时座位状态与今日预约人次对比</h3>
+            <span id="sync-time-label-1" class="text-[11px] text-slate-400 font-mono">同步: 刚刚</span>
+          </div>
+          <div class="relative h-72">
+            <canvas id="barChartZones"></canvas>
+          </div>
+        </div>
+
+        <!-- Bar Chart 2 -->
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-sm font-bold text-slate-800">柱状图分析 2：违规记录类型分布（自动违约 vs 管理员手动登记）</h3>
+            <span id="sync-time-label-2" class="text-[11px] text-slate-400 font-mono">10秒增量刷新</span>
+          </div>
+          <div class="relative h-72">
+            <canvas id="barChartViolations"></canvas>
+          </div>
+        </div>
+
+        <!-- Line Chart 1 -->
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-sm font-bold text-slate-800">折线图分析 1：全天分时段（08:00–22:00）在馆人数与预约热度趋势</h3>
+            <span class="text-[11px] text-blue-600 font-medium">实时动态曲线</span>
+          </div>
+          <div class="relative h-72">
+            <canvas id="lineChartHourly"></canvas>
+          </div>
+        </div>
+
+        <!-- Line Chart 2 -->
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-sm font-bold text-slate-800">折线图分析 2：近 7 日自习室按时签到率 (%) 与违约率 (%) 趋势</h3>
+            <span class="text-[11px] text-emerald-600 font-medium">质量监控指标</span>
+          </div>
+          <div class="relative h-72">
+            <canvas id="lineChartWeekly"></canvas>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- MODAL 1: 管理员手动违约登记 (BR-05 / ST-07) -->
+  <div id="modal-manual-vio" class="fixed inset-0 bg-slate-900/60 z-50 hidden items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-5 shadow-xl space-y-4">
+      <div class="flex items-center justify-between border-b pb-3">
+        <h3 class="text-base font-bold text-slate-900">管理员：实时座位手动违约登记 (BR-05 / ST-07)</h3>
+        <button type="button" data-close-modal="modal-manual-vio" class="text-slate-400 hover:text-slate-600 text-sm">✕</button>
+      </div>
+      <div class="space-y-3 text-xs">
+        <div>
+          <label for="mv-seat-select" class="block font-medium text-slate-700 mb-1">目标座位及当前使用人</label>
+          <select id="mv-seat-select" class="w-full rounded-lg border border-slate-300 px-3 py-2"></select>
+        </div>
+        <div>
+          <label for="mv-category" class="block font-medium text-slate-700 mb-1">违规行为类别</label>
+          <select id="mv-category" class="w-full rounded-lg border border-slate-300 px-3 py-2">
+            <option value="MANUAL_OCCUPY">手动登记 — 人走留物恶意占座</option>
+            <option value="MANUAL_NOISE">手动登记 — 自习室内大声喧哗/外放</option>
+            <option value="MANUAL_POWER">手动登记 — 违规使用大功率电器</option>
+            <option value="MANUAL_PROXY">手动登记 — 他人代签/虚假暂离</option>
+          </select>
+        </div>
+        <div>
+          <label for="mv-action-mode" class="block font-medium text-slate-700 mb-1">处置方式 (修复问题 V-02 双模式)</label>
+          <select id="mv-action-mode" class="w-full rounded-lg border border-slate-300 px-3 py-2">
+            <option value="FORCE_RELEASE">登记违约并立即强制释放座位 (ST-07：预约转已违约，座位转空闲)</option>
+            <option value="WARN_ONLY">仅登记违约并发送警告通知 (预约与座位状态保持使用中)</option>
+          </select>
+        </div>
+        <div>
+          <label for="mv-remark" class="block font-medium text-slate-700 mb-1">现场巡检核实说明 (必填)</label>
+          <textarea id="mv-remark" rows="3" class="w-full rounded-lg border border-slate-300 px-3 py-2" placeholder="例如：14:40 巡检发现座位仅有书本，使用人离席超 1 小时未办理暂离..."></textarea>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 pt-2 border-t">
+        <button type="button" data-close-modal="modal-manual-vio" class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs text-slate-700">取消</button>
+        <button id="btn-submit-manual-vio" type="button" class="px-4 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-medium hover:bg-rose-700">确认登记违约</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 2: 学生提交座位评价 (BR-07 / PV-01) -->
+  <div id="modal-eval" class="fixed inset-0 bg-slate-900/60 z-50 hidden items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full p-5 shadow-xl space-y-4">
+      <div class="flex items-center justify-between border-b pb-3">
+        <h3 class="text-base font-bold text-slate-900">提交自习室座位使用评价 (BR-07)</h3>
+        <button type="button" data-close-modal="modal-eval" class="text-slate-400 hover:text-slate-600 text-sm">✕</button>
+      </div>
+      <div class="space-y-3 text-xs">
+        <div id="eval-target-info" class="p-2.5 rounded-lg bg-slate-100 text-slate-700 font-medium"></div>
+        <div>
+          <label for="eval-rating" class="block font-medium text-slate-700 mb-1">星级评分 (1~5星)</label>
+          <select id="eval-rating" class="w-full rounded-lg border border-slate-300 px-3 py-2">
+            <option value="5">⭐⭐⭐⭐⭐ 5星 - 非常满意</option>
+            <option value="4">⭐⭐⭐⭐ 4星 - 比较满意</option>
+            <option value="3">⭐⭐⭐ 3星 - 一般</option>
+            <option value="2">⭐⭐ 2星 - 设施存在小问题</option>
+            <option value="1">⭐ 1星 - 设施故障/环境嘈杂 (需报修)</option>
+          </select>
+        </div>
+        <div>
+          <label for="eval-tags" class="block font-medium text-slate-700 mb-1">快捷评价标签</label>
+          <input id="eval-tags" type="text" value="插座供电稳定, 靠窗采光好, 环境安静" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+        </div>
+        <div>
+          <label for="eval-content" class="block font-medium text-slate-700 mb-1">评价内容</label>
+          <textarea id="eval-content" rows="3" class="w-full rounded-lg border border-slate-300 px-3 py-2" placeholder="请分享本次自习室座位与环境体验...">插座供电很稳，护眼台灯亮度舒适，周围同学都很安静！</textarea>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 pt-2 border-t">
+        <button type="button" data-close-modal="modal-eval" class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs text-slate-700">暂不评价</button>
+        <button id="btn-submit-eval" type="button" class="px-4 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700">提交评价</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 3: 学生发起投诉 (REQ-06 / BR-07) -->
+  <div id="modal-complaint" class="fixed inset-0 bg-slate-900/60 z-50 hidden items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full p-5 shadow-xl space-y-4">
+      <div class="flex items-center justify-between border-b pb-3">
+        <h3 class="text-base font-bold text-slate-900">提交用户投诉单 (REQ-06 / BR-07)</h3>
+        <button type="button" data-close-modal="modal-complaint" class="text-slate-400 hover:text-slate-600 text-sm">✕</button>
+      </div>
+      <div class="space-y-3 text-xs">
+        <div>
+          <label for="cmp-seat" class="block font-medium text-slate-700 mb-1">涉及座位编号</label>
+          <select id="cmp-seat" class="w-full rounded-lg border border-slate-300 px-3 py-2"></select>
+        </div>
+        <div>
+          <label for="cmp-type" class="block font-medium text-slate-700 mb-1">投诉类别</label>
+          <select id="cmp-type" class="w-full rounded-lg border border-slate-300 px-3 py-2">
+            <option value="他人恶意占座">他人恶意占座 (人走留物长期未归)</option>
+            <option value="周围环境喧哗">周围环境喧哗 / 手机外放</option>
+            <option value="座位设施损坏">座位插座或台灯设施损坏</option>
+            <option value="违约误判申诉">个人违约记录误判申诉</option>
+          </select>
+        </div>
+        <div>
+          <label for="cmp-desc" class="block font-medium text-slate-700 mb-1">具体情况描述</label>
+          <textarea id="cmp-desc" rows="3" class="w-full rounded-lg border border-slate-300 px-3 py-2">该座位放了书包但已超过1小时没有人，也没有点暂离，影响其他同学使用。</textarea>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 pt-2 border-t">
+        <button type="button" data-close-modal="modal-complaint" class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs text-slate-700">取消</button>
+        <button id="btn-submit-complaint" type="button" class="px-4 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700">提交投诉</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 4: 管理员填写投诉反馈信息并可选联动手动违约 (REQ-06 / PV-03) -->
+  <div id="modal-feedback" class="fixed inset-0 bg-slate-900/60 z-50 hidden items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-5 shadow-xl space-y-4">
+      <div class="flex items-center justify-between border-b pb-3">
+        <h3 class="text-base font-bold text-slate-900">管理员：填写【投诉反馈信息】与联动处置 (BR-07)</h3>
+        <button type="button" data-close-modal="modal-feedback" class="text-slate-400 hover:text-slate-600 text-sm">✕</button>
+      </div>
+      <div class="space-y-3 text-xs">
+        <div id="fb-complaint-summary" class="p-3 rounded-lg bg-slate-100 text-slate-700 space-y-1"></div>
+        <div>
+          <label class="inline-flex items-center gap-2 font-medium text-rose-700 bg-rose-50 px-3 py-2 rounded-lg border border-rose-200 w-full cursor-pointer">
+            <input type="checkbox" id="fb-link-vio" checked class="rounded text-rose-600" />
+            <span>同步对该座位当前使用人执行【手动违约登记】并强制释放座位 (ST-07)</span>
+          </label>
+        </div>
+        <div>
+          <label for="fb-content" class="block font-medium text-slate-700 mb-1">投诉反馈信息正文 (学生端实时可见，必填)</label>
+          <textarea id="fb-content" rows="3" class="w-full rounded-lg border border-slate-300 px-3 py-2">管理员已到现场巡检核实，已清理占座物品并对违规使用人执行手动违约登记（记违约1次），该座位现已释放为空闲状态，感谢您的监督反馈！</textarea>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 pt-2 border-t">
+        <button type="button" data-close-modal="modal-feedback" class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs text-slate-700">取消</button>
+        <button id="btn-submit-feedback" type="button" class="px-4 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700">提交投诉反馈并办结</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 5: 管理员新增座位资源 (REQ-01) -->
+  <div id="modal-add-seat" class="fixed inset-0 bg-slate-900/60 z-50 hidden items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full p-5 shadow-xl space-y-4">
+      <div class="flex items-center justify-between border-b pb-3">
+        <h3 class="text-base font-bold text-slate-900">新增自习室座位资源与属性配置 (REQ-01)</h3>
+        <button type="button" data-close-modal="modal-add-seat" class="text-slate-400 hover:text-slate-600 text-sm">✕</button>
+      </div>
+      <div class="space-y-3 text-xs">
+        <div>
+          <label for="new-seat-room" class="block font-medium text-slate-700 mb-1">所属自习室区域</label>
+          <select id="new-seat-room" class="w-full rounded-lg border border-slate-300 px-3 py-2">
+            <option value="A101">A101 沉浸静音自习室 (静音区)</option>
+            <option value="A102">A102 综合电源自习室 (普通区)</option>
+            <option value="B201">B201 协作研讨自习室 (研讨区)</option>
+          </select>
+        </div>
+        <div>
+          <label for="new-seat-code" class="block font-medium text-slate-700 mb-1">座位编号</label>
+          <input id="new-seat-code" type="text" value="A101-05" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+        </div>
+        <div class="flex flex-wrap gap-4 pt-1">
+          <label class="inline-flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" id="new-seat-power" checked class="rounded text-blue-600" />
+            <span>⚡ 带电源插座</span>
+          </label>
+          <label class="inline-flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" id="new-seat-window" class="rounded text-blue-600" />
+            <span>🪟 靠窗位置</span>
+          </label>
+          <label class="inline-flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" id="new-seat-lamp" checked class="rounded text-blue-600" />
+            <span>💡 护眼台灯</span>
+          </label>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 pt-2 border-t">
+        <button type="button" data-close-modal="modal-add-seat" class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs text-slate-700">取消</button>
+        <button id="btn-submit-add-seat" type="button" class="px-4 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-medium hover:bg-slate-800">确认添加座位</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // =========================================================================
+    // In-Memory State Store (covering REQ-01 to REQ-07, BR-01 to BR-08, ST-01 to ST-09)
+    // =========================================================================
+    const state = {
+      currentUserId: 'U-STU1', // 'U-STU1' (张伟), 'U-STU2' (李强-黑名单), 'U-ADMIN' (陈明远)
+      activeTab: 'seats',
+      evalTargetResId: null,
+      feedbackTargetCmpId: null,
+
+      // 10-second Auto-Refresh Analytics State (REQ-07, BR-08)
+      countdown: 10,
+      autoRefreshEnabled: true,
+      simulateNetError: false,
+      lastSyncTime: '14:20:00',
+      selectedAnalyticsZone: 'ALL',
+
+      users: [
+        {
+          userId: 'U-STU1',
+          studentNo: '20240101',
+          name: '张伟',
+          dept: '计算机科学与技术学院',
+          role: 'STUDENT',
+          vioCount: 0,
+          isBlacklisted: false,
+          blReason: '信用良好，无违规记录',
+          blExpire: '-'
+        },
+        {
+          userId: 'U-STU2',
+          studentNo: '20240102',
+          name: '李强',
+          dept: '信息管理学院',
+          role: 'STUDENT',
+          vioCount: 3,
+          isBlacklisted: true,
+          blReason: '30天累计达3次违约自动拉黑 (BR-06 候选规则)',
+          blExpire: '2026-10-21 (7天候选期)'
+        },
+        {
+          userId: 'U-STU3',
+          studentNo: '20240103',
+          name: '王磊',
+          dept: '电子工程学院',
+          role: 'STUDENT',
+          vioCount: 2,
+          isBlacklisted: false,
+          blReason: '已有2次违约，再违约1次将触发黑名单',
+          blExpire: '-'
+        },
+        {
+          userId: 'U-STU4',
+          studentNo: '20240104',
+          name: '赵敏',
+          dept: '经济与管理学院',
+          role: 'STUDENT',
+          vioCount: 1,
+          isBlacklisted: false,
+          blReason: '1次超时未签到记录',
+          blExpire: '-'
+        },
+        {
+          userId: 'U-ADMIN',
+          studentNo: 'ADMIN-01',
+          name: '陈明远',
+          dept: '图书馆自习室管理中心',
+          role: 'ADMIN',
+          vioCount: 0,
+          isBlacklisted: false,
+          blReason: '系统管理员',
+          blExpire: '-'
+        }
+      ],
+
+      seats: [
+        { seatId: 'S-A101-01', roomId: 'A101', roomName: 'A101 沉浸静音自习室', zoneType: '静音区', seatCode: 'A101-01', hasPower: true, isWindow: true, hasLamp: true, status: 'IN_USE', occupantName: '张伟', occupantNo: '20240101', resId: 'RES-20261014-001' },
+        { seatId: 'S-A101-02', roomId: 'A101', roomName: 'A101 沉浸静音自习室', zoneType: '静音区', seatCode: 'A101-02', hasPower: true, isWindow: true, hasLamp: true, status: 'AVAILABLE', occupantName: null, occupantNo: null, resId: null },
+        { seatId: 'S-A101-03', roomId: 'A101', roomName: 'A101 沉浸静音自习室', zoneType: '静音区', seatCode: 'A101-03', hasPower: true, isWindow: false, hasLamp: true, status: 'RESERVED', occupantName: '张伟', occupantNo: '20240101', resId: 'RES-20261014-005' },
+        { seatId: 'S-A101-04', roomId: 'A101', roomName: 'A101 沉浸静音自习室', zoneType: '静音区', seatCode: 'A101-04', hasPower: false, isWindow: true, hasLamp: false, status: 'AWAY', occupantName: '赵敏', occupantNo: '20240104', resId: 'RES-20261014-003' },
+        { seatId: 'S-A102-01', roomId: 'A102', roomName: 'A102 综合电源自习室', zoneType: '普通区', seatCode: 'A102-01', hasPower: true, isWindow: false, hasLamp: true, status: 'AVAILABLE', occupantName: null, occupantNo: null, resId: null },
+        { seatId: 'S-A102-02', roomId: 'A102', roomName: 'A102 综合电源自习室', zoneType: '普通区', seatCode: 'A102-02', hasPower: true, isWindow: true, hasLamp: true, status: 'IN_USE', occupantName: '王磊', occupantNo: '20240103', resId: 'RES-20261014-002' },
+        { seatId: 'S-A102-03', roomId: 'A102', roomName: 'A102 综合电源自习室', zoneType: '普通区', seatCode: 'A102-03', hasPower: true, isWindow: false, hasLamp: false, status: 'MAINTENANCE', occupantName: null, occupantNo: null, resId: null },
+        { seatId: 'S-B201-01', roomId: 'B201', roomName: 'B201 协作研讨自习室', zoneType: '研讨区', seatCode: 'B201-01', hasPower: true, isWindow: true, hasLamp: false, status: 'AVAILABLE', occupantName: null, occupantNo: null, resId: null },
+        { seatId: 'S-B201-02', roomId: 'B201', roomName: 'B201 协作研讨自习室', zoneType: '研讨区', seatCode: 'B201-02', hasPower: false, isWindow: false, hasLamp: true, status: 'AVAILABLE', occupantName: null, occupantNo: null, resId: null }
+      ],
+
+      reservations: [
+        {
+          resId: 'RES-20261014-001',
+          userId: 'U-STU1',
+          userName: '张伟',
+          studentNo: '20240101',
+          seatId: 'S-A101-01',
+          seatCode: 'A101-01',
+          roomName: 'A101 沉浸静音自习室',
+          slot: '今日 13:00-16:00',
+          status: 'IN_USE',
+          checkinTime: '12:54',
+          checkoutTime: '-',
+          evaluated: false
+        },
+        {
+          resId: 'RES-20261014-005',
+          userId: 'U-STU1',
+          userName: '张伟',
+          studentNo: '20240101',
+          seatId: 'S-A101-03',
+          seatCode: 'A101-03',
+          roomName: 'A101 沉浸静音自习室',
+          slot: '今日 16:00-19:00',
+          status: 'RESERVED',
+          checkinTime: '-',
+          checkoutTime: '-',
+          evaluated: false
+        },
+        {
+          resId: 'RES-20261014-002',
+          userId: 'U-STU3',
+          userName: '王磊',
+          studentNo: '20240103',
+          seatId: 'S-A102-02',
+          seatCode: 'A102-02',
+          roomName: 'A102 综合电源自习室',
+          slot: '今日 13:00-17:00',
+          status: 'IN_USE',
+          checkinTime: '13:02',
+          checkoutTime: '-',
+          evaluated: false
+        },
+        {
+          resId: 'RES-20261014-003',
+          userId: 'U-STU4',
+          userName: '赵敏',
+          studentNo: '20240104',
+          seatId: 'S-A101-04',
+          seatCode: 'A101-04',
+          roomName: 'A101 沉浸静音自习室',
+          slot: '今日 13:30-16:30',
+          status: 'AWAY',
+          checkinTime: '13:28 (14:05暂离)',
+          checkoutTime: '-',
+          evaluated: false
+        },
+        {
+          resId: 'RES-20261013-088',
+          userId: 'U-STU1',
+          userName: '张伟',
+          studentNo: '20240101',
+          seatId: 'S-A101-02',
+          seatCode: 'A101-02',
+          roomName: 'A101 沉浸静音自习室',
+          slot: '昨日 14:00-17:00',
+          status: 'COMPLETED',
+          checkinTime: '13:55',
+          checkoutTime: '16:58',
+          evaluated: true
+        },
+        {
+          resId: 'RES-20261013-092',
+          userId: 'U-STU2',
+          userName: '李强',
+          studentNo: '20240102',
+          seatId: 'S-A102-01',
+          seatCode: 'A102-01',
+          roomName: 'A102 综合电源自习室',
+          slot: '昨日 09:00-12:00',
+          status: 'BREACHED',
+          checkinTime: '-',
+          checkoutTime: '-',
+          evaluated: false
+        }
+      ],
+
+      violations: [
+        {
+          vioId: 'VIO-20261014-01',
+          userId: 'U-STU2',
+          userName: '李强 (20240102)',
+          seatCode: 'A102-01',
+          resId: 'RES-20261013-092',
+          sourceType: 'AUTO',
+          categoryLabel: '超时未签到违约 (AUTO_NO_SHOW)',
+          actionLabel: '系统自动释放座位 (ST-02)',
+          remark: '超过预约开始时间 15 分钟未签到 (BR-02)',
+          createdAt: '2026-10-13 09:15'
+        },
+        {
+          vioId: 'VIO-20261012-04',
+          userId: 'U-STU2',
+          userName: '李强 (20240102)',
+          seatCode: 'A101-04',
+          resId: 'RES-20261012-031',
+          sourceType: 'AUTO',
+          categoryLabel: '暂离超时违约 (AUTO_AWAY_TIMEOUT)',
+          actionLabel: '系统自动释放座位 (ST-06)',
+          remark: '中途暂离超过 30 分钟未返座签到 (BR-04)',
+          createdAt: '2026-10-12 15:42'
+        },
+        {
+          vioId: 'VIO-20261011-02',
+          userId: 'U-STU2',
+          userName: '李强 (20240102)',
+          seatCode: 'A102-05',
+          resId: 'RES-20261011-019',
+          sourceType: 'MANUAL',
+          categoryLabel: '手动登记—人走留物恶意占座',
+          actionLabel: '管理员强制释放座位 (ST-07)',
+          remark: '管理员陈明远巡检核实：离席超2小时仅留书包占座，触发第3次违约进入黑名单',
+          createdAt: '2026-10-11 16:20'
+        },
+        {
+          vioId: 'VIO-20261013-06',
+          userId: 'U-STU3',
+          userName: '王磊 (20240103)',
+          seatCode: 'B201-01',
+          resId: 'RES-20261013-044',
+          sourceType: 'MANUAL',
+          categoryLabel: '手动登记—自习室内大声喧哗',
+          actionLabel: '仅登记违约警告 (保持使用中)',
+          remark: '管理员周浩然巡检提醒：首次佩戴耳机外放漏音，现场整改后保留座位 (V-02)',
+          createdAt: '2026-10-13 19:10'
+        }
+      ],
+
+      complaints: [
+        {
+          cmpId: 'CMP-20261014-01',
+          userId: 'U-STU1',
+          reporterName: '张伟 (20240101)',
+          targetSeatCode: 'A102-02',
+          cmpType: '他人恶意占座',
+          description: 'A102-02 座位上只有一本高数书和水杯，使用人王磊已经离开超过 1 小时未办理暂离，希望管理员核实清理。',
+          status: 'PENDING',
+          feedbackContent: '',
+          linkedVioId: null,
+          createdAt: '2026-10-14 14:10'
+        },
+        {
+          cmpId: 'CMP-20261013-02',
+          userId: 'U-STU4',
+          reporterName: '赵敏 (20240104)',
+          targetSeatCode: 'A102-03',
+          cmpType: '座位设施损坏',
+          description: 'A102-03 座位的五孔电源插座松动断电，台灯无法点亮。',
+          status: 'FEEDBACK_SENT',
+          feedbackContent: '管理员陈明远已现场核查确认插座模块故障，已将 A102-03 设为【维护停用】状态并报修后勤电工班，感谢反馈！',
+          linkedVioId: null,
+          createdAt: '2026-10-13 11:20'
+        }
+      ],
+
+      evaluations: [
+        {
+          evalId: 'EVAL-20261013-01',
+          resId: 'RES-20261013-088',
+          seatCode: 'A101-02',
+          userName: '张伟 (20240101)',
+          rating: 5,
+          tags: '插座供电稳定, 靠窗采光好, 静音区秩序好',
+          content: 'A101 静音自习室氛围非常好，靠窗位置视野开阔，签到后台灯自动通电很方便！',
+          adminReply: '感谢同学的肯定，我们将持续维护 A101 静音区环境！',
+          createdAt: '2026-10-13 17:02'
+        }
+      ],
+
+      // Dynamic Analytics Data for Charts (REQ-07)
+      analytics: {
+        totalResToday: 142,
+        inUseCount: 86,
+        occRate: 78.2,
+        hourlyInUse: [24, 58, 92, 85, 64, 96, 86, 72],
+        hourlyBooked: [30, 68, 102, 95, 78, 105, 94, 84],
+        weeklyCheckinRate: [91.2, 92.5, 90.8, 93.4, 94.1, 93.8, 94.6],
+        weeklyBreachRate: [8.8, 7.5, 9.2, 6.6, 5.9, 6.2, 5.4]
+      }
+    };
+
+    // =========================================================================
+    // Helper Functions & Toast Notification
+    // =========================================================================
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      const colors = {
+        info: 'bg-slate-900 text-white border-slate-700',
+        success: 'bg-emerald-700 text-white border-emerald-500',
+        error: 'bg-rose-700 text-white border-rose-500',
+        warn: 'bg-amber-600 text-white border-amber-400'
+      };
+      const el = document.createElement('div');
+      el.className = `pointer-events-auto px-4 py-3 rounded-xl shadow-lg border text-xs leading-relaxed transition transform duration-200 ${colors[type] || colors.info}`;
+      el.textContent = message;
+      container.appendChild(el);
+      setTimeout(() => {
+        el.style.opacity = '0';
+        setTimeout(() => el.remove(), 220);
+      }, 3800);
+    }
+
+    function getCurrentUser() {
+      return state.users.find(u => u.userId === state.currentUserId);
+    }
+
+    function getStatusBadge(status) {
+      const map = {
+        AVAILABLE: '<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">空闲</span>',
+        RESERVED: '<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-100 text-blue-800 border border-blue-300">待签到/已预约</span>',
+        IN_USE: '<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-100 text-indigo-800 border border-indigo-300">使用中</span>',
+        AWAY: '<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-800 border border-amber-300">暂离中 (30m)</span>',
+        MAINTENANCE: '<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-200 text-slate-700 border border-slate-300">维护停用</span>',
+        COMPLETED: '<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">已完成</span>',
+        CANCELLED: '<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">已取消</span>',
+        BREACHED: '<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-100 text-rose-800 border border-rose-300">已违约</span>'
+      };
+      return map[status] || status;
+    }
+
+    function getTimeStr() {
+      const now = new Date();
+      return now.toTimeString().split(' ')[0];
+    }
+
+    // =========================================================================
+    // Render Header & Role Banner
+    // =========================================================================
+    function renderHeader() {
+      const user = getCurrentUser();
+      const banner = document.getElementById('current-user-banner');
+      const isStu1 = user.userId === 'U-STU1';
+      const isStu2 = user.userId === 'U-STU2';
+      const isAdmin = user.role === 'ADMIN';
+
+      document.getElementById('role-btn-stu1').className = `px-2.5 py-1 rounded text-xs font-medium transition ${isStu1 ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700'}`;
+      document.getElementById('role-btn-stu2').className = `px-2.5 py-1 rounded text-xs font-medium transition ${isStu2 ? 'bg-rose-600 text-white' : 'text-slate-300 hover:bg-slate-700'}`;
+      document.getElementById('role-btn-admin').className = `px-2.5 py-1 rounded text-xs font-medium transition ${isAdmin ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:bg-slate-700'}`;
+
+      const addSeatBtn = document.getElementById('btn-open-add-seat');
+      if (isAdmin) {
+        addSeatBtn.classList.remove('hidden');
+      } else {
+        addSeatBtn.classList.add('hidden');
+      }
+
+      const blBadge = user.isBlacklisted
+        ? `<span class="px-2 py-0.5 rounded bg-rose-500/30 text-rose-200 border border-rose-400/40 font-semibold">黑名单限制中 (禁止新预约 ST-09)</span>`
+        : `<span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">信用状态正常</span>`;
+
+      banner.innerHTML = `
+        <span>当前登录：<strong>${user.name}</strong> (${user.studentNo} · ${user.dept})</span>
+        <span>角色：<strong>${user.role === 'ADMIN' ? '自习室管理员' : '学生用户'}</strong></span>
+        <span>30天累计违约：<strong>${user.vioCount} 次</strong></span>
+        ${blBadge}
+      `;
+    }
+
+    // =========================================================================
+    // Render Tab 1: 自习室与座位资源属性管理 & 预约
+    // =========================================================================
+    function renderSeatGrid() {
+      const container = document.getElementById('seat-grid-container');
+      const roomFilter = document.getElementById('filter-room').value;
+      const statusFilter = document.getElementById('filter-status').value;
+      const needPower = document.getElementById('filter-power').checked;
+      const needWindow = document.getElementById('filter-window').checked;
+      const needLamp = document.getElementById('filter-lamp').checked;
+      const user = getCurrentUser();
+
+      const filtered = state.seats.filter(s => {
+        if (roomFilter !== 'ALL' && s.roomId !== roomFilter) return false;
+        if (statusFilter !== 'ALL' && s.status !== statusFilter) return false;
+        if (needPower && !s.hasPower) return false;
+        if (needWindow && !s.isWindow) return false;
+        if (needLamp && !s.hasLamp) return false;
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        container.innerHTML = `<div class="col-span-full bg-white p-8 rounded-xl border border-slate-200 text-center text-xs text-slate-500">没有符合当前属性筛选条件的座位，请调整筛选条件。</div>`;
+        return;
+      }
+
+      container.innerHTML = filtered.map(seat => {
+        const attrs = [
+          seat.hasPower ? '<span class="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">⚡插座</span>' : '',
+          seat.isWindow ? '<span class="px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200">🪟靠窗</span>' : '',
+          seat.hasLamp ? '<span class="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">💡台灯</span>' : ''
+        ].filter(Boolean).join(' ');
+
+        let actionHtml = '';
+        if (seat.status === 'AVAILABLE') {
+          actionHtml = `<button type="button" data-action="book-seat" data-seat-id="${seat.seatId}" class="w-full py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition">立即预约该座位</button>`;
+        } else if (seat.status === 'MAINTENANCE') {
+          actionHtml = `<button type="button" disabled class="w-full py-1.5 rounded-lg bg-slate-100 text-slate-400 text-xs font-medium cursor-not-allowed">维护停用不可预约 (BR-01)</button>`;
+        } else {
+          actionHtml = `<button type="button" disabled class="w-full py-1.5 rounded-lg bg-slate-100 text-slate-500 text-xs font-medium cursor-not-allowed">当前时段已被占用</button>`;
+        }
+
+        let adminTools = '';
+        if (user.role === 'ADMIN') {
+          const toggleMaintLabel = seat.status === 'MAINTENANCE' ? '恢复为空闲' : '设为维护停用';
+          adminTools = `
+            <div class="pt-2 mt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+              <span class="text-[11px] text-slate-500">${seat.occupantName ? '使用人: ' + seat.occupantName : '当前无人占用'}</span>
+              <button type="button" data-action="toggle-maint" data-seat-id="${seat.seatId}" class="text-[11px] text-slate-600 hover:text-blue-600 underline">${toggleMaintLabel}</button>
+            </div>
+          `;
+        }
+
+        return `
+          <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-col justify-between space-y-3 hover:border-blue-300 transition">
+            <div class="space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="text-sm font-bold text-slate-900">${seat.seatCode}</span>
+                ${getStatusBadge(seat.status)}
+              </div>
+              <div class="text-xs text-slate-500">${seat.roomName} · ${seat.zoneType}</div>
+              <div class="flex flex-wrap gap-1 text-[11px] pt-1">
+                ${attrs || '<span class="text-slate-400">基础标准座位</span>'}
+              </div>
+            </div>
+            <div>
+              ${actionHtml}
+              ${adminTools}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // =========================================================================
+    // Render Tab 2: 我的预约 / 签到签退与自动违约演练
+    // =========================================================================
+    function renderMyReservations() {
+      const container = document.getElementById('myres-list-container');
+      const user = getCurrentUser();
+      const list = user.role === 'ADMIN'
+        ? state.reservations
+        : state.reservations.filter(r => r.userId === user.userId);
+
+      if (list.length === 0) {
+        container.innerHTML = `<div class="bg-white p-6 rounded-xl border border-slate-200 text-center text-xs text-slate-500">当前账户暂无预约记录，请前往“1. 自习室与座位资源”选择空闲座位预约。</div>`;
+        return;
+      }
+
+      container.innerHTML = list.map(res => {
+        let buttons = '';
+        if (res.status === 'RESERVED') {
+          buttons = `
+            <button type="button" data-action="checkin" data-res-id="${res.resId}" class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700">办理签到 (ST-01)</button>
+            <button type="button" data-action="cancel-res" data-res-id="${res.resId}" class="px-3 py-1.5 rounded-lg bg-slate-200 text-slate-800 text-xs font-medium hover:bg-slate-300">取消预约 (ST-03)</button>
+            <button type="button" data-action="sim-noshow" data-res-id="${res.resId}" class="px-3 py-1.5 rounded-lg bg-rose-100 text-rose-800 border border-rose-300 text-xs font-medium hover:bg-rose-200">⚡ 模拟超时15分钟未签到违约 (ST-02)</button>
+          `;
+        } else if (res.status === 'IN_USE') {
+          buttons = `
+            <button type="button" data-action="start-away" data-res-id="${res.resId}" class="px-3 py-1.5 rounded-lg bg-amber-500 text-white text-xs font-medium hover:bg-amber-600">发起中途暂离 (ST-04)</button>
+            <button type="button" data-action="sim-late-away" data-res-id="${res.resId}" class="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-800 border border-amber-300 text-xs font-medium hover:bg-amber-100">验证距结束<15分禁暂离 (V-01)</button>
+            <button type="button" data-action="checkout" data-res-id="${res.resId}" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700">正常签退并评价 (ST-08)</button>
+          `;
+        } else if (res.status === 'AWAY') {
+          buttons = `
+            <button type="button" data-action="back-from-away" data-res-id="${res.resId}" class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700">暂离返座签到 (ST-05)</button>
+            <button type="button" data-action="sim-away-timeout" data-res-id="${res.resId}" class="px-3 py-1.5 rounded-lg bg-rose-100 text-rose-800 border border-rose-300 text-xs font-medium hover:bg-rose-200">⚡ 模拟暂离超30分钟未归违约 (ST-06)</button>
+          `;
+        } else if (res.status === 'COMPLETED' && !res.evaluated) {
+          buttons = `
+            <button type="button" data-action="open-eval" data-res-id="${res.resId}" class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700">⭐ 提交本次座位评价 (BR-07)</button>
+          `;
+        } else if (res.status === 'COMPLETED' && res.evaluated) {
+          buttons = `<span class="text-xs text-emerald-700 font-medium">✓ 已完成评价</span>`;
+        } else {
+          buttons = `<span class="text-xs text-slate-400">预约已终结，座位已自动释放为空闲</span>`;
+        }
+
+        return `
+          <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
+            <div class="space-y-1">
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-bold text-slate-900">${res.seatCode} · ${res.roomName}</span>
+                ${getStatusBadge(res.status)}
+                <span class="text-xs font-mono text-slate-400">${res.resId}</span>
+              </div>
+              <div class="text-xs text-slate-600">
+                预约人：<strong>${res.userName}</strong> (${res.studentNo}) ｜ 预约时段：<strong>${res.slot}</strong> ｜ 签到：${res.checkinTime} ｜ 签退：${res.checkoutTime}
+              </div>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              ${buttons}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // =========================================================================
+    // Render Tab 3: 相关查询（预约查询、违规记录查询）
+    // =========================================================================
+    function renderQueries() {
+      const resStatus = document.getElementById('query-res-status').value;
+      const vioSource = document.getElementById('query-vio-source').value;
+      const kw = document.getElementById('query-keyword').value.trim().toLowerCase();
+
+      const filteredRes = state.reservations.filter(r => {
+        if (resStatus !== 'ALL' && r.status !== resStatus) return false;
+        if (kw && !(`${r.userName}${r.studentNo}${r.seatCode}${r.resId}`.toLowerCase().includes(kw))) return false;
+        return true;
+      });
+
+      document.getElementById('query-res-tbody').innerHTML = filteredRes.map(r => `
+        <tr class="hover:bg-slate-50">
+          <td class="p-2.5 font-mono text-slate-600">${r.resId}</td>
+          <td class="p-2.5 font-medium">${r.userName} (${r.studentNo})</td>
+          <td class="p-2.5">${r.seatCode} · ${r.roomName}</td>
+          <td class="p-2.5">${r.slot}</td>
+          <td class="p-2.5 text-slate-500">签到: ${r.checkinTime} / 签退: ${r.checkoutTime}</td>
+          <td class="p-2.5">${getStatusBadge(r.status)}</td>
+        </tr>
+      `).join('') || `<tr><td colspan="6" class="p-4 text-center text-slate-400">无匹配预约记录</td></tr>`;
+
+      const filteredVio = state.violations.filter(v => {
+        if (vioSource !== 'ALL' && v.sourceType !== vioSource) return false;
+        if (kw && !(`${v.userName}${v.seatCode}${v.vioId}${v.remark}`.toLowerCase().includes(kw))) return false;
+        return true;
+      });
+
+      document.getElementById('query-vio-tbody').innerHTML = filteredVio.map(v => {
+        const sourceBadge = v.sourceType === 'AUTO'
+          ? '<span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">系统自动违约记录</span>'
+          : '<span class="px-2 py-0.5 rounded bg-rose-100 text-rose-800 font-medium">管理员手动违约登记</span>';
+        return `
+          <tr class="hover:bg-slate-50">
+            <td class="p-2.5 font-mono text-slate-600">${v.vioId}</td>
+            <td class="p-2.5 font-medium">${v.userName}</td>
+            <td class="p-2.5">${v.seatCode} (${v.resId})</td>
+            <td class="p-2.5">${sourceBadge}</td>
+            <td class="p-2.5 font-medium text-slate-800">${v.categoryLabel}<br/><span class="text-[11px] text-slate-500">${v.actionLabel}</span></td>
+            <td class="p-2.5 text-slate-600">${v.remark}</td>
+            <td class="p-2.5 font-mono text-slate-500">${v.createdAt}</td>
+          </tr>
+        `;
+      }).join('') || `<tr><td colspan="7" class="p-4 text-center text-slate-400">无匹配违规记录</td></tr>`;
+    }
+
+    // =========================================================================
+    // Render Tab 4: 管理员实时座位管理（手动违约登记）
+    // =========================================================================
+    function renderAdminSeats() {
+      const user = getCurrentUser();
+      const guard = document.getElementById('admin-permission-guard');
+      if (user.role !== 'ADMIN') {
+        guard.classList.remove('hidden');
+      } else {
+        guard.classList.add('hidden');
+      }
+
+      const board = document.getElementById('admin-seat-board');
+      board.innerHTML = state.seats.map(s => {
+        const canManualVio = (s.status === 'IN_USE' || s.status === 'AWAY');
+        const occupantDisplay = user.role === 'ADMIN'
+          ? (s.occupantName ? `${s.occupantName} (${s.occupantNo})` : '当前空闲')
+          : (s.occupantName ? '已占用 (学生视角脱敏)' : '当前空闲');
+
+        return `
+          <div class="bg-white rounded-xl border ${canManualVio ? 'border-indigo-200' : 'border-slate-200'} p-4 shadow-sm flex flex-col justify-between space-y-3">
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between">
+                <span class="text-sm font-bold text-slate-900">${s.seatCode}</span>
+                ${getStatusBadge(s.status)}
+              </div>
+              <div class="text-xs text-slate-500">${s.roomName}</div>
+              <div class="p-2 rounded bg-slate-50 text-xs text-slate-700">
+                <div>当前使用人：<strong>${occupantDisplay}</strong></div>
+                <div class="text-[11px] text-slate-500 mt-0.5">关联预约单：${s.resId || '-'}</div>
+              </div>
+            </div>
+            <div>
+              ${canManualVio
+                ? `<button type="button" data-action="open-manual-vio" data-seat-id="${s.seatId}" class="w-full py-1.5 rounded-lg bg-rose-600 text-white text-xs font-medium hover:bg-rose-700 transition">🚨 手动违约登记 (BR-05/ST-07)</button>`
+                : `<button type="button" disabled class="w-full py-1.5 rounded-lg bg-slate-100 text-slate-400 text-xs font-medium cursor-not-allowed">仅使用中/暂离可执行手动违约</button>`
+              }
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // =========================================================================
+    // Render Tab 5: 用户管理（投诉反馈、黑名单、评价管理）
+    // =========================================================================
+    function renderUsersTab() {
+      const user = getCurrentUser();
+
+      // 1. Complaints List
+      const cmpContainer = document.getElementById('complaints-list-container');
+      cmpContainer.innerHTML = state.complaints.map(c => {
+        const statusPill = c.status === 'PENDING'
+          ? '<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-800 border border-amber-300">待管理员处理</span>'
+          : '<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">已反馈 (闭环办结)</span>';
+
+        const feedbackBox = c.feedbackContent
+          ? `<div class="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 mt-2">
+               <strong>管理员投诉反馈信息：</strong>${c.feedbackContent}
+               ${c.linkedVioId ? `<div class="mt-1 font-mono text-[11px] text-rose-700">已联动生成手动违约单：${c.linkedVioId}</div>` : ''}
+             </div>`
+          : `<div class="p-2 rounded-lg bg-slate-50 text-xs text-slate-400 mt-2">暂未填写投诉反馈信息</div>`;
+
+        const adminBtn = (c.status === 'PENDING')
+          ? `<button type="button" data-action="open-feedback" data-cmp-id="${c.cmpId}" class="mt-2 px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-medium hover:bg-slate-800">填写投诉反馈信息 & 联动手动违约 (管理员)</button>`
+          : '';
+
+        return `
+          <div class="border border-slate-200 rounded-xl p-3.5 bg-white flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between gap-2">
+                <span class="font-bold text-xs text-slate-900">【${c.cmpType}】目标座位：${c.targetSeatCode}</span>
+                ${statusPill}
+              </div>
+              <div class="text-[11px] text-slate-500 mt-1">投诉单号：${c.cmpId} ｜ 提交人：${c.reporterName} ｜ 时间：${c.createdAt}</div>
+              <p class="text-xs text-slate-700 mt-2">${c.description}</p>
+              ${feedbackBox}
+            </div>
+            <div>${adminBtn}</div>
+          </div>
+        `;
+      }).join('');
+
+      // 2. Users & Blacklist Table
+      const blTbody = document.getElementById('users-blacklist-tbody');
+      blTbody.innerHTML = state.users.filter(u => u.role === 'STUDENT').map(u => {
+        const statusBadge = u.isBlacklisted
+          ? '<span class="px-2 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-semibold">黑名单限制中</span>'
+          : '<span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300">正常可预约</span>';
+
+        const actionBtn = u.isBlacklisted
+          ? `<button type="button" data-action="unblock-user" data-user-id="${u.userId}" class="px-2.5 py-1 rounded bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700">人工申诉解封 (PV-04)</button>`
+          : `<button type="button" data-action="block-user" data-user-id="${u.userId}" class="px-2.5 py-1 rounded bg-rose-100 text-rose-800 border border-rose-300 text-xs font-medium hover:bg-rose-200">手动加入黑名单</button>`;
+
+        return `
+          <tr class="hover:bg-slate-50">
+            <td class="p-2.5 font-mono">${u.studentNo}</td>
+            <td class="p-2.5 font-medium">${u.name} · ${u.dept}</td>
+            <td class="p-2.5 font-bold ${u.vioCount >= 3 ? 'text-rose-600' : 'text-slate-800'}">${u.vioCount} 次</td>
+            <td class="p-2.5">${statusBadge}</td>
+            <td class="p-2.5 text-slate-600">${u.blReason} (解封期: ${u.blExpire})</td>
+            <td class="p-2.5">${actionBtn}</td>
+          </tr>
+        `;
+      }).join('');
+
+      // 3. Evaluations List
+      const evalContainer = document.getElementById('evaluations-list-container');
+      evalContainer.innerHTML = state.evaluations.map(ev => `
+        <div class="border border-slate-200 rounded-xl p-3.5 bg-white space-y-1.5">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-xs text-slate-900">座位 ${ev.seatCode} · 关联预约 ${ev.resId}</span>
+            <span class="text-amber-500 font-bold text-xs">${'★'.repeat(ev.rating)}${'☆'.repeat(5 - ev.rating)} (${ev.rating}.0)</span>
+          </div>
+          <div class="text-[11px] text-blue-700">标签：${ev.tags}</div>
+          <p class="text-xs text-slate-700">${ev.content}</p>
+          <div class="text-[11px] text-slate-400">评价人：${ev.userName} ｜ 时间：${ev.createdAt}</div>
+          <div class="p-2 rounded bg-slate-50 text-xs text-slate-600 border border-slate-200">
+            <strong>管理员回复：</strong>${ev.adminReply || '感谢您的评价反馈！'}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // =========================================================================
+    // Tab 6: Chart.js Initialization & 10-Second Auto-Refresh Engine (REQ-07, BR-08, V-04)
+    // =========================================================================
+    let chartZones = null;
+    let chartViolations = null;
+    let chartHourly = null;
+    let chartWeekly = null;
+
+    function computeViolationCategoryCounts() {
+      let noShow = 3, awayTimeout = 2, noCheckout = 1, manualOccupy = 2, manualNoise = 1;
+      state.violations.forEach(v => {
+        if (v.categoryLabel.includes('超时未签到')) noShow++;
+        else if (v.categoryLabel.includes('暂离超时')) awayTimeout++;
+        else if (v.categoryLabel.includes('占座')) manualOccupy++;
+        else if (v.categoryLabel.includes('喧哗')) manualNoise++;
+      });
+      return [noShow, awayTimeout, noCheckout, manualOccupy, manualNoise];
+    }
+
+    function initCharts() {
+      const ctxZones = document.getElementById('barChartZones').getContext('2d');
+      chartZones = new Chart(ctxZones, {
+        type: 'bar',
+        data: {
+          labels: ['A101 静音区', 'A102 电源区', 'B201 研讨区'],
+          datasets: [
+            {
+              label: '实时在馆学习座位数',
+              data: [38, 32, 16],
+              backgroundColor: 'rgba(37, 99, 235, 0.82)',
+              borderRadius: 6
+            },
+            {
+              label: '今日累计预约人次',
+              data: [64, 51, 27],
+              backgroundColor: 'rgba(16, 185, 129, 0.78)',
+              borderRadius: 6
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'top' } },
+          scales: { y: { beginAtZero: true } }
+        }
+      });
+
+      const ctxVio = document.getElementById('barChartViolations').getContext('2d');
+      chartViolations = new Chart(ctxVio, {
+        type: 'bar',
+        data: {
+          labels: ['超时未签到(自动)', '暂离超时(自动)', '未按时签退(自动)', '恶意占座(手动登记)', '大声喧哗(手动登记)'],
+          datasets: [
+            {
+              label: '违规触发频次 (次)',
+              data: computeViolationCategoryCounts(),
+              backgroundColor: [
+                'rgba(245, 158, 11, 0.85)',
+                'rgba(249, 115, 22, 0.85)',
+                'rgba(234, 179, 8, 0.85)',
+                'rgba(225, 29, 72, 0.85)',
+                'rgba(190, 18, 60, 0.85)'
+              ],
+              borderRadius: 6
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'top' } },
+          scales: { y: { beginAtZero: true } }
+        }
+      });
+
+      const ctxHourly = document.getElementById('lineChartHourly').getContext('2d');
+      chartHourly = new Chart(ctxHourly, {
+        type: 'line',
+        data: {
+          labels: ['08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00', '22:00'],
+          datasets: [
+            {
+              label: '实时在馆人数',
+              data: [...state.analytics.hourlyInUse],
+              borderColor: '#2563eb',
+              backgroundColor: 'rgba(37, 99, 235, 0.12)',
+              fill: true,
+              tension: 0.35
+            },
+            {
+              label: '分时段预约人次',
+              data: [...state.analytics.hourlyBooked],
+              borderColor: '#10b981',
+              backgroundColor: 'rgba(16, 185, 129, 0.08)',
+              fill: false,
+              tension: 0.35
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'top' } },
+          scales: { y: { beginAtZero: true } }
+        }
+      });
+
+      const ctxWeekly = document.getElementById('lineChartWeekly').getContext('2d');
+      chartWeekly = new Chart(ctxWeekly, {
+        type: 'line',
+        data: {
+          labels: ['10-08', '10-09', '10-10', '10-11', '10-12', '10-13', '10-14(今日)'],
+          datasets: [
+            {
+              label: '按时签到履约率 (%)',
+              data: [...state.analytics.weeklyCheckinRate],
+              borderColor: '#059669',
+              tension: 0.3
+            },
+            {
+              label: '综合违约率 (%)',
+              data: [...state.analytics.weeklyBreachRate],
+              borderColor: '#e11d48',
+              tension: 0.3
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'top' } },
+          scales: { y: { beginAtZero: true, max: 100 } }
+        }
+      });
+    }
+
+    // Incremental non-flickering update (fixes V-04, verifies PV-05 & BR-08)
+    function refreshDashboardData(isManual = false) {
+      const netBanner = document.getElementById('net-error-banner');
+      if (state.simulateNetError) {
+        netBanner.classList.remove('hidden');
+        document.getElementById('last-valid-snapshot-time').textContent = `上次有效快照时间: ${state.lastSyncTime}`;
+        if (isManual) {
+          showToast('模拟网络波动：已触发 BR-08 容错保护，保留上一周期图表快照！', 'warn');
+        }
+        return;
+      }
+      netBanner.classList.add('hidden');
+
+      // Preserve current zone filter selection (V-04 fix)
+      const zone = document.getElementById('analytics-zone-filter').value;
+      state.selectedAnalyticsZone = zone;
+
+      const delta = Math.floor(Math.random() * 3) - 1; // -1, 0, +1
+      state.analytics.totalResToday += Math.max(0, delta);
+      state.analytics.inUseCount = Math.max(40, Math.min(115, state.analytics.inUseCount + delta));
+      state.analytics.occRate = Number(((state.analytics.inUseCount / 110) * 100).toFixed(1));
+      state.lastSyncTime = getTimeStr();
+
+      // Update KPI cards
+      const zoneMultiplier = zone === 'ALL' ? 1 : (zone === 'A101' ? 0.45 : (zone === 'A102' ? 0.35 : 0.2));
+      document.getElementById('kpi-total-res').textContent = Math.round(state.analytics.totalResToday * zoneMultiplier) + state.reservations.length;
+      document.getElementById('kpi-in-use').textContent = Math.round(state.analytics.inUseCount * zoneMultiplier);
+      document.getElementById('kpi-occ-rate').textContent = `${state.analytics.occRate}%`;
+
+      const autoVioCount = state.violations.filter(v => v.sourceType === 'AUTO').length;
+      const manualVioCount = state.violations.filter(v => v.sourceType === 'MANUAL').length;
+      document.getElementById('kpi-vio-count').textContent = state.violations.length;
+      document.getElementById('kpi-vio-sub').textContent = `自动 ${autoVioCount} / 手动登记 ${manualVioCount}`;
+      document.getElementById('kpi-pending-cmp').textContent = state.complaints.filter(c => c.status === 'PENDING').length;
+      document.getElementById('kpi-blacklist-count').textContent = state.users.filter(u => u.isBlacklisted).length;
+
+      document.getElementById('sync-time-label-1').textContent = `最后同步: ${state.lastSyncTime} (${zone === 'ALL' ? '全馆' : zone})`;
+
+      // Smooth incremental update via chart.update('none') without destroying canvas
+      if (chartZones && chartViolations && chartHourly && chartWeekly) {
+        const jitter = () => Math.floor(Math.random() * 3);
+        chartZones.data.datasets[0].data = [37 + jitter(), 31 + jitter(), 15 + jitter()];
+        chartZones.data.datasets[1].data = [63 + jitter(), 50 + jitter(), 26 + jitter()];
+        chartZones.update('none');
+
+        chartViolations.data.datasets[0].data = computeViolationCategoryCounts();
+        chartViolations.update('none');
+
+        state.analytics.hourlyInUse[6] = state.analytics.inUseCount;
+        chartHourly.data.datasets[0].data = [...state.analytics.hourlyInUse];
+        chartHourly.update('none');
+
+        chartWeekly.update('none');
+      }
+
+      if (isManual) {
+        showToast(`数据分析看板已增量刷新（当前筛选：${zone === 'ALL' ? '全馆汇总' : zone}，时间：${state.lastSyncTime}）`, 'success');
+      }
+    }
+
+    // 10-Second Countdown Interval
+    setInterval(() => {
+      if (!state.autoRefreshEnabled) return;
+      state.countdown -= 1;
+      if (state.countdown <= 0) {
+        refreshDashboardData(false);
+        state.countdown = 10;
+      }
+      document.getElementById('header-refresh-badge').textContent = `看板刷新倒计时: ${state.countdown}s`;
+      document.getElementById('analytics-countdown-pill').textContent = `自动刷新倒计时: ${state.countdown}s`;
+    }, 1000);
+
+    // =========================================================================
+    // Render All Views
+    // =========================================================================
+    function renderAll() {
+      renderHeader();
+      renderSeatGrid();
+      renderMyReservations();
+      renderQueries();
+      renderAdminSeats();
+      renderUsersTab();
+      refreshDashboardData(false);
+    }
+
+    // =========================================================================
+    // Event Listeners & Interactive Workflows
+    // =========================================================================
+    window.addEventListener('DOMContentLoaded', () => {
+      initCharts();
+      renderAll();
+
+      // Role Switchers
+      document.getElementById('role-btn-stu1').addEventListener('click', () => {
+        state.currentUserId = 'U-STU1';
+        renderAll();
+        showToast('已切换为【学生：张伟（信用状态正常）】视角', 'info');
+      });
+
+      document.getElementById('role-btn-stu2').addEventListener('click', () => {
+        state.currentUserId = 'U-STU2';
+        renderAll();
+        showToast('已切换为【学生：李强（黑名单受限用户）】视角，可测试 ST-09 预约拦截', 'warn');
+      });
+
+      document.getElementById('role-btn-admin').addEventListener('click', () => {
+        state.currentUserId = 'U-ADMIN';
+        renderAll();
+        showToast('已切换为【自习室管理员：陈明远】视角，可执行手动违约登记、投诉反馈与黑名单解封', 'success');
+      });
+
+      document.getElementById('btn-switch-to-admin-inline').addEventListener('click', () => {
+        state.currentUserId = 'U-ADMIN';
+        renderAll();
+        showToast('已切换为管理员陈明远视角', 'success');
+      });
+
+      // Navigation Tabs
+      document.querySelectorAll('.nav-tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const targetTab = btn.getAttribute('data-tab');
+          state.activeTab = targetTab;
+          document.querySelectorAll('.nav-tab-btn').forEach(b => b.classList.remove('tab-active'));
+          btn.classList.add('tab-active');
+          document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+          document.getElementById(`tab-${targetTab}`).classList.remove('hidden');
+          renderAll();
+        });
+      });
+
+      // Seat Filter Listeners
+      ['filter-room', 'filter-status', 'filter-power', 'filter-window', 'filter-lamp'].forEach(id => {
+        document.getElementById(id).addEventListener('change', renderSeatGrid);
+      });
+
+      document.getElementById('btn-reset-seat-filter').addEventListener('click', () => {
+        document.getElementById('filter-room').value = 'ALL';
+        document.getElementById('filter-status').value = 'ALL';
+        document.getElementById('filter-power').checked = false;
+        document.getElementById('filter-window').checked = false;
+        document.getElementById('filter-lamp').checked = false;
+        renderSeatGrid();
+      });
+
+      // Query Filter Listeners
+      ['query-res-status', 'query-vio-source', 'query-keyword'].forEach(id => {
+        document.getElementById(id).addEventListener('input', renderQueries);
+        document.getElementById(id).addEventListener('change', renderQueries);
+      });
+
+      // Analytics Controls
+      document.getElementById('analytics-zone-filter').addEventListener('change', () => {
+        refreshDashboardData(true);
+      });
+
+      document.getElementById('btn-refresh-now').addEventListener('click', () => {
+        state.countdown = 10;
+        refreshDashboardData(true);
+      });
+
+      document.getElementById('btn-toggle-autorefresh').addEventListener('click', (e) => {
+        state.autoRefreshEnabled = !state.autoRefreshEnabled;
+        e.target.textContent = state.autoRefreshEnabled ? '暂停自动刷新' : '恢复自动刷新';
+        document.getElementById('analytics-countdown-pill').textContent = state.autoRefreshEnabled
+          ? `自动刷新倒计时: ${state.countdown}s`
+          : '自动刷新已暂停';
+        showToast(state.autoRefreshEnabled ? '已恢复每 10 秒自动刷新' : '已暂停 10 秒自动刷新，便于您静止比对图表数据', 'info');
+      });
+
+      document.getElementById('btn-toggle-neterror').addEventListener('click', (e) => {
+        state.simulateNetError = !state.simulateNetError;
+        e.target.textContent = `模拟网络异常: ${state.simulateNetError ? '开' : '关'}`;
+        refreshDashboardData(true);
+      });
+
+      // Delegated Click Actions across the App
+      document.body.addEventListener('click', (e) => {
+        const closeModalId = e.target.getAttribute('data-close-modal');
+        if (closeModalId) {
+          document.getElementById(closeModalId).classList.add('hidden');
+          document.getElementById(closeModalId).classList.remove('flex');
+          return;
+        }
+
+        const actionBtn = e.target.closest('[data-action]');
+        if (!actionBtn) return;
+        const action = actionBtn.getAttribute('data-action');
+        const user = getCurrentUser();
+
+        // 1. Book Seat (REQ-02, BR-01, BR-06, ST-09)
+        if (action === 'book-seat') {
+          const seatId = actionBtn.getAttribute('data-seat-id');
+          const seat = state.seats.find(s => s.seatId === seatId);
+          if (!seat) return;
+
+          if (user.isBlacklisted) {
+            showToast(`预约被拦截拒绝 (ST-09)：${user.name} 当前因累计 ${user.vioCount} 次违约处于黑名单限制期（BR-06 候选值：3次/7天），座位 ${seat.seatCode} 状态保持【空闲】！`, 'error');
+            return;
+          }
+
+          const slot = document.getElementById('booking-slot').value;
+          const newResId = `RES-20261014-00${state.reservations.length + 1}`;
+          seat.status = 'RESERVED';
+          seat.occupantName = user.name;
+          seat.occupantNo = user.studentNo;
+          seat.resId = newResId;
+
+          state.reservations.unshift({
+            resId: newResId,
+            userId: user.userId,
+            userName: user.name,
+            studentNo: user.studentNo,
+            seatId: seat.seatId,
+            seatCode: seat.seatCode,
+            roomName: seat.roomName,
+            slot,
+            status: 'RESERVED',
+            checkinTime: '-',
+            checkoutTime: '-',
+            evaluated: false
+          });
+          renderAll();
+          showToast(`预约成功！已生成预约单 ${newResId}（座位 ${seat.seatCode} 状态变为【待签到/已预约】）。请前往“2. 预约/签到”办理签到。`, 'success');
+        }
+
+        // 2. Toggle Maintenance (Admin BR-01)
+        if (action === 'toggle-maint') {
+          const seatId = actionBtn.getAttribute('data-seat-id');
+          const seat = state.seats.find(s => s.seatId === seatId);
+          if (!seat) return;
+          seat.status = seat.status === 'MAINTENANCE' ? 'AVAILABLE' : 'MAINTENANCE';
+          seat.occupantName = null;
+          seat.occupantNo = null;
+          seat.resId = null;
+          renderAll();
+          showToast(`座位 ${seat.seatCode} 状态已更新为：${seat.status === 'MAINTENANCE' ? '维护停用' : '空闲'}`, 'info');
+        }
+
+        // 3. Check-in (ST-01)
+        if (action === 'checkin') {
+          const resId = actionBtn.getAttribute('data-res-id');
+          const res = state.reservations.find(r => r.resId === resId);
+          if (!res) return;
+          res.status = 'IN_USE';
+          res.checkinTime = getTimeStr().slice(0, 5);
+          const seat = state.seats.find(s => s.seatId === res.seatId);
+          if (seat) seat.status = 'IN_USE';
+          renderAll();
+          showToast(`签到成功 (ST-01 / BR-02)：预约单 ${res.resId} 与座位 ${res.seatCode} 状态已同步更新为【使用中】！`, 'success');
+        }
+
+        // 4. Cancel Reservation (ST-03 / BR-03)
+        if (action === 'cancel-res') {
+          const resId = actionBtn.getAttribute('data-res-id');
+          const res = state.reservations.find(r => r.resId === resId);
+          if (!res) return;
+          res.status = 'CANCELLED';
+          const seat = state.seats.find(s => s.seatId === res.seatId);
+          if (seat) {
+            seat.status = 'AVAILABLE';
+            seat.occupantName = null;
+            seat.occupantNo = null;
+            seat.resId = null;
+          }
+          renderAll();
+          showToast(`预约单 ${res.resId} 已取消 (ST-03)，座位 ${res.seatCode} 已立即释放为【空闲】（BR-03 30分钟临期取消折算规则保持待确认候选状态）。`, 'info');
+        }
+
+        // 5. Simulate Auto No-Show Violation (ST-02 / BR-02)
+        if (action === 'sim-noshow') {
+          const resId = actionBtn.getAttribute('data-res-id');
+          const res = state.reservations.find(r => r.resId === resId);
+          if (!res) return;
+          res.status = 'BREACHED';
+          const seat = state.seats.find(s => s.seatId === res.seatId);
+          if (seat) {
+            seat.status = 'AVAILABLE';
+            seat.occupantName = null;
+            seat.occupantNo = null;
+            seat.resId = null;
+          }
+          const targetUser = state.users.find(u => u.userId === res.userId);
+          if (targetUser) {
+            targetUser.vioCount += 1;
+            if (targetUser.vioCount >= 3) {
+              targetUser.isBlacklisted = true;
+              targetUser.blReason = '累计满3次违约自动触发黑名单 (BR-06候选)';
+            }
+          }
+          const vioId = `VIO-20261014-0${state.violations.length + 1}`;
+          state.violations.unshift({
+            vioId,
+            userId: res.userId,
+            userName: `${res.userName} (${res.studentNo})`,
+            seatCode: res.seatCode,
+            resId: res.resId,
+            sourceType: 'AUTO',
+            categoryLabel: '超时未签到违约 (AUTO_NO_SHOW)',
+            actionLabel: '系统自动释放座位 (ST-02)',
+            remark: '超过预约开始时间 15 分钟未签到，系统自动记违约并释放座位 (BR-02)',
+            createdAt: `2026-10-14 ${getTimeStr().slice(0, 5)}`
+          });
+          renderAll();
+          showToast(`已触发自动违约 (ST-02)：${res.resId} 超时 15 分钟未签到，预约转【已违约】，座位 ${res.seatCode} 释放为【空闲】，生成违约单 ${vioId}！`, 'error');
+        }
+
+        // 6. Start Away (ST-04 / BR-04)
+        if (action === 'start-away') {
+          const resId = actionBtn.getAttribute('data-res-id');
+          const res = state.reservations.find(r => r.resId === resId);
+          if (!res) return;
+          res.status = 'AWAY';
+          const seat = state.seats.find(s => s.seatId === res.seatId);
+          if (seat) seat.status = 'AWAY';
+          renderAll();
+          showToast(`已进入【暂离】状态 (ST-04 / BR-04)：座位 ${res.seatCode} 将为您保留 30 分钟（用餐时段 60 分钟为待确认候选值）。`, 'warn');
+        }
+
+        // 7. Verify V-01 Fix: Reject Away when < 15 mins before end
+        if (action === 'sim-late-away') {
+          showToast(`暂离被拒绝 (ST-04 / 修复问题 V-01)：当前距预约结束不足 15 分钟，禁止发起 30 分钟暂离以防越界侵占下一时段，预约与座位【状态保持使用中】！`, 'warn');
+        }
+
+        // 8. Back from Away (ST-05)
+        if (action === 'back-from-away') {
+          const resId = actionBtn.getAttribute('data-res-id');
+          const res = state.reservations.find(r => r.resId === resId);
+          if (!res) return;
+          res.status = 'IN_USE';
+          const seat = state.seats.find(s => s.seatId === res.seatId);
+          if (seat) seat.status = 'IN_USE';
+          renderAll();
+          showToast(`返座签到成功 (ST-05)：座位 ${res.seatCode} 已恢复为【使用中】状态！`, 'success');
+        }
+
+        // 9. Simulate Away Timeout Auto Violation (ST-06 / BR-04)
+        if (action === 'sim-away-timeout') {
+          const resId = actionBtn.getAttribute('data-res-id');
+          const res = state.reservations.find(r => r.resId === resId);
+          if (!res) return;
+          res.status = 'BREACHED';
+          const seat = state.seats.find(s => s.seatId === res.seatId);
+          if (seat) {
+            seat.status = 'AVAILABLE';
+            seat.occupantName = null;
+            seat.occupantNo = null;
+            seat.resId = null;
+          }
+          const targetUser = state.users.find(u => u.userId === res.userId);
+          if (targetUser) {
+            targetUser.vioCount += 1;
+            if (targetUser.vioCount >= 3) targetUser.isBlacklisted = true;
+          }
+          const vioId = `VIO-20261014-0${state.violations.length + 1}`;
+          state.violations.unshift({
+            vioId,
+            userId: res.userId,
+            userName: `${res.userName} (${res.studentNo})`,
+            seatCode: res.seatCode,
+            resId: res.resId,
+            sourceType: 'AUTO',
+            categoryLabel: '暂离超时违约 (AUTO_AWAY_TIMEOUT)',
+            actionLabel: '系统自动释放座位 (ST-06)',
+            remark: '中途暂离超过 30 分钟未返座签到，系统自动记违约并释放座位 (BR-04)',
+            createdAt: `2026-10-14 ${getTimeStr().slice(0, 5)}`
+          });
+          renderAll();
+          showToast(`已触发暂离超时自动违约 (ST-06)：座位 ${res.seatCode} 已释放为【空闲】，新增违约记录 ${vioId}！`, 'error');
+        }
+
+        // 10. Normal Check-out (ST-08) & Open Evaluation Modal
+        if (action === 'checkout') {
+          const resId = actionBtn.getAttribute('data-res-id');
+          const res = state.reservations.find(r => r.resId === resId);
+          if (!res) return;
+          res.status = 'COMPLETED';
+          res.checkoutTime = getTimeStr().slice(0, 5);
+          const seat = state.seats.find(s => s.seatId === res.seatId);
+          if (seat) {
+            seat.status = 'AVAILABLE';
+            seat.occupantName = null;
+            seat.occupantNo = null;
+            seat.resId = null;
+          }
+          state.evalTargetResId = res.resId;
+          document.getElementById('eval-target-info').textContent = `评价对象：${res.roomName} · 座位 ${res.seatCode}（预约单 ${res.resId} 已正常签退）`;
+          const modal = document.getElementById('modal-eval');
+          modal.classList.remove('hidden');
+          modal.classList.add('flex');
+          renderAll();
+          showToast(`签退成功 (ST-08)：座位 ${res.seatCode} 已释放为【空闲】，请对本次座位体验进行评价！`, 'success');
+        }
+
+        // 11. Open Evaluation Modal from button
+        if (action === 'open-eval') {
+          const resId = actionBtn.getAttribute('data-res-id');
+          const res = state.reservations.find(r => r.resId === resId);
+          if (!res) return;
+          state.evalTargetResId = res.resId;
+          document.getElementById('eval-target-info').textContent = `评价对象：${res.roomName} · 座位 ${res.seatCode}（预约单 ${res.resId}）`;
+          const modal = document.getElementById('modal-eval');
+          modal.classList.remove('hidden');
+          modal.classList.add('flex');
+        }
+
+        // 12. Open Admin Manual Violation Modal (BR-05 / ST-07)
+        if (action === 'open-manual-vio') {
+          if (user.role !== 'ADMIN') {
+            showToast('权限不足 (SC-04)：仅自习室管理员可执行手动违约登记！请点击右上角切换为管理员陈明远。', 'error');
+            return;
+          }
+          const seatId = actionBtn.getAttribute('data-seat-id');
+          openManualViolationModal(seatId);
+        }
+
+        // 13. Open Admin Complaint Feedback Modal (BR-07 / PV-03)
+        if (action === 'open-feedback') {
+          if (user.role !== 'ADMIN') {
+            showToast('权限不足：仅自习室管理员可受理投诉并填写投诉反馈信息！已为您自动切换或请点击顶部管理员按钮。', 'warn');
+            return;
+          }
+          const cmpId = actionBtn.getAttribute('data-cmp-id');
+          const cmp = state.complaints.find(c => c.cmpId === cmpId);
+          if (!cmp) return;
+          state.feedbackTargetCmpId = cmpId;
+          document.getElementById('fb-complaint-summary').innerHTML = `
+            <div><strong>投诉单号：</strong>${cmp.cmpId} ｜ <strong>被投诉座位：</strong>${cmp.targetSeatCode} ｜ <strong>类别：</strong>${cmp.cmpType}</div>
+            <div><strong>学生举报说明：</strong>${cmp.description}</div>
+          `;
+          const modal = document.getElementById('modal-feedback');
+          modal.classList.remove('hidden');
+          modal.classList.add('flex');
+        }
+
+        // 14. Unblock Blacklisted User (PV-04 / BR-06)
+        if (action === 'unblock-user') {
+          if (user.role !== 'ADMIN') {
+            showToast('权限不足 (SC-04)：仅自习室管理员可执行黑名单解封操作！请先切换至管理员视角。', 'error');
+            return;
+          }
+          const targetId = actionBtn.getAttribute('data-user-id');
+          const targetUser = state.users.find(u => u.userId === targetId);
+          if (!targetUser) return;
+          targetUser.isBlacklisted = false;
+          targetUser.blReason = '管理员陈明远核实申诉后人工解封 (PV-04)';
+          targetUser.blExpire = '已解封';
+          renderAll();
+          showToast(`已成功为学生【${targetUser.name}】解除黑名单限制！现在切换回该生视角即可正常预约座位。`, 'success');
+        }
+
+        // 15. Block User Manually
+        if (action === 'block-user') {
+          if (user.role !== 'ADMIN') {
+            showToast('权限不足 (SC-04)：仅管理员可手动拉黑用户！', 'error');
+            return;
+          }
+          const targetId = actionBtn.getAttribute('data-user-id');
+          const targetUser = state.users.find(u => u.userId === targetId);
+          if (!targetUser) return;
+          targetUser.isBlacklisted = true;
+          targetUser.blReason = '管理员手动拉黑限制预约 (BR-06)';
+          targetUser.blExpire = '2026-10-21 (7天候选期)';
+          renderAll();
+          showToast(`已将学生【${targetUser.name}】加入黑名单限制！`, 'warn');
+        }
+      });
+
+      // Open Direct Manual Violation Button
+      document.getElementById('btn-direct-manual-vio').addEventListener('click', () => {
+        if (getCurrentUser().role !== 'ADMIN') {
+          showToast('请先在顶部切换为【管理员：陈明远】视角后再执行手动违约登记！', 'warn');
+          return;
+        }
+        openManualViolationModal(null);
+      });
+
+      // Submit Manual Violation Modal (BR-05 / ST-07)
+      document.getElementById('btn-submit-manual-vio').addEventListener('click', () => {
+        const seatId = document.getElementById('mv-seat-select').value;
+        const category = document.getElementById('mv-category').value;
+        const actionMode = document.getElementById('mv-action-mode').value;
+        const remark = document.getElementById('mv-remark').value.trim();
+
+        if (!remark) {
+          showToast('操作被拒绝 (ST-07 失败处理)：管理员手动违约登记必须填写现场巡检核实说明，状态保持不变！', 'error');
+          return;
+        }
+
+        const seat = state.seats.find(s => s.seatId === seatId);
+        if (!seat) return;
+        const res = state.reservations.find(r => r.resId === seat.resId);
+        const targetUser = state.users.find(u => u.studentNo === seat.occupantNo) || state.users[2];
+
+        const catMap = {
+          MANUAL_OCCUPY: '手动登记—人走留物恶意占座',
+          MANUAL_NOISE: '手动登记—自习室内大声喧哗',
+          MANUAL_POWER: '手动登记—违规使用大功率电器',
+          MANUAL_PROXY: '手动登记—他人代签/虚假暂离'
+        };
+
+        const vioId = `VIO-20261014-0${state.violations.length + 1}`;
+        state.violations.unshift({
+          vioId,
+          userId: targetUser.userId,
+          userName: `${targetUser.name} (${targetUser.studentNo})`,
+          seatCode: seat.seatCode,
+          resId: seat.resId || '现场巡检单',
+          sourceType: 'MANUAL',
+          categoryLabel: catMap[category] || category,
+          actionLabel: actionMode === 'FORCE_RELEASE' ? '管理员强制释放座位 (ST-07)' : '仅登记违约警告 (状态保持使用中)',
+          remark,
+          createdAt: `2026-10-14 ${getTimeStr().slice(0, 5)}`
+        });
+
+        targetUser.vioCount += 1;
+        if (targetUser.vioCount >= 3) {
+          targetUser.isBlacklisted = true;
+          targetUser.blReason = `累计达 ${targetUser.vioCount} 次违约自动拉黑 (BR-06候选)`;
+          targetUser.blExpire = '2026-10-21 (7天候选期)';
+        }
+
+        if (actionMode === 'FORCE_RELEASE') {
+          if (res) res.status = 'BREACHED';
+          seat.status = 'AVAILABLE';
+          seat.occupantName = null;
+          seat.occupantNo = null;
+          seat.resId = null;
+          showToast(`手动违约登记成功 (${vioId})：已强制释放座位 ${seat.seatCode} 为【空闲】(ST-07)，${targetUser.name} 累计违约 ${targetUser.vioCount} 次！`, 'error');
+        } else {
+          showToast(`手动违约警告已登记 (${vioId})：已发送整改提醒，座位 ${seat.seatCode} 状态保持【使用中】(V-02 柔性处置)！`, 'warn');
+        }
+
+        document.getElementById('modal-manual-vio').classList.add('hidden');
+        document.getElementById('modal-manual-vio').classList.remove('flex');
+        renderAll();
+      });
+
+      // Submit Evaluation Modal (BR-07)
+      document.getElementById('btn-submit-eval').addEventListener('click', () => {
+        const res = state.reservations.find(r => r.resId === state.evalTargetResId);
+        if (!res) return;
+        const rating = Number(document.getElementById('eval-rating').value);
+        const tags = document.getElementById('eval-tags').value.trim();
+        const content = document.getElementById('eval-content').value.trim();
+
+        res.evaluated = true;
+        state.evaluations.unshift({
+          evalId: `EVAL-20261014-0${state.evaluations.length + 1}`,
+          resId: res.resId,
+          seatCode: res.seatCode,
+          userName: `${res.userName} (${res.studentNo})`,
+          rating,
+          tags,
+          content: content || '座位整洁，充电方便！',
+          adminReply: '系统已记录您的评价，感谢支持！',
+          createdAt: `2026-10-14 ${getTimeStr().slice(0, 5)}`
+        });
+
+        document.getElementById('modal-eval').classList.add('hidden');
+        document.getElementById('modal-eval').classList.remove('flex');
+        renderAll();
+        showToast(`评价提交成功 (PV-01 / BR-07)！可在“5. 评价/投诉反馈/黑名单”中查看您的 ${rating} 星评价。`, 'success');
+      });
+
+      // Open Student Complaint Modal
+      document.getElementById('btn-open-complaint-modal').addEventListener('click', () => {
+        const select = document.getElementById('cmp-seat');
+        select.innerHTML = state.seats.map(s => `<option value="${s.seatCode}">${s.seatCode} (${s.roomName} - 当前:${s.occupantName || '空闲'})</option>`).join('');
+        const modal = document.getElementById('modal-complaint');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+      });
+
+      // Submit Student Complaint
+      document.getElementById('btn-submit-complaint').addEventListener('click', () => {
+        const user = getCurrentUser();
+        const targetSeatCode = document.getElementById('cmp-seat').value;
+        const cmpType = document.getElementById('cmp-type').value;
+        const description = document.getElementById('cmp-desc').value.trim();
+
+        const cmpId = `CMP-20261014-0${state.complaints.length + 1}`;
+        state.complaints.unshift({
+          cmpId,
+          userId: user.userId,
+          reporterName: `${user.name} (${user.studentNo})`,
+          targetSeatCode,
+          cmpType,
+          description: description || '座位存在异常情况，请管理员核实。',
+          status: 'PENDING',
+          feedbackContent: '',
+          linkedVioId: null,
+          createdAt: `2026-10-14 ${getTimeStr().slice(0, 5)}`
+        });
+
+        document.getElementById('modal-complaint').classList.add('hidden');
+        document.getElementById('modal-complaint').classList.remove('flex');
+        renderAll();
+        showToast(`投诉单 ${cmpId} 提交成功！管理员受理并填写【投诉反馈信息】后您将收到通知。`, 'success');
+      });
+
+      // Submit Admin Complaint Feedback & Linked Manual Violation (BR-07 + BR-05, PV-03)
+      document.getElementById('btn-submit-feedback').addEventListener('click', () => {
+        const cmp = state.complaints.find(c => c.cmpId === state.feedbackTargetCmpId);
+        if (!cmp) return;
+        const feedbackContent = document.getElementById('fb-content').value.trim();
+        const linkVio = document.getElementById('fb-link-vio').checked;
+
+        if (!feedbackContent) {
+          showToast('请填写投诉反馈信息正文后再提交！', 'error');
+          return;
+        }
+
+        cmp.status = 'FEEDBACK_SENT';
+        cmp.feedbackContent = feedbackContent;
+
+        if (linkVio) {
+          const seat = state.seats.find(s => s.seatCode === cmp.targetSeatCode);
+          const vioId = `VIO-20261014-0${state.violations.length + 1}`;
+          cmp.linkedVioId = vioId;
+
+          const occupantNo = (seat && seat.occupantNo) ? seat.occupantNo : '20240103';
+          const targetUser = state.users.find(u => u.studentNo === occupantNo) || state.users[2];
+          targetUser.vioCount += 1;
+          if (targetUser.vioCount >= 3) {
+            targetUser.isBlacklisted = true;
+            targetUser.blReason = `因占座被投诉核实，累计达 ${targetUser.vioCount} 次违约自动拉黑 (BR-06候选)`;
+          }
+
+          state.violations.unshift({
+            vioId,
+            userId: targetUser.userId,
+            userName: `${targetUser.name} (${targetUser.studentNo})`,
+            seatCode: cmp.targetSeatCode,
+            resId: (seat && seat.resId) || '投诉核实单',
+            sourceType: 'MANUAL',
+            categoryLabel: `手动登记—${cmp.cmpType}`,
+            actionLabel: '投诉属实联动强制释放座位 (ST-07)',
+            remark: `关联投诉单 ${cmp.cmpId}：${feedbackContent}`,
+            createdAt: `2026-10-14 ${getTimeStr().slice(0, 5)}`
+          });
+
+          if (seat) {
+            const res = state.reservations.find(r => r.resId === seat.resId);
+            if (res) res.status = 'BREACHED';
+            seat.status = 'AVAILABLE';
+            seat.occupantName = null;
+            seat.occupantNo = null;
+            seat.resId = null;
+          }
+        }
+
+        document.getElementById('modal-feedback').classList.add('hidden');
+        document.getElementById('modal-feedback').classList.remove('flex');
+        renderAll();
+        showToast(`投诉单 ${cmp.cmpId} 已完成反馈闭环 (PV-03)！${linkVio ? '已同步联动生成手动违约记录并释放座位。' : ''}`, 'success');
+      });
+
+      // Open Add Seat Modal (REQ-01)
+      document.getElementById('btn-open-add-seat').addEventListener('click', () => {
+        const modal = document.getElementById('modal-add-seat');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+      });
+
+      // Submit Add Seat Modal
+      document.getElementById('btn-submit-add-seat').addEventListener('click', () => {
+        const roomId = document.getElementById('new-seat-room').value;
+        const seatCode = document.getElementById('new-seat-code').value.trim();
+        const hasPower = document.getElementById('new-seat-power').checked;
+        const isWindow = document.getElementById('new-seat-window').checked;
+        const hasLamp = document.getElementById('new-seat-lamp').checked;
+
+        if (!seatCode) {
+          showToast('请输入座位编号！', 'error');
+          return;
+        }
+        const roomMap = {
+          A101: { name: 'A101 沉浸静音自习室', zone: '静音区' },
+          A102: { name: 'A102 综合电源自习室', zone: '普通区' },
+          B201: { name: 'B201 协作研讨自习室', zone: '研讨区' }
+        };
+        state.seats.push({
+          seatId: `S-${seatCode}-${Date.now().toString().slice(-3)}`,
+          roomId,
+          roomName: roomMap[roomId].name,
+          zoneType: roomMap[roomId].zone,
+          seatCode,
+          hasPower,
+          isWindow,
+          hasLamp,
+          status: 'AVAILABLE',
+          occupantName: null,
+          occupantNo: null,
+          resId: null
+        });
+
+        document.getElementById('modal-add-seat').classList.add('hidden');
+        document.getElementById('modal-add-seat').classList.remove('flex');
+        renderAll();
+        showToast(`已成功新增座位资源：${seatCode} (${roomMap[roomId].name})`, 'success');
+      });
+    });
+
+    function openManualViolationModal(preferredSeatId) {
+      const select = document.getElementById('mv-seat-select');
+      const activeSeats = state.seats.filter(s => s.status === 'IN_USE' || s.status === 'AWAY');
+      if (activeSeats.length === 0) {
+        showToast('当前没有处于“使用中”或“暂离”的座位可供登记！', 'warn');
+        return;
+      }
+      select.innerHTML = activeSeats.map(s => `
+        <option value="${s.seatId}" ${s.seatId === preferredSeatId ? 'selected' : ''}>
+          ${s.seatCode} (${s.roomName}) — 当前使用人: ${s.occupantName} (${s.occupantNo}) [${s.status === 'IN_USE' ? '使用中' : '暂离'}]
+        </option>
+      `).join('');
+      document.getElementById('mv-remark').value = '管理员巡检核实：使用人离席超过1小时未点暂离，桌上仅留书本占座，按 BR-05 执行手动违约登记。';
+      const modal = document.getElementById('modal-manual-vio');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,69 @@
+@startuml
+title G-06 状态图 SM-01：预约记录状态机（建模对象=预约记录 Reservation；关联 ST-00~ST-13，转换说明表见 A 报告 A.4）
+
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam state {
+  BackgroundColor #F7FAFF
+  BorderColor #2F5DA8
+  FontColor #10305E
+  FontSize 13
+}
+skinparam ArrowColor #2F5DA8
+skinparam noteBackgroundColor #FFF6E5
+skinparam noteBorderColor #C98A00
+
+[*] --> PENDING : ST-00 创建预约成功\n（BR-01/BR-02/BR-03/BR-07/BR-11 校验通过）
+
+state "待签到 PENDING" as PENDING
+state "使用中 IN_USE" as IN_USE
+state "暂离 AWAY" as AWAY
+state "已完成 COMPLETED" as COMPLETED
+state "已取消 CANCELLED" as CANCELLED
+state "已违约 NO_SHOW" as NO_SHOW
+state "已释放 RELEASED" as RELEASED
+
+PENDING --> IN_USE : ST-01 签到\n[BR-04 签到窗口内，本人预约]
+PENDING --> NO_SHOW : ST-02 超时未签到\n[系统定时任务，BR-06 −10]
+PENDING --> CANCELLED : ST-03 自助取消\n[开始前 ≥ 30min，不记违规]
+PENDING --> CANCELLED : ST-04 自助取消\n[开始前 < 30min，BR-06 −5]
+PENDING --> CANCELLED : ST-11 座位封禁\n[管理员 UC-12，BR-09 免记违规]
+
+IN_USE --> AWAY : ST-05 暂时离开\n[BR-05 保留 30min]
+AWAY --> IN_USE : ST-06 返回并确认\n[30min 内]
+AWAY --> RELEASED : ST-07 暂离超时\n[系统定时任务，BR-06 −5]
+IN_USE --> COMPLETED : ST-08 主动签退\n[BR-06 按时签退 +1（每日≤+2）]
+IN_USE --> COMPLETED : ST-09 到点未签退\n[系统定时任务，BR-06 −5，结束原因=超时未签退]
+IN_USE --> RELEASED : ST-10 管理员强制释放\n[PR-07，须填原因并记审计日志]
+IN_USE --> CANCELLED : ST-11 座位封禁\n[管理员 UC-12，BR-09 免记违规]
+
+COMPLETED --> [*]
+CANCELLED --> [*]
+NO_SHOW --> [*]
+RELEASED --> [*]
+
+note right of PENDING
+  <b>ST-12（状态保持，仅适用于已存在的记录）</b>
+  触发事件：签到、取消、暂离、返座、签退等校验失败
+  判定条件：BR-04 窗口外、BR-10 开始后取消、
+  BR-13 凭证无效/过期/已用、PR-02/PR-03 权限不符
+  结果：当前状态与目标状态一致；不产生新记录、
+  不扣信用分、不产生违规
+end note
+
+note top of PENDING
+  <b>ST-13（创建失败，图外记录）</b>
+  触发事件：创建预约
+  判定条件：BR-01/BR-02/BR-03/BR-07/BR-11 任一不满足，
+  或座位处于维护中/停用（BR-09）
+  结果：<b>不产生预约记录</b>（无对象可“保持”），
+  座位时段不被占用，不扣信用分
+end note
+
+note bottom of IN_USE
+  状态保持说明：签到窗口外签到（早于窗口）不改变状态，
+  仅提示"未到签到时间"（见 SC-10 边界场景）。
+  所有超时处理由 UC-10 定时任务每分钟执行一次（NFR-02），
+  重复执行幂等（AC-15）。
+end note
+@enduml

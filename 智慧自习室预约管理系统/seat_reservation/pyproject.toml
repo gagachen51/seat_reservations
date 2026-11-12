@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "seat-reservation"
+version = "2.0.0"
+description = "智慧自习室预约管理系统：预约-签到-使用-签退闭环，含风控、审计、调度与运营看板"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary - Course Delivery" }
+authors = [{ name = "Seat Reservation Team" }]
+keywords = ["reservation", "sqlite", "fastapi", "seat-management"]
+classifiers = [
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "fastapi>=0.110,<1.0",
+    "uvicorn>=0.27,<1.0",
+    "pydantic>=2.6,<3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9.0",
+    "httpx>=0.27,<1.0",
+]
+
+[project.scripts]
+seat-reservation = "seat_reservation.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+seat_reservation = ["web/*.html", "web/*.css", "web/*.js", "web/*.svg"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra --strict-markers"
+python_files = ["test_*.py"]
+filterwarnings = ["error::DeprecationWarning:seat_reservation.*"]
+
+[project.urls]
+Documentation = "docs/ARCHITECTURE.md"

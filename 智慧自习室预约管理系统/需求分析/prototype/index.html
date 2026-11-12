@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>智慧自习室预约管理系统 · 交互验证原型 v2.0</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ================= 顶栏：品牌 + 角色分段控件 + 模拟时钟 ================= -->
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <div class="brand-mark">智</div>
+      <div>
+        <h1>智慧自习室预约管理系统</h1>
+        <div class="sub">交互验证原型 v2.0 · 座位预约 / 签到闭环 / 现场巡检 / 投诉与评价 / 数据看板</div>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <div class="segmented" id="role-switch">
+      <button type="button" data-user="S2023001" class="active">学生 · 张小明</button>
+      <button type="button" data-user="S2023002">学生 · 李华（信用受限）</button>
+      <button type="button" data-user="S2023005">学生 · 赵敏（黑名单）</button>
+      <button type="button" data-user="A9001">管理员 · 王老师</button>
+      <button type="button" data-user="Y0001">系统管理员 · 赵工</button>
+    </div>
+  </div>
+  <div class="statusbar">
+    <div class="statusbar-inner">
+      <span id="status-user">—</span>
+      <span id="status-blacklist"></span>
+      <div class="spacer"></div>
+      <span class="pill"><span class="dot" style="color:var(--green)"></span>开放时段 07:00–22:30</span>
+      <span class="pill mono" id="status-clock">2026-10-14 13:20</span>
+      <button class="btn sm" id="btn-advance-30">+30 分钟</button>
+      <button class="btn sm" id="btn-advance-60">+1 小时</button>
+      <button class="btn sm warn" id="btn-run-sweep" title="FR-44：服务端定时任务（每分钟自动执行），此处手动触发">运行超时任务</button>
+      <button class="btn sm ghost" id="btn-reset">重置演示数据</button>
+    </div>
+  </div>
+</header>
+
+<!-- ================= 功能标签 ================= -->
+<nav class="tabs">
+  <div class="tabs-inner" id="app-tabs">
+    <button type="button" class="tab active" data-tab="seats">1 · 座位资源与预约</button>
+    <button type="button" class="tab" data-tab="myres">2 · 我的预约与签到</button>
+    <button type="button" class="tab" data-tab="queries">3 · 预约与违规查询</button>
+    <button type="button" class="tab" data-tab="admin">4 · 现场巡检与手动违约</button>
+    <button type="button" class="tab" data-tab="community">5 · 评价 · 投诉 · 黑名单</button>
+    <button type="button" class="tab" data-tab="analytics">6 · 运营数据看板</button>
+  </div>
+</nav>
+
+<main class="wrap">
+
+  <!-- ==================== 1. 座位资源与预约 ==================== -->
+  <section id="view-seats" class="stack">
+    <div class="guide">
+      <span class="idx">1</span>
+      <div><b>这一页做什么：</b>按区域与座位属性（电源 / 靠窗 / 护眼台灯）筛选空闲座位，选定日期时段后一键预约。
+        预约成功后进入「2 · 我的预约」按签到时间窗签到（<span class="kbd">BR-04</span>），单次时长 0.5–4 小时（<span class="kbd">BR-01</span>），每人每天最多 2 个时段（<span class="kbd">BR-02</span>）。</div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>筛选条件</h2>
+          <div class="desc">选择日期与时段后，下方会实时显示该时段每个座位的状态（空闲 / 已预约 / 使用中 / 暂离 / 维护中）</div>
+          <div class="desc">可预约窗口：<b id="booking-window-hint">—</b>（规则 <span class="kbd">BR-03</span>：只能预约未来 7 天内，日历中超出该范围的日期不可选）</div>
+        </div>
+        <div class="row">
+          <button class="btn sm" id="btn-seat-filter-reset">重置筛选</button>
+        </div>
+      </div>
+      <div class="grid grid-4">
+        <div class="field">
+          <label for="filter-date">预约日期</label>
+          <input type="date" id="filter-date">
+        </div>
+        <div class="field">
+          <label for="filter-start">开始时间</label>
+          <select id="filter-start"></select>
+        </div>
+        <div class="field">
+          <label for="filter-duration">时长</label>
+          <select id="filter-duration">
+            <option value="30">30 分钟</option>
+            <option value="60" selected>1 小时</option>
+            <option value="90">1.5 小时</option>
+            <option value="120">2 小时</option>
+            <option value="180">3 小时</option>
+            <option value="240">4 小时</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="filter-room">自习室区域</label>
+          <select id="filter-room"></select>
+        </div>
+        <div class="field">
+          <label for="filter-status">座位状态</label>
+          <select id="filter-status">
+            <option value="">全部状态</option>
+            <option value="available">空闲（可预约）</option>
+            <option value="reserved">已预约（待签到）</option>
+            <option value="occupied">使用中</option>
+            <option value="held">暂离中</option>
+            <option value="maintenance">维护停用</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>座位属性（可多选）</label>
+          <div class="row" style="gap:14px">
+            <label class="check"><input type="checkbox" id="filter-power">⚡ 带电源</label>
+            <label class="check"><input type="checkbox" id="filter-window">🪟 靠窗</label>
+            <label class="check"><input type="checkbox" id="filter-lamp">💡 护眼台灯</label>
+          </div>
+        </div>
+        <div class="field">
+          <label>已选座位</label>
+          <div class="row"><span id="selected-seat" class="mono" style="font-size:13px">（未选择）</span></div>
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button class="btn primary block" id="btn-book">确认预约（FR-31）</button>
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn sm warn" id="btn-join-waitlist">加入候补队列（BR-08）</button>
+        <span class="kbd" id="seat-count-hint">—</span>
+      </div>
+    </div>
+
+    <div id="seat-grid" class="grid grid-4"></div>
+  </section>
+
+  <!-- ==================== 2. 我的预约与签到 ==================== -->
+  <section id="view-myres" class="stack" hidden>
+    <div class="guide">
+      <span class="idx">2</span>
+      <div><b>这一步怎么用：</b>把模拟时钟推进到「签到窗口」内（开始前 15 分钟 ~ 开始后 15 分钟）再点签到。
+        要做异常演练，直接点带 <span class="kbd">ST-</span> 标注的按钮 —— 系统会按规则给出违约或状态保持的结果。</div>
+    </div>
+    <div id="myres-list" class="stack"></div>
+  </section>
+
+  <!-- ==================== 3. 预约与违规查询 ==================== -->
+  <section id="view-queries" class="stack" hidden>
+    <div class="guide">
+      <span class="idx">3</span>
+      <div><b>这一页做什么：</b>管理员/教师按状态、违约来源（系统自动违约 / 管理员手动登记）与关键词检索全部记录；学生只能看到与本人相关的行（<span class="kbd">PR-01</span>、<span class="kbd">PR-11</span>）。</div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>A · 座位使用与预约记录流水</h2>
+          <div class="desc">含预约单号、学生、座位、时段、签到/签退时间与当前状态</div>
+        </div>
+        <div class="row">
+          <select id="query-res-status">
+            <option value="">全部状态</option>
+            <option value="pending">待签到</option>
+            <option value="in_use">使用中</option>
+            <option value="away">暂离</option>
+            <option value="completed">已完成</option>
+            <option value="cancelled">已取消</option>
+            <option value="no_show">已违约</option>
+            <option value="released">已释放</option>
+          </select>
+          <input type="text" id="query-keyword" placeholder="搜索姓名 / 学号 / 座位号 / 单号">
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead><tr>
+            <th>预约单号</th><th>学生（学号）</th><th>自习室与座位</th><th>预约时段</th>
+            <th>签到 / 签退</th><th>当前状态</th>
+          </tr></thead>
+          <tbody id="query-res-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>B · 违规记录查询</h2>
+          <div class="desc">区分「系统自动违约」（超时未签到 / 暂离超时 / 超时未签退）与「管理员手动违约登记」（现场巡检）</div>
+        </div>
+        <div class="row">
+          <select id="query-vio-source">
+            <option value="">全部来源</option>
+            <option value="auto">系统自动违约</option>
+            <option value="manual">管理员手动登记</option>
+          </select>
+          <select id="query-vio-status">
+            <option value="">全部处理状态</option>
+            <option value="active">生效</option>
+            <option value="appealing">申诉中</option>
+            <option value="revoked">已撤销</option>
+          </select>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead><tr>
+            <th>违约编号</th><th>学生</th><th>座位 / 预约单</th><th>来源</th>
+            <th>类型与处置</th><th>判定 / 巡检说明</th><th>记录时间</th>
+          </tr></thead>
+          <tbody id="query-vio-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 4. 现场巡检与手动违约登记 ==================== -->
+  <section id="view-admin" class="stack" hidden>
+    <div class="guide">
+      <span class="idx">4</span>
+      <div><b>管理员专用：</b>点任意「使用中 / 暂离」的座位即可登记现场违约。两种处置方式：
+        <b>仅登记警告</b>（预约与座位保持使用中，<span class="kbd">ST-12</span> 状态保持）或 <b>强制释放座位</b>（预约转已违约、座位转空闲，<span class="kbd">ST-10</span>）。
+        登记必须填写现场核实说明，操作全程写入审计日志（<span class="kbd">NFR-09</span>）。</div>
+    </div>
+
+    <div id="admin-guard" class="banner warn" hidden>
+      <span>⚠️ 当前是<b>学生视角</b>：按角色权限矩阵（<span class="kbd">PR-06</span>、<span class="kbd">PR-17</span>）学生只能查看脱敏的占用状态，不能查看他人实名信息，也不能执行手动违约登记。</span>
+      <button class="btn sm" data-act="switch-admin">切换为管理员陈明远</button>
+    </div>
+
+    <div class="card tight">
+      <div class="card-head">
+        <div>
+          <h2>今日巡检概览</h2>
+          <div class="desc">数据来自实时状态：手动登记数、待处理投诉、黑名单人数（候选规则 <span class="kbd">BR-20</span>）</div>
+        </div>
+        <div class="row">
+          <button class="btn primary" data-act="open-manual-vio">＋ 发起手动违约登记</button>
+        </div>
+      </div>
+      <div id="admin-stats" class="grid grid-4"></div>
+    </div>
+
+    <div id="admin-seat-board" class="grid grid-4"></div>
+  </section>
+
+  <!-- ==================== 5. 评价 · 投诉 · 黑名单 ==================== -->
+  <section id="view-community" class="stack" hidden>
+    <div class="guide">
+      <span class="idx">5</span>
+      <div><b>三个闭环：</b>① 学生投诉 → 管理员填写<b>反馈信息</b>（学生端可见）并可联动处理违约；② 信用档案与<b>黑名单</b>（30 天内有效违约达 3 次自动受限 7 天，管理员可人工拉黑/解封）；③ 评价：<b>仅「已完成」的预约</b>可评价一次，管理员可回复。</div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>A · 投诉管理与反馈闭环</h2>
+          <div class="desc">学生提交占座 / 噪音 / 设施损坏 / 误判申诉；管理员填写反馈后学生端立即可见</div>
+        </div>
+        <div class="row"><button class="btn primary" data-act="open-complaint">＋ 我要提交投诉</button></div>
+      </div>
+      <div id="complaints-list" class="grid grid-2"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>B · 信用档案与黑名单</h2>
+          <div class="desc">30 天窗口内的有效违约次数、黑名单状态与原因；管理员可人工拉黑或申诉解封（须填原因）</div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead><tr>
+            <th>学号 / 用户</th><th>姓名与院系</th><th>30 天内有效违约</th>
+            <th>信用与限制状态</th><th>原因 / 记录</th><th>管理员操作</th>
+          </tr></thead>
+          <tbody id="users-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>C · 座位与环境评价</h2>
+          <div class="desc">仅能对本人「已完成」的预约提交一次评价；管理员可回复，差评可联动维护停用（<span class="kbd">PR-18</span>）</div>
+        </div>
+      </div>
+      <div id="evals-list" class="grid grid-2"></div>
+    </div>
+  </section>
+
+  <!-- ==================== 6. 运营数据看板 ==================== -->
+  <section id="view-analytics" class="stack" hidden>
+    <div class="guide">
+      <span class="idx">6</span>
+      <div><b>看板说明：</b>数据每 10 秒自动刷新（<span class="kbd">FR-69</span>、<span class="kbd">NFR-10</span>）。
+        如果模拟一次网络超时，系统会<b>保留上一轮有效快照</b>并提示，不会中断你的操作（容错设计）。</div>
+    </div>
+
+    <div class="card tight">
+      <div class="card-head">
+        <div>
+          <h2>实时运营数据看板</h2>
+          <div class="desc">
+            自动刷新状态：
+            <span class="badge blue" id="countdown-pill">倒计时 10s</span>
+            <span id="last-sync" class="kbd">—</span>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field"><label for="analytics-zone">区域维度</label>
+            <select id="analytics-zone"></select>
+          </div>
+          <button class="btn sm primary" id="btn-refresh-now">立即刷新</button>
+          <button class="btn sm" id="btn-toggle-autorefresh">暂停自动刷新</button>
+          <button class="btn sm warn" id="btn-toggle-neterror">模拟网络异常：关</button>
+        </div>
+      </div>
+      <div id="net-error-banner" class="banner warn" hidden>
+        <span>⚠️ <b>数据同步延迟（容错已生效）</b>：最近一次轮询模拟超时，看板继续展示上一轮有效快照，操作不受影响。</span>
+        <span class="mono" id="last-valid-snapshot">—</span>
+      </div>
+    </div>
+
+    <div id="kpi-rows" class="grid grid-4"></div>
+
+    <div class="grid grid-2">
+      <div class="chart-card">
+        <h3>柱状图 1 · 各区域座位状态与今日预约人次</h3>
+        <div id="chart-zones"></div>
+        <div class="legend">
+          <span><i style="background:#0071e3"></i>使用中 / 暂离</span>
+          <span><i style="background:#c7c7cc"></i>可预约</span>
+          <span><i style="background:#b25000"></i>维护中</span>
+          <span><i style="background:#5b3fd6"></i>今日预约人次</span>
+        </div>
+      </div>
+      <div class="chart-card">
+        <h3>柱状图 2 · 违规记录类型分布（自动 vs 手动）</h3>
+        <div id="chart-vio"></div>
+        <div class="legend">
+          <span><i style="background:#c7362f"></i>系统自动违约</span>
+          <span><i style="background:#b25000"></i>管理员手动登记</span>
+        </div>
+      </div>
+      <div class="chart-card">
+        <h3>折线图 1 · 全天分时段在馆人数与预约热度</h3>
+        <div id="chart-hourly"></div>
+        <div class="legend">
+          <span><i style="background:#0071e3"></i>在馆人数</span>
+          <span><i style="background:#5b3fd6"></i>预约热度</span>
+        </div>
+      </div>
+      <div class="chart-card">
+        <h3>折线图 2 · 近 7 日按时签到率与违约率</h3>
+        <div id="chart-weekly"></div>
+        <div class="legend">
+          <span><i style="background:#1d8348"></i>按时签到率 %</span>
+          <span><i style="background:#c7362f"></i>违约率 %</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<div class="toast-wrap" id="toast-wrap"></div>
+<div id="modal-root"></div>
+
+<script src="domain.js"></script>
+<script src="seed.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

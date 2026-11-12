@@ -1,0 +1,53 @@
+@startuml
+title G-07 状态图 SM-02：座位资源派生状态说明（建模对象=座位 Seat；状态由 SM-01 预约记录状态派生，不是独立状态机）
+
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam state {
+  BackgroundColor #F7FAFF
+  BorderColor #2F5DA8
+  FontColor #10305E
+  FontSize 13
+}
+skinparam ArrowColor #2F5DA8
+skinparam noteBackgroundColor #FFF6E5
+skinparam noteBorderColor #C98A00
+
+[*] --> AVAILABLE : 座位创建并启用（FR-21）
+
+state "空闲 AVAILABLE" as AVAILABLE
+state "已预约 RESERVED" as RESERVED
+state "使用中 OCCUPIED" as OCCUPIED
+state "暂离保留 HELD" as HELD
+state "维护中 MAINTENANCE" as MAINTENANCE
+state "停用 DISABLED" as DISABLED
+
+AVAILABLE --> RESERVED : ST-00 创建预约成功\n[占用的时段尚未开始]
+RESERVED --> OCCUPIED : ST-01 签到（BR-04 窗口内）
+RESERVED --> AVAILABLE : ST-02 超时未签到（违约）\nST-03/ST-04 自助取消\nST-11 座位封禁取消
+OCCUPIED --> HELD : ST-05 暂时离开（BR-05）
+HELD --> OCCUPIED : ST-06 30min 内返回
+HELD --> AVAILABLE : ST-07 暂离超时释放
+OCCUPIED --> AVAILABLE : ST-08 主动签退\nST-09 到点未签退\nST-10 管理员强制释放
+RESERVED --> MAINTENANCE : UC-12 管理员封禁\n[BR-09 受影响预约自动取消]
+OCCUPIED --> MAINTENANCE : UC-12 管理员封禁
+AVAILABLE --> MAINTENANCE : UC-12 管理员封禁
+MAINTENANCE --> AVAILABLE : UC-12 解封\n[封禁时段结束后]
+AVAILABLE --> DISABLED : UC-11 资源停用
+MAINTENANCE --> DISABLED : UC-11 资源停用
+DISABLED --> AVAILABLE : UC-11 重新启用
+
+DISABLED --> [*]
+
+note bottom of MAINTENANCE
+  维护中与停用的座位不可被预约：创建预约时按"座位状态可用"校验，
+  失败时按 <b>ST-13（创建失败，不产生记录）</b> 处理；此时无预约对象，不能表述为"状态保持"。
+  "讨论间"整体预约时容量为 4~8，属同一座位实体的容量属性（BR-12，候选待确认）。
+end note
+
+note bottom of DISABLED
+  SM-02 是“座位状态由预约记录派生”的派生状态说明，不是独立状态机。
+  “解封、停用、启用”属于资源管理操作（UC-12、UC-11），不单列 ST 转换编号；
+  表中只对由预约记录状态派生的转换标注 ST 编号。
+end note
+@enduml

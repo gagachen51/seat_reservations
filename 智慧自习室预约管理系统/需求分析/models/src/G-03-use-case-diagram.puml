@@ -1,0 +1,75 @@
+@startuml
+title G-03 用例图：智慧自习室预约管理系统（关联 FR、PR；参与者与 SRS 2.4 节一致）
+
+left to right direction
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam usecase {
+  BackgroundColor #F7FAFF
+  BorderColor #2F5DA8
+  FontColor #10305E
+}
+skinparam actorStyle awesome
+
+actor "学生\n（STU）" as STU
+actor "自习室管理员\n（ADM）" as ADM
+actor "系统管理员\n（SYS）" as SYS
+actor "教师\n（TCH）" as TCH
+actor "定时任务\n（系统调度）" as SCHED
+actor "CAS\n（外部系统）" as CAS
+actor "ACS\n（外部系统）" as ACS
+
+rectangle "智慧自习室预约管理系统" {
+  usecase "UC-01 统一身份认证登录" as UC01
+  usecase "UC-02 查询座位可用性" as UC02
+  usecase "UC-03 创建预约" as UC03
+  usecase "UC-04 取消预约" as UC04
+  usecase "UC-05 加入候补队列" as UC05
+  usecase "UC-06 候补补位确认" as UC06
+  usecase "UC-07 扫码/闸机签到" as UC07
+  usecase "UC-08 暂时离开与返回" as UC08
+  usecase "UC-09 签退" as UC09
+  usecase "UC-10 超时自动释放" as UC10
+  usecase "UC-11 资源与开放时段维护" as UC11
+  usecase "UC-12 座位封禁与解封" as UC12
+  usecase "UC-13 强制释放座位" as UC13
+  usecase "UC-14 违规申诉处理" as UC14
+  usecase "UC-15 使用率看板与报表" as UC15
+  usecase "UC-16 系统参数配置" as UC16
+  usecase "UC-17 查看审计日志" as UC17
+}
+
+STU --> UC01
+STU --> UC02
+STU --> UC03
+STU --> UC04
+STU --> UC05
+STU --> UC07
+STU --> UC08
+STU --> UC09
+STU --> UC14 : 提交申诉
+ADM --> UC11
+ADM --> UC12
+ADM --> UC13
+ADM --> UC14 : 审核申诉
+ADM --> UC15
+SYS --> UC16
+SYS --> UC17
+TCH --> UC15
+SCHED --> UC10
+UC01 --> CAS
+UC07 --> ACS
+UC06 --> UC05 : <<extend>> 收到补位通知后确认
+
+note right of UC03
+  包含规则校验：
+  BR-01 时长与粒度、BR-02 当日上限、
+  BR-03 可预约窗口、BR-07 信用分阈值、
+  BR-11 时段不重叠（PR-02 仅本人可创建）
+end note
+note bottom of UC10
+  包含三类超时处理：
+  ST-02 未签到违约、ST-07 暂离超时释放、
+  ST-09 到点未签退；并触发 UC-06 候补补位
+end note
+@enduml
