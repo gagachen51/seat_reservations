@@ -300,6 +300,28 @@ class SqliteRepository:
         ).fetchall()
         return [self._user(row) for row in rows]
 
+    def list_sessions(self, user_id: str) -> list[dict[str, Any]]:
+        """仅在内部携带摘要，用于标识当前设备；不得直接作为 HTTP 响应。"""
+        rows = self.conn.execute(
+            "SELECT token_hash, created_at, last_seen_at, expires_at, ip, user_agent "
+            "FROM sessions WHERE user_id = ? ORDER BY created_at DESC, token_hash",
+            (user_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def delete_sessions(self, user_id: str, except_token_hash: str | None = None) -> int:
+        sql = "DELETE FROM sessions WHERE user_id = ?"
+        params = [user_id]
+        if except_token_hash is not None:
+            sql += " AND token_hash != ?"
+            params.append(except_token_hash)
+        return self.conn.execute(sql, params).rowcount
+
+    def delete_session(self, token_hash: str) -> int:
+        return self.conn.execute(
+            "DELETE FROM sessions WHERE token_hash = ?", (token_hash,)
+        ).rowcount
+
     # ------------------------------------------------------------------
     # 自习室 / 座位
     # ------------------------------------------------------------------
