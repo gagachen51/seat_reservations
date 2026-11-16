@@ -1780,15 +1780,214 @@
   // 视图：系统管理员 · 账号
   // ---------------------------------------------------------------------------
   async function usersView() {
-    const data = await api('/admin/users', { params: { page_size: 100 } });
+    const data = await api('/admin/users', { params: { page: state.page, page_size: 20 } });
     const items = data.items || [];
-    return '<p class="small muted" style="margin-bottom:12px">点击账号调整角色，变更会写入审计日志。</p>' +
-      '<div class="list">' + items.map((user) =>
-        '<button class="list-row clickable" type="button" data-action="edit-role" data-id="' + esc(user.id) + '" data-name="' + esc(user.name) + '" data-role="' + esc(user.role) + '">' +
-        '<span class="avatar-sm">' + esc(user.name.slice(0, 1)) + '</span>' +
-        '<div class="row-main"><div class="row-title">' + esc(user.name) + ' <span class="tertiary small">' + esc(user.id) + '</span></div>' +
-        '<div class="row-sub">' + esc(user.department || '') + (user.class_name ? ' · ' + esc(user.class_name) : '') + '</div></div>' +
-        '<div class="row-side"><span class="pill gray plain">' + esc(ROLE_TEXT[user.role] || user.role) + '</span>' + icon('chevron', 'row-chevron') + '</div></button>').join('') + '</div>';
+    return '<div class="account-toolbar"><p class="small muted">创建和管理账号；停用与重置密码会退出该账号的所有设备。</p>' +
+      '<button class="btn btn-primary" type="button" data-action="account-create">新建账号</button></div>' +
+      (items.length ? '<div class="list">' + items.map((user) => {
+        const attrs = ' data-id="' + esc(user.id) + '" data-name="' + esc(user.name) + '"';
+        return '<div class="list-row account-row"><span class="avatar-sm">' + esc(user.name.slice(0, 1)) + '</span>' +
+          '<div class="row-main"><div class="row-title">' + esc(user.name) + ' <span class="tertiary small">' + esc(user.id) + '</span></div>' +
+          '<div class="row-sub">' + esc(user.department || '未填写院系') + (user.class_name ? ' · ' + esc(user.class_name) : '') + '</div>' +
+          '<div class="account-tags"><span class="pill gray">' + esc(ROLE_TEXT[user.role] || user.role) + '</span>' +
+          '<span class="pill ' + (user.status === 'active' ? 'green' : 'red') + '">' + (user.status === 'active' ? '已启用' : '已停用') + '</span>' +
+          (user.must_change_password ? '<span class="pill orange">需修改密码</span>' : '') + '</div></div>' +
+          '<div class="account-actions"><button class="btn btn-secondary btn-sm" type="button" data-action="edit-role"' + attrs + ' data-role="' + esc(user.role) + '">角色</button>' +
+          '<button class="btn btn-secondary btn-sm" type="button" data-action="account-sessions"' + attrs + '>登录设备</button>' +
+          '<button class="btn btn-secondary btn-sm" type="button" data-action="account-reset"' + attrs + '>重置密码</button>' +
+          '<button class="btn btn-secondary btn-sm" type="button" data-action="account-status"' + attrs + ' data-status="' + esc(user.status) + '"' +
+          (user.id === state.user.id && user.status === 'active' ? ' disabled title="不能停用自己的账号"' : '') + '>' +
+          (user.status === 'active' ? '停用' : '启用') + '</button></div></div>';
+      }).join('') + '</div>' : emptyBlock('暂无账号', '点击“新建账号”添加成员。')) +
+      accountPager(data, 20);
+  }
+
+  function accountPager(data, pageSize) {
+    return '<div class="pager"><span>共 ' + Number(data.total || 0) + ' 条 · 第 ' + Number(state.page) + ' 页</span><div class="row">' +
+      '<button class="btn btn-secondary btn-sm" type="button" data-action="page-prev"' + (state.page <= 1 ? ' disabled' : '') + '>上一页</button>' +
+      '<button class="btn btn-secondary btn-sm" type="button" data-action="page-next"' + (state.page * pageSize >= data.total ? ' disabled' : '') + '>下一页</button></div></div>';
+  }
+
+  function openAccountPanel(config) {
+    // 等旧面板关闭动画结束，避免旧面板的回调隐藏新面板遮罩。
+    if (state.sheet) {
+      closeSheet();
+      setTimeout(() => openSheet(config), 240);
+    } else openSheet(config);
+  }
+
+  function accountSheet() {
+    openAccountPanel({
+      title: '新建账号', subtitle: '新账号首次登录需要修改密码',
+      body: '<form id="accountForm" class="account-form">' +
+        '<label class="field"><span>账号</span><input id="accountId" required maxlength="64" autocomplete="off" placeholder="例如 S2026001"></label>' +
+        '<label class="field"><span>姓名</span><input id="accountName" required maxlength="100" autocomplete="off"></label>' +
+        '<label class="field"><span>角色</span><select id="accountRole">' + Object.entries(ROLE_TEXT).map(([value, label]) =>
+          '<option value="' + value + '">' + esc(label) + '</option>').join('') + '</select></label>' +
+        '<label class="field"><span>院系（可选）</span><input id="accountDepartment" maxlength="100"></label>' +
+        '<label class="field"><span>班级（可选）</span><input id="accountClass" maxlength="100"></label>' +
+        '<label class="field"><span>初始密码（留空自动生成）</span><input id="accountPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password"></label></form>',
+      actions: [
+        { label: '取消', kind: 'secondary', onClick: closeSheet },
+        { label: '创建账号', kind: 'primary', onClick: async () => {
+          if (!$('#accountForm').reportValidity()) return;
+          const body = { id: $('#accountId').value.trim(), name: $('#accountName').value.trim(), role: $('#accountRole').value,
+            department: $('#accountDepartment').value.trim(), class_name: $('#accountClass').value.trim() };
+          const password = $('#accountPassword').value;
+          if (password) body.password = password;
+          const data = await api('/admin/users', { method: 'POST', body });
+          state.page = 1;
+          renderView();
+          if (data.initial_password) initialPasswordSheet(data.user.id, data.initial_password);
+          else { closeSheet(); toast('账号已创建，首次登录需修改密码'); }
+        } },
+      ],
+      onMount: (wrap) => $('#accountForm', wrap).addEventListener('submit', (event) => event.preventDefault()),
+    });
+  }
+
+  function initialPasswordSheet(userId, password) {
+    openAccountPanel({
+      title: '请保存初始密码', subtitle: userId,
+      body: '<p class="small muted">密码仅在本次显示。请保存并私下交给账号使用者，首次登录后需修改。</p>' +
+        '<label class="field account-secret"><span>初始密码</span><input id="accountInitialPassword" readonly autocomplete="off" value="' + esc(password) + '"></label>',
+      actions: [{ label: '已保存，关闭', kind: 'primary', onClick: () => {
+        closeSheet();
+        if (userId === state.user.id) showLogin('密码已重置，请使用新密码登录');
+      } }],
+    });
+  }
+
+  function accountStatusSheet(config) {
+    const status = config.status === 'active' ? 'disabled' : 'active';
+    const label = status === 'disabled' ? '停用' : '启用';
+    openAccountPanel({
+      title: label + '账号', subtitle: config.name + ' · ' + config.id,
+      body: '<p class="small muted">' + (status === 'disabled' ? '停用后所有设备立即退出，已有预约记录保留。' : '启用后可使用原有密码重新登录。') + '</p>' +
+        '<form id="accountStatusForm"><label class="field"><span>操作原因</span><textarea id="accountReason" required maxlength="500"></textarea></label></form>',
+      actions: [
+        { label: '取消', kind: 'secondary', onClick: closeSheet },
+        { label: '确认' + label, kind: status === 'disabled' ? 'danger' : 'primary', onClick: async () => {
+          if (!$('#accountStatusForm').reportValidity()) return;
+          await api('/admin/users/' + encodeURIComponent(config.id) + '/status', {
+            method: 'PUT', body: { status, reason: $('#accountReason').value.trim() },
+          });
+          closeSheet(); toast('账号已' + label); renderView();
+        } },
+      ],
+      onMount: (wrap) => $('#accountStatusForm', wrap).addEventListener('submit', (event) => event.preventDefault()),
+    });
+  }
+
+  function accountResetSheet(config) {
+    openAccountPanel({
+      title: '重置密码', subtitle: config.name + ' · ' + config.id,
+      body: '<p class="small muted">将生成新的初始密码，旧密码失效，所有设备立即退出。账号下次登录需要修改密码。</p>',
+      actions: [
+        { label: '取消', kind: 'secondary', onClick: closeSheet },
+        { label: '确认重置', kind: 'danger', onClick: async () => {
+          const data = await api('/admin/users/' + encodeURIComponent(config.id) + '/reset-password', { method: 'POST', body: {} });
+          if (config.id === state.user.id) state.lastLoginPassword = '';
+          initialPasswordSheet(config.id, data.initial_password);
+        } },
+      ],
+    });
+  }
+
+  async function sessionSheet(config = null) {
+    const admin = Boolean(config);
+    const prefix = admin ? '/admin/users/' + encodeURIComponent(config.id) + '/sessions' : '/me/sessions';
+    const data = await api(prefix);
+    const items = data.items || [];
+    openAccountPanel({
+      title: admin ? '账号登录设备' : '我的登录设备', subtitle: admin ? config.name + ' · ' + config.id : state.user.id,
+      body: '<div class="account-sessions">' + (items.length ? items.map((item) =>
+        '<section class="account-session"><div class="row-between"><strong>' + esc(item.ip || '未知 IP') + '</strong>' +
+        (item.current ? '<span class="pill green">当前设备</span>' : '<span class="pill gray">其他设备</span>') + '</div>' +
+        '<p class="account-agent">' + esc(item.user_agent || '未提供设备信息') + '</p>' +
+        '<dl class="detail-list">' + [['登录时间', item.created_at], ['最后活跃', item.last_seen_at], ['最晚失效', item.expires_at]].map(([label, value]) =>
+          '<div class="detail-row"><dt>' + label + '</dt><dd>' + esc(fmtDateTime(value)) + '</dd></div>').join('') + '</dl></section>').join('') :
+        '<p class="small muted">暂无有效登录设备。</p>') + '</div>',
+      actions: [
+        { label: '关闭', kind: 'secondary', onClick: closeSheet },
+        { label: admin ? '注销全部设备' : '退出其他设备', kind: admin ? 'danger' : 'primary', disabled: admin ? !items.length : items.length <= 1,
+          onClick: async () => {
+            if (admin) {
+              openAccountPanel({ title: '注销全部设备', subtitle: config.name + ' · ' + config.id,
+                body: '<p class="small muted">该账号的所有设备都需要重新登录。</p>', actions: [
+                  { label: '取消', kind: 'secondary', onClick: closeSheet },
+                  { label: '确认注销', kind: 'danger', onClick: async () => {
+                    await api(prefix + '/revoke', { method: 'POST', body: {} });
+                    if (config.id === state.user.id) { await logout(); return; }
+                    await sessionSheet(config); toast('所有登录设备已注销');
+                  } },
+                ] });
+            } else {
+              const result = await api('/me/sessions/revoke-others', { method: 'POST', body: {} });
+              await sessionSheet(); toast('已退出其他 ' + result.revoked + ' 个设备');
+            }
+          } },
+      ],
+    });
+  }
+
+  function profileSheet() {
+    const user = state.user;
+    openAccountPanel({
+      title: '编辑个人资料', subtitle: user.id,
+      body: '<form id="accountProfileForm"><label class="field"><span>姓名</span><input id="profileName" required maxlength="100" value="' + esc(user.name) + '"></label>' +
+        '<label class="field"><span>院系</span><input id="profileDepartment" maxlength="100" value="' + esc(user.department || '') + '"></label>' +
+        '<p class="tiny tertiary">班级、角色和信用分由管理员管理。</p></form>',
+      actions: [
+        { label: '取消', kind: 'secondary', onClick: closeSheet },
+        { label: '保存', kind: 'primary', onClick: async () => {
+          if (!$('#accountProfileForm').reportValidity()) return;
+          const data = await api('/me/profile', { method: 'PUT', body: { name: $('#profileName').value.trim(), department: $('#profileDepartment').value.trim() } });
+          state.user = data.user;
+          if (state.meta) state.meta.user = data.user;
+          renderUser(); closeSheet(); toast('个人资料已更新'); renderView();
+        } },
+      ],
+      onMount: (wrap) => $('#accountProfileForm', wrap).addEventListener('submit', (event) => event.preventDefault()),
+    });
+  }
+
+  async function waitlistView() {
+    const data = await api('/waitlist', { params: { page: state.page, page_size: 20 } });
+    const labels = { queued: ['排队中', 'orange'], notified: ['待确认', 'blue'], confirmed: ['已确认', 'green'], expired: ['已过期', 'gray'], cancelled: ['已取消', 'gray'] };
+    const items = data.items || [];
+    return '<p class="small muted account-note">收到补位通知后，请在截止时间前确认。确认成功后，可在“我的预约”查看。</p>' +
+      (items.length ? '<div class="list">' + items.map((item) => {
+        const status = labels[item.status] || [item.status, 'gray'];
+        const deadline = item.confirm_deadline ? new Date(item.confirm_deadline.replace(' ', 'T')) : null;
+        const canConfirm = item.status === 'notified' && deadline && deadline.getTime() > Date.now();
+        return '<div class="list-row account-waitlist-row"><div class="row-main"><div class="row-title">' + esc(item.seat_id) +
+          ' <span class="pill ' + status[1] + '">' + esc(status[0]) + '</span></div>' +
+          '<div class="row-sub">' + esc(item.date) + ' · ' + esc(item.start) + '—' + esc(item.end) + ' · 排队序号 ' + Number(item.seq) + '</div>' +
+          '<div class="row-sub">确认截止：' + esc(fmtDateTime(item.confirm_deadline)) + '</div></div>' +
+          '<div class="account-actions">' + (item.status === 'notified' ? '<button class="btn btn-primary btn-sm" type="button" data-action="account-waitlist-confirm" data-id="' + esc(item.id) + '"' + (!canConfirm ? ' disabled' : '') + '>确认补位</button>' : '') +
+          (['queued', 'notified'].includes(item.status) ? '<button class="btn btn-secondary btn-sm" type="button" data-action="account-waitlist-cancel" data-id="' + esc(item.id) + '">取消候补</button>' : '') + '</div></div>';
+      }).join('') + '</div>' : emptyBlock('暂无候补记录', '在找座位页面选择已预约的座位，可以加入候补。')) + accountPager(data, 20);
+  }
+
+  async function accountConfirmWaitlist(el) {
+    if (el.disabled) return;
+    el.disabled = true;
+    try {
+      await api('/waitlist/' + encodeURIComponent(el.dataset.id) + '/confirm', { method: 'POST', body: {} });
+      toast('补位成功，请在“我的预约”查看');
+      renderView(); refreshBadge();
+    } finally { el.disabled = false; }
+  }
+
+  function accountCancelWaitlist(id) {
+    openAccountPanel({ title: '取消候补', body: '<p class="small muted">取消后将退出当前队列。如需候补，需要重新加入。</p>', actions: [
+      { label: '保留候补', kind: 'secondary', onClick: closeSheet },
+      { label: '确认取消', kind: 'danger', onClick: async () => {
+        await api('/waitlist/' + encodeURIComponent(id) + '/cancel', { method: 'POST', body: {} });
+        closeSheet(); toast('已取消候补'); renderView();
+      } },
+    ] });
   }
 
   function editRoleSheet(config) {
@@ -2230,6 +2429,8 @@
       subtitle: user.id,
       body,
       actions: [
+        { label: '编辑资料', kind: 'secondary', onClick: profileSheet },
+        { label: '登录设备', kind: 'secondary', onClick: () => sessionSheet().catch(handleError) },
         { label: '修改密码', kind: 'secondary', onClick: () => changePasswordSheet() },
         { label: '退出登录', kind: 'danger', onClick: () => logout() },
       ],

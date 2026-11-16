@@ -1603,6 +1603,156 @@ class DomainEngine:
         return Result.success(user.as_dict(), f"角色已调整为{ROLE_LABELS[user.role]}")
 
     # ------------------------------------------------------------------
+    # A：账号生命周期与个人中心（PR-14）
+    # ------------------------------------------------------------------
+    @implements("PR-14")
+    def create_user(
+        self, actor: Actor, now: datetime, *, user_id: str, name: str, role: str,
+        department: str = "", class_name: str = "", password: str | None = None,
+        ip: str = "",
+    ) -> Result:
+        from ..security import hash_password
+
+        self._require(actor, {Role.SYS_ADMIN}, "PR-14")
+        user_id, name = user_id.strip(), name.strip()
+        department, class_name = department.strip(), class_name.strip()
+        if (not user_id or len(user_id) > 64
+                or any(ch.isspace() or ch in "/\\" for ch in user_id)):
+            raise ValidationFailed("账号须为 1～64 字符，不能包含空白或斜杠")
+        if not name or len(name) > 100 or len(department) > 100 or len(class_name) > 100:
+            raise ValidationFailed("姓名必填，姓名、院系和班级不能超过 100 字符")
+        try:
+            new_role = Role(role)
+        except ValueError as exc:
+            raise ValidationFailed("角色取值不合法") from exc
+        if password is not None and not 8 <= len(password) <= 128:
+            raise ValidationFailed("初始密码须为 8～128 字符")
+        if self.repo.get_user(user_id) is not None:
+            raise Conflict("账号已存在")
+        initial_password = password if password is not None else secrets.token_urlsafe(12)
+        user = User(
+            id=user_id, name=name, role=new_role.value, department=department,
+            class_name=class_name, password_hash=hash_password(initial_password),
+            must_change_password=True, created_at=now, updated_at=now,
+        )
+        self.repo.save_user(user)
+        self._audit(actor, "user_create", "user", user.id, before=None,
+                    after=user.as_dict(), now=now, ip=ip)
+        data = {"user": user.as_dict()}
+        if password is None:
+            data["initial_password"] = initial_password
+        return Result.success(data, "账号已创建，首次登录需修改密码")
+
+    @implements("PR-14")
+    def set_user_status(
+        self, actor: Actor, user_id: str, status: str, reason: str, now: datetime,
+        *, ip: str = "",
+    ) -> Result:
+        self._require(actor, {Role.SYS_ADMIN}, "PR-14")
+        if status not in {"active", "disabled"}:
+            raise ValidationFailed("账号状态不合法")
+        reason = reason.strip()
+        if not reason or len(reason) > 500:
+            raise ValidationFailed("请填写 1～500 字符的操作原因")
+        user = self.repo.get_user(user_id)
+        if user is None:
+            raise NotFound("账号不存在")
+        if status == "disabled":
+            if user.id == actor.id:
+                raise RuleViolation("不能停用自己的账号", rule="PR-14")
+            if (user.is_active and user.role == Role.SYS_ADMIN.value
+                    and self.repo.count_sys_admins(exclude=user.id) == 0):
+                raise RuleViolation("不能停用最后一名启用中的系统管理员", rule="PR-14")
+        before = {"status": user.status}
+        user.status, user.updated_at = status, now
+        self.repo.save_user(user)
+        if status == "disabled":
+            self.repo.delete_sessions(user.id)
+        self._audit(actor, "user_status_change", "user", user.id, before=before,
+                    after={"status": status, "reason": reason}, now=now, ip=ip)
+        return Result.success({"user": user.as_dict()}, "账号已启用" if user.is_active else "账号已停用")
+
+    @implements("PR-14")
+    def reset_user_password(
+        self, actor: Actor, user_id: str, now: datetime, *, ip: str = "",
+    ) -> Result:
+        from ..security import hash_password
+
+        self._require(actor, {Role.SYS_ADMIN}, "PR-14")
+        user = self.repo.get_user(user_id)
+        if user is None:
+            raise NotFound("账号不存在")
+        initial_password = secrets.token_urlsafe(12)
+        user.password_hash = hash_password(initial_password)
+        user.must_change_password, user.updated_at = True, now
+        self.repo.save_user(user)
+        revoked = self.repo.delete_sessions(user.id)
+        # 与 AuthService.reset_password 相同的原语，在本次引擎事务中原子完成，避免嵌套写锁。
+        self._audit(actor, "user_reset_password", "user", user.id, before=None,
+                    after={"must_change_password": True, "revoked": revoked}, now=now, ip=ip)
+        return Result.success({"initial_password": initial_password}, "密码已重置，所有设备需重新登录")
+
+    def list_user_sessions(
+        self, actor: Actor, user_id: str, now: datetime, *, current_token_hash: str,
+        idle_minutes: int = 30,
+    ) -> dict[str, Any]:
+        if actor.id != user_id:
+            self._require(actor, {Role.SYS_ADMIN}, "PR-14")
+        if self.repo.get_user(user_id) is None:
+            raise NotFound("账号不存在")
+        items = []
+        for row in self.repo.list_sessions(user_id):
+            absolute = datetime.fromisoformat(row["expires_at"])
+            idle = datetime.fromisoformat(row["last_seen_at"]) + timedelta(minutes=idle_minutes)
+            if now >= min(absolute, idle):
+                continue
+            items.append({
+                **{key: row[key] for key in ("created_at", "last_seen_at", "expires_at", "ip", "user_agent")},
+                "current": secrets.compare_digest(row["token_hash"], current_token_hash),
+            })
+        return {"items": items, "current": any(item["current"] for item in items)}
+
+    def revoke_user_sessions(
+        self, actor: Actor, user_id: str, now: datetime, *,
+        except_token_hash: str | None = None, ip: str = "",
+    ) -> Result:
+        if actor.id != user_id or except_token_hash is None:
+            self._require(actor, {Role.SYS_ADMIN}, "PR-14")
+        if self.repo.get_user(user_id) is None:
+            raise NotFound("账号不存在")
+        if except_token_hash is not None and not any(
+            row["token_hash"] == except_token_hash for row in self.repo.list_sessions(user_id)
+        ):
+            raise RuleViolation("当前会话已失效，请重新登录")
+        revoked = self.repo.delete_sessions(user_id, except_token_hash=except_token_hash)
+        self._audit(actor, "session_revoke", "user", user_id, before=None,
+                    after={"revoked": revoked, "keep_current": except_token_hash is not None},
+                    now=now, ip=ip)
+        return Result.success({"revoked": revoked}, "登录会话已注销")
+
+    def update_my_profile(
+        self, actor: Actor, now: datetime, *, name: str | None = None,
+        department: str | None = None, ip: str = "",
+    ) -> Result:
+        user = self._user(actor)
+        if name is None and department is None:
+            raise ValidationFailed("请至少填写一项资料")
+        if name is not None and (not name.strip() or len(name.strip()) > 100):
+            raise ValidationFailed("姓名须为 1～100 字符")
+        if department is not None and len(department.strip()) > 100:
+            raise ValidationFailed("院系不能超过 100 字符")
+        before = {"name": user.name, "department": user.department}
+        if name is not None:
+            user.name = name.strip()
+        if department is not None:
+            user.department = department.strip()
+        user.updated_at = now
+        self.repo.save_user(user)
+        self._audit(actor, "profile_update", "user", user.id, before=before,
+                    after={"name": user.name, "department": user.department}, now=now, ip=ip)
+        return Result.success({"user": user.as_dict()}, "个人资料已更新")
+
+    # ------------------------------------------------------------------
     # 自习室 / 座位资源管理（FR-21 / PR-05）
     # ------------------------------------------------------------------
     @implements("FR-21", "PR-05")
