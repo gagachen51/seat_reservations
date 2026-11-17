@@ -25,6 +25,7 @@
     feedback: ['反馈', '投诉建议与处理结果'],
     messages: ['消息', '预约提醒与处理通知'],
     overview: ['概览', '实时使用率与近 7 日趋势'],
+    analytics: ['分析', '按日期区间查看运营指标'],
     floor: ['现场', '座位状态与现场处置'],
     resources: ['资源', '自习室与座位的增改、启用/停用'],
     search: ['预约查询', '按状态、日期与关键词检索'],
@@ -421,13 +422,14 @@
       { title: '账户', items: [['credit', '信用', 'credit'], ['feedback', '反馈', 'feedback'], ['messages', '消息', 'bell']] },
     ],
     room_admin: [
-      { title: '运营', items: [['overview', '概览', 'overview'], ['floor', '现场', 'floor'], ['resources', '资源', 'floor'], ['search', '预约查询', 'search']] },
+      { title: '运营', items: [['overview', '概览', 'overview'], ['analytics', '分析', 'overview'], ['floor', '现场', 'floor'], ['resources', '资源', 'floor'], ['search', '预约查询', 'search']] },
       { title: '服务', items: [['complaints', '投诉', 'feedback'], ['reviews', '评价', 'star'], ['appeals', '违规申诉', 'alert'], ['students', '学生', 'users']] },
     ],
     teacher: [
       { title: '教学', items: [['class', '班级看板', 'class']] },
     ],
     sys_admin: [
+      { title: '运营', items: [['analytics', '分析', 'overview']] },
       { title: '系统', items: [['params', '参数', 'params'], ['resources', '资源', 'floor'], ['users', '账号', 'users'], ['audit', '审计', 'audit'], ['system', '系统', 'system']] },
     ],
   };
@@ -1176,6 +1178,201 @@
       content += '<text x="' + x + '" y="' + (H - 7) + '" text-anchor="middle" font-size="' + (compact ? 9.5 : 10) + '" fill="#8E8E93">' + esc(item.hour) + '</text>';
     });
     return '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="今日时段分布">' + content + '</svg>';
+  }
+
+  // ---------------------------------------------------------------------------
+  // 视图：管理员 · 运营分析（D 模块）
+  // 共享注册表由 B 按 SFCR-D-002 应用；本区只实现页面和交互函数。
+  // ---------------------------------------------------------------------------
+  const ANALYTICS_RANGE_DAYS = { '7d': 7, '30d': 30, '90d': 90 };
+  const ANALYTICS_WAITLIST_LABELS = {
+    queued: '排队中',
+    notified: '已通知',
+    confirmed: '已确认',
+    expired: '已过期',
+    cancelled: '已取消',
+  };
+
+  let analyticsRange = '7d';
+  let analyticsRoom = '';
+
+  function analyticsDateRange() {
+    const today = (state.meta && state.meta.today) || todayISO();
+    const days = ANALYTICS_RANGE_DAYS[analyticsRange] || 7;
+    return { date_from: shiftDay(today, -(days - 1)), date_to: today };
+  }
+
+  function setAnalyticsRange(range) {
+    if (!ANALYTICS_RANGE_DAYS[range]) return;
+    analyticsRange = range;
+    renderView();
+  }
+
+  function setAnalyticsRoom(roomId) {
+    analyticsRoom = roomId || '';
+    renderView();
+  }
+
+  async function analyticsView() {
+    const rooms = (state.meta && state.meta.rooms) || [];
+    if (analyticsRoom && !rooms.some((room) => room.id === analyticsRoom)) {
+      analyticsRoom = '';
+    }
+    const range = analyticsDateRange();
+    const data = await api('/admin/analytics', {
+      params: {
+        date_from: range.date_from,
+        date_to: range.date_to,
+        room_id: analyticsRoom || undefined,
+      },
+    });
+    return analyticsHtml(data);
+  }
+
+  function analyticsHtml(data) {
+    const kpi = data.kpi || {};
+    const rooms = data.rooms || [];
+    const daily = data.daily || [];
+    const peakHours = data.peak_hours || [];
+    const violationTypes = (data.violations && data.violations.by_type) || [];
+    const ratings = data.ratings || { distribution: [] };
+    const waitlist = data.waitlist || { by_status: [] };
+    const complaints = data.complaints || {};
+    const notes = data.metric_notes || {};
+    const metaRooms = (state.meta && state.meta.rooms) || [];
+
+    const num = (value) => (value === null || value === undefined ? '—' : String(value));
+    const pct = (value) => (value === null || value === undefined
+      ? '—'
+      : (Math.round(Number(value) * 10) / 10).toFixed(1) + '%');
+    const rangeLabel = { '7d': '近 7 天', '30d': '近 30 天', '90d': '近 90 天' }[analyticsRange] || '近 7 天';
+
+    const rangeButtons = [['7d', '近 7 天'], ['30d', '近 30 天'], ['90d', '近 90 天']].map(([value, label]) =>
+      '<button type="button" data-action="analytics-range" data-range="' + value + '" class="' +
+      (analyticsRange === value ? 'active' : '') + '">' + label + '</button>').join('');
+    const roomButtons = '<button type="button" data-action="analytics-room" data-room="" class="' +
+      (!analyticsRoom ? 'active' : '') + '">全部</button>' + metaRooms.map((room) =>
+      '<button type="button" data-action="analytics-room" data-room="' + esc(room.id) + '" class="' +
+      (analyticsRoom === room.id ? 'active' : '') + '">' + esc(room.name) + '</button>').join('');
+
+    const toolbar = '<div class="card toolbar analytics-toolbar">' +
+      '<div class="toolbar-row"><div class="segmented">' + rangeButtons + '</div>' +
+        '<div class="grow"></div><span class="tiny tertiary">' + esc(rangeLabel) +
+        ' · ' + esc((data.range && data.range.date_from) || '') + ' 至 ' +
+        esc((data.range && data.range.date_to) || '') + ' · 更新 ' +
+        esc(fmtDateTime(data.generated_at)) + '</span></div>' +
+      '<div class="toolbar-row"><div class="segmented">' + roomButtons + '</div></div>' +
+      '</div>';
+
+    const kpiCard = (label, value, foot, kind) =>
+      '<div class="kpi ' + (kind || '') + '"><div class="kpi-label">' + esc(label) +
+      '</div><div class="kpi-value">' + esc(value) + '</div><div class="kpi-foot">' + foot + '</div></div>';
+    const kpis = '<div class="kpi-grid analytics-kpi-grid">' +
+      kpiCard('预约数', num(kpi.reservations), '有效 ' + num(kpi.valid_reservations) + ' · 待签到 ' + num(kpi.pending)) +
+      kpiCard('完成数', num(kpi.completed), '完成率 ' + pct(kpi.completion_rate)) +
+      kpiCard('违约数', num(kpi.no_show), '违约率 ' + pct(kpi.no_show_rate)) +
+      kpiCard('取消数', num(kpi.cancelled), '取消率 ' + pct(kpi.cancel_rate) + ' · 已释放 ' + num(kpi.released)) +
+      kpiCard('签到率', pct(kpi.checkin_rate), '签到 ' + num(kpi.checkins) + ' / 应签到 ' + num(kpi.checkin_base), 'blue') +
+      kpiCard('完成率', pct(kpi.completion_rate), '完成 ' + num(kpi.completed) + ' / 出勤结果 ' + num(kpi.attendance_base)) +
+      kpiCard('投诉办结率', pct(kpi.complaint_resolution_rate),
+        '已办结 ' + num(complaints.completed) + ' / ' + num(complaints.total)) +
+      kpiCard('平均评分', kpi.average_rating == null ? '—' : num(kpi.average_rating),
+        '共 ' + num(ratings.total) + ' 条评价') +
+      '</div>';
+
+    const trend = '<div class="card chart-card"><div class="chart-head"><h3>每日预约与签到</h3>' +
+      '<div class="legend"><span><i style="background:#007AFF"></i>预约</span>' +
+      '<span><i style="background:#34C759"></i>签到</span></div></div>' +
+      '<div class="chart">' + (daily.length ? trendChart(daily) :
+        '<div class="chart-empty">当前区间没有预约数据</div>') + '</div></div>';
+
+    const peak = '<div class="card chart-card"><div class="chart-head"><h3>高峰时段分布</h3>' +
+      '<span class="tiny tertiary">按开始时间统计</span></div><div class="chart">' +
+      (peakHours.length ? hourlyChart(peakHours) :
+        '<div class="chart-empty">当前区间没有预约数据</div>') + '</div></div>';
+
+    const roomRows = rooms.length ? rooms.map((room) =>
+      '<tr><td><strong>' + esc(room.name) + '</strong><br><span class="tiny tertiary">' +
+      esc(room.id) + '</span></td>' +
+      '<td>' + num(room.total_seats) + '</td>' +
+      '<td>' + num(room.reservations) + '</td>' +
+      '<td>' + num(room.completed) + '</td>' +
+      '<td>' + num(room.no_show) + '</td>' +
+      '<td>' + num(room.cancelled) + '</td>' +
+      '<td>' + num(room.released) + '</td>' +
+      '<td class="nowrap">' + pct(room.booking_utilization) + '</td></tr>').join('')
+      : '<tr><td colspan="8" class="tiny tertiary">当前区间没有房间数据</td></tr>';
+    const roomRanking = '<div class="card chart-card analytics-room-card"><div class="chart-head"><h3>房间预约时段利用率</h3>' +
+      '<span class="tiny tertiary">非取消预约的预订时段 / 容量</span></div>' +
+      '<div class="table-wrap analytics-table-wrap"><table class="data"><thead><tr>' +
+      '<th>自习室</th><th>座位</th><th>预约</th><th>完成</th><th>违约</th><th>取消</th><th>释放</th><th>预约时段利用率</th>' +
+      '</tr></thead><tbody>' + roomRows + '</tbody></table></div>' +
+      '<p class="tiny tertiary analytics-table-note">预约时段利用率反映预约资源占用，不等同于实际签到后的使用时长。</p></div>';
+
+    const barList = (items, labelOf, valueOf, cls) => {
+      if (!items.length) return '<div class="chart-empty">当前区间没有数据</div>';
+      const max = Math.max(1, ...items.map((item) => Number(valueOf(item)) || 0));
+      return '<div class="bar-list">' + items.map((item) => {
+        const value = Number(valueOf(item)) || 0;
+        return '<div class="bar-item"><span class="bar-label">' + esc(labelOf(item)) +
+          '</span><span class="bar-track"><span class="bar-fill ' + (cls || '') +
+          '" style="width:' + Math.max(4, Math.round(value / max * 100)) + '%"></span></span>' +
+          '<span class="bar-value">' + num(value) + '</span></div>';
+      }).join('') + '</div>';
+    };
+
+    const violationLabels = (state.meta && state.meta.violation_types) || {};
+    const violations = '<div class="card chart-card"><div class="chart-head"><h3>违约类型</h3>' +
+      '<span class="tiny tertiary">当前区间</span></div>' +
+      barList(violationTypes, (item) => violationLabels[item.type] || item.type, (item) => item.count, 'red') +
+      '</div>';
+
+    const ratingBars = '<div class="card chart-card"><div class="chart-head"><h3>评价分布</h3>' +
+      '<span class="tiny tertiary">平均 ' + (ratings.average == null ? '—' : num(ratings.average)) + '</span></div>' +
+      barList(ratings.distribution || [], (item) => item.rating + ' 星', (item) => item.count, 'orange') +
+      '</div>';
+
+    const waitlistBars = '<div class="card chart-card"><div class="chart-head"><h3>候补状态</h3>' +
+      '<span class="tiny tertiary">确认率 ' + pct(waitlist.confirmed_rate) + '</span></div>' +
+      barList(waitlist.by_status || [],
+        (item) => ANALYTICS_WAITLIST_LABELS[item.status] || item.status,
+        (item) => item.count, 'green') +
+      '<p class="tiny tertiary analytics-table-note">候补 ' + num(waitlist.total) +
+      ' 条，等待中 ' + num(waitlist.waiting) + ' 条。</p></div>';
+
+    const complaintRows = [
+      ['投诉总数', num(complaints.total)],
+      ['待处理', num(complaints.pending)],
+      ['已办结', num(complaints.completed)],
+      ['办结率', pct(complaints.resolution_rate)],
+      ['平均处理时长', complaints.average_hours == null ? '—' : num(complaints.average_hours) + ' 小时'],
+      ['平均评分', complaints.average_rating == null ? '—' : num(complaints.average_rating)],
+    ];
+    const complaintsCard = '<div class="card chart-card"><div class="chart-head"><h3>投诉处理</h3>' +
+      '<span class="tiny tertiary">已办结含已评价</span></div><dl class="detail-list analytics-detail-list">' +
+      complaintRows.map(([label, value]) => '<div class="detail-row"><dt>' + esc(label) +
+        '</dt><dd>' + esc(value) + '</dd></div>').join('') + '</dl></div>';
+
+    const noteKeys = [
+      ['booking_utilization', '预约时段利用率'],
+      ['checkin_rate', '签到率'],
+      ['completion_rate', '完成率'],
+      ['no_show_rate', '违约率'],
+      ['cancel_rate', '取消率'],
+      ['complaint_resolution_rate', '投诉办结率'],
+      ['waitlist.confirmed_rate', '候补确认率'],
+      ['avg_minutes', '平均预约时长'],
+    ];
+    const noteItems = noteKeys.filter(([key]) => notes[key]).map(([key, label]) =>
+      '<div class="analytics-note-item"><strong>' + esc(label) + '</strong><span>' +
+      esc(notes[key]) + '</span></div>').join('');
+    const metricNotes = noteItems
+      ? '<div class="section"><div class="section-head"><h2>指标口径</h2></div>' +
+        '<div class="card card-pad analytics-notes">' + noteItems + '</div></div>'
+      : '';
+
+    return toolbar + kpis + '<div class="dash-grid">' + trend + peak + roomRanking +
+      violations + ratingBars + waitlistBars + complaintsCard + '</div>' + metricNotes;
   }
 
   // ---------------------------------------------------------------------------
@@ -2076,7 +2273,7 @@
       '<div class="detail-row"><dt>' + label + '</dt><dd>' + esc(value) + '</dd></div>').join('') + '</dl></div>' +
       (scheduler.last_error ? '<div class="banner danger" style="margin-top:12px">' + icon('alert') + '<div>最近一次任务失败：' + esc(scheduler.last_error) + '</div></div>' : '') +
       '<div class="section"><div class="section-head"><h2>数据导出</h2></div><div class="list">' +
-        [['reservations', '预约记录'], ['violations', '违规记录'], ['audit', '审计日志']].map(([kind, label]) =>
+        [['reservations', '预约记录'], ['violations', '违规记录'], ['audit', '审计日志'], ['complaints', '投诉记录'], ['blacklist', '黑名单记录'], ['credit_logs', '信用流水'], ['waitlist', '候补记录']].map(([kind, label]) =>
           '<a class="list-row clickable" href="/api/admin/export/' + kind + '.csv"><div class="row-main"><div class="row-title">' + label + '</div><div class="row-sub">CSV · UTF-8 BOM · 可用 Excel 打开</div></div><div class="row-side">' + icon('download', 'row-chevron') + '</div></a>').join('') +
       '</div></div>' +
       '<div class="section"><div class="section-head"><h2>运维提示</h2></div><div class="card card-pad small muted">' +
@@ -2231,6 +2428,7 @@
     feedback: feedbackView,
     messages: messagesView,
     overview: overviewView,
+    analytics: analyticsView,
     floor: floorView,
     resources: resourcesView,
     search: searchView,
@@ -2278,6 +2476,8 @@
   const ACTIONS = {
     nav: (el) => go(el.dataset.view),
     refresh: () => renderView(),
+    'analytics-range': (el) => setAnalyticsRange(el.dataset.range),
+    'analytics-room': (el) => setAnalyticsRoom(el.dataset.room),
     'close-sheet': () => closeSheet(),
     logout: () => logout(),
     'user-menu': () => openUserMenu(),
