@@ -51,6 +51,26 @@ def admin_stats(
     return success(engine.admin_stats(actor, room_id, datetime.now()))
 
 
+@router.get("/admin/analytics", summary="运营分析")
+def admin_analytics(
+    date_from: date | None = None,
+    date_to: date | None = None,
+    room_id: str | None = None,
+    actor: Actor = Depends(get_actor),
+    engine: DomainEngine = Depends(read_engine),
+) -> JSONResponse:
+    # 日期默认值、90 天上限、权限和房间存在性都由 DomainEngine 处理。
+    return success(
+        engine.admin_analytics(
+            actor,
+            date_from=date_from,
+            date_to=date_to,
+            room_id=room_id,
+            now=datetime.now(),
+        )
+    )
+
+
 @router.get("/teacher/dashboard", summary="教师本班汇总")
 def teacher_dashboard(
     actor: Actor = Depends(get_actor),

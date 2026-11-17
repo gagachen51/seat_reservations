@@ -1797,3 +1797,85 @@ body.shell .toast { top: 58px; }
   .account-actions { width: 100%; max-width: none; justify-content: flex-start; }
   .account-toolbar { align-items: flex-start; }
 }
+
+/* ---------- 运营分析（D 模块） ---------- */
+.analytics-toolbar {
+  padding: 16px;
+}
+
+.analytics-toolbar .toolbar-row {
+  align-items: center;
+}
+
+.analytics-toolbar .segmented {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.analytics-kpi-grid {
+  margin-top: 12px;
+}
+
+.analytics-room-card {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.analytics-table-wrap {
+  margin-top: 2px;
+}
+
+.analytics-table-wrap table.data {
+  min-width: 760px;
+}
+
+.analytics-table-note {
+  margin-top: 10px;
+  line-height: 1.5;
+}
+
+.analytics-detail-list {
+  padding: 0 2px;
+}
+
+.analytics-notes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 24px;
+}
+
+.analytics-note-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--secondary);
+}
+
+.analytics-note-item strong {
+  color: var(--label-2);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+@media (max-width: 920px) {
+  .analytics-notes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .analytics-toolbar {
+    padding: 13px;
+  }
+
+  .analytics-toolbar .segmented {
+    width: 100%;
+  }
+
+  .analytics-table-wrap table.data {
+    min-width: 700px;
+  }
+}

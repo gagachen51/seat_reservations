@@ -1629,10 +1629,26 @@ class SqliteRepository:
             [today.isoformat(), *room_params],
         ).fetchone()["c"]
         open_complaints = self.conn.execute(
-            "SELECT COUNT(*) AS c FROM complaints WHERE status='pending'"
+            """
+            SELECT COUNT(*) AS c
+            FROM complaints c
+            LEFT JOIN seats cs ON cs.id = c.seat_id
+            LEFT JOIN reservations cr ON cr.id = c.reservation_id
+            LEFT JOIN seats rs ON rs.id = cr.seat_id
+            WHERE c.status='pending'
+              AND (? IS NULL OR COALESCE(cs.room_id, rs.room_id) = ?)
+            """,
+            (room_id, room_id),
         ).fetchone()["c"]
         waitlist_waiting = self.conn.execute(
-            "SELECT COUNT(*) AS c FROM waitlist WHERE status IN ('queued','notified')"
+            """
+            SELECT COUNT(*) AS c
+            FROM waitlist w
+            JOIN seats s ON s.id = w.seat_id
+            WHERE w.status IN ('queued','notified')
+              AND (? IS NULL OR s.room_id = ?)
+            """,
+            (room_id, room_id),
         ).fetchone()["c"]
         avg_rating = self.average_rating(room_id)
 
@@ -1723,6 +1739,23 @@ class SqliteRepository:
             "rooms": rooms,
             "hourly": hourly,
         }
+
+    def analytics_range(
+        self,
+        *,
+        date_from: date,
+        date_to: date,
+        room_id: str | None = None,
+    ) -> dict[str, Any]:
+        """按日期区间/自习室返回运营分析数据（只查询，不校验权限）。"""
+        from .analytics_queries import build_range_summary
+
+        return build_range_summary(
+            self.conn,
+            date_from=date_from,
+            date_to=date_to,
+            room_id=room_id,
+        )
 
     def teacher_stats(self, class_name: str, now: datetime) -> dict[str, Any]:
         today = now.date()
@@ -1841,6 +1874,89 @@ class SqliteRepository:
             "month_credit_delta": int(row["month_credit_delta"] or 0),
             "active_violations": int(row["active_violations"] or 0),
         }
+
+    def export_rows(
+        self,
+        kind: str,
+        *,
+        date_from: date | None = None,
+        date_to: date | None = None,
+    ) -> tuple[list[str], list[list[Any]]]:
+        """按导出类型返回表头与数据行；不校验权限、不做 CSV 转义。"""
+        if kind == "reservations":
+            page = self.list_reservations(
+                date_from=date_from, date_to=date_to, page=1, page_size=10000
+            )
+            headers = ["预约号", "日期", "开始", "结束", "座位", "自习室", "学生", "状态", "来源", "结束原因"]
+            return headers, [
+                [
+                    item.reservation.id,
+                    item.reservation.day.isoformat(),
+                    item.reservation.start_time,
+                    item.reservation.end_time,
+                    item.seat_id,
+                    item.room_name,
+                    item.user_name,
+                    item.reservation.status,
+                    item.reservation.source,
+                    item.reservation.end_reason or "",
+                ]
+                for item in page.items
+            ]
+        if kind == "violations":
+            page = self.list_violations(
+                date_from=date_from, date_to=date_to, page=1, page_size=10000
+            )
+            headers = ["违规号", "预约号", "学号", "类型", "扣分", "来源", "状态", "发生时间", "说明"]
+            return headers, [
+                [
+                    item.id,
+                    item.reservation_id,
+                    item.user_id,
+                    item.violation_type,
+                    item.points,
+                    item.source,
+                    item.status,
+                    fmt_datetime(item.occurred_at) or "",
+                    item.note,
+                ]
+                for item in page.items
+            ]
+        if kind == "audit":
+            page = self.list_audit(
+                date_from=date_from, date_to=date_to, page=1, page_size=10000
+            )
+            headers = ["日志号", "操作人", "角色", "动作", "对象类型", "对象", "时间", "IP"]
+            return headers, [
+                [
+                    item.id,
+                    item.actor_id,
+                    item.actor_role,
+                    item.action,
+                    item.target_type,
+                    item.target_id,
+                    fmt_datetime(item.created_at) or "",
+                    item.ip,
+                ]
+                for item in page.items
+            ]
+        if kind == "complaints":
+            from .export_queries import complaint_rows
+
+            return complaint_rows(self.conn, date_from=date_from, date_to=date_to)
+        if kind == "blacklist":
+            from .export_queries import blacklist_rows
+
+            return blacklist_rows(self.conn, date_from=date_from, date_to=date_to)
+        if kind == "credit_logs":
+            from .export_queries import credit_log_rows
+
+            return credit_log_rows(self.conn, date_from=date_from, date_to=date_to)
+        if kind == "waitlist":
+            from .export_queries import waitlist_rows
+
+            return waitlist_rows(self.conn, date_from=date_from, date_to=date_to)
+        raise ValueError(f"不支持的导出类型：{kind}")
 
     def today_active_seat_ids(self, day: date, now: datetime) -> set[str]:
         rows = self.conn.execute(

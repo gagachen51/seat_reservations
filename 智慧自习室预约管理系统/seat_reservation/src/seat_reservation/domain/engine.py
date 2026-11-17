@@ -94,7 +94,17 @@ from .timeutil import (
 REWARD_REASON = "按时签到签退奖励"
 _CROCKFORD = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 # FR-54 / FR-62 / FR-72 要求的导出类型；路由与引擎共用，避免"前端有链接、后端不认"。
-EXPORT_KINDS = ("reservations", "violations", "audit")
+EXPORT_KINDS = (
+    "reservations",
+    "violations",
+    "audit",
+    "complaints",
+    "blacklist",
+    "credit_logs",
+    "waitlist",
+)
+ANALYTICS_DEFAULT_DAYS = 7
+MAX_ANALYTICS_DAYS = 90
 
 
 def _new_credential() -> str:
@@ -2505,69 +2515,77 @@ class DomainEngine:
         self._require(actor, {Role.ROOM_ADMIN, Role.SYS_ADMIN}, "PR-12")
         return self.repo.admin_stats(now, room_id)
 
+    @staticmethod
+    def _validate_date_range(
+        date_from: date | None,
+        date_to: date | None,
+        *,
+        max_days: int | None = None,
+    ) -> None:
+        if date_from is not None and date_to is not None and date_from > date_to:
+            raise ValidationFailed("开始日期不能晚于结束日期")
+        if max_days is not None and date_from is not None and date_to is not None:
+            days = (date_to - date_from).days + 1
+            if days > max_days:
+                raise ValidationFailed(f"日期跨度不能超过 {max_days} 天")
+
+    def _resolve_analytics_dates(
+        self,
+        date_from: date | None,
+        date_to: date | None,
+        now: datetime,
+    ) -> tuple[date, date]:
+        """补齐分析日期：未给出的一端按 7 天窗口对称补齐。"""
+        if date_from is None and date_to is None:
+            date_to = now.date()
+            date_from = date_to - timedelta(days=ANALYTICS_DEFAULT_DAYS - 1)
+        elif date_from is None:
+            assert date_to is not None
+            date_from = date_to - timedelta(days=ANALYTICS_DEFAULT_DAYS - 1)
+        elif date_to is None:
+            date_to = date_from + timedelta(days=ANALYTICS_DEFAULT_DAYS - 1)
+        self._validate_date_range(date_from, date_to, max_days=MAX_ANALYTICS_DAYS)
+        return date_from, date_to
+
+    @implements("FR-61", "FR-69", "PR-12")
+    def admin_analytics(
+        self,
+        actor: Actor,
+        *,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        room_id: str | None = None,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """按 SRS PR-12 返回全校/指定自习室的运营分析。"""
+        self._require(actor, {Role.ROOM_ADMIN, Role.SYS_ADMIN}, "PR-12")
+        now = now or datetime.now()
+        resolved_from, resolved_to = self._resolve_analytics_dates(date_from, date_to, now)
+        room_id = room_id.strip() if room_id else None
+        if room_id and self.repo.get_room(room_id) is None:
+            raise NotFound(f"自习室 {room_id} 不存在")
+        data = self.repo.analytics_range(
+            date_from=resolved_from,
+            date_to=resolved_to,
+            room_id=room_id,
+        )
+        data["generated_at"] = fmt_datetime(now)
+        return data
+
     def export_rows(
         self, actor: Actor, kind: str, *, date_from: date | None, date_to: date | None
     ) -> tuple[list[str], list[list[Any]]]:
+        # PR-16：导出权限集中在 DomainEngine，Repository 只做查询。
         self._require(actor, {Role.SYS_ADMIN}, "PR-16")
-        if kind == "reservations":
-            page = self.repo.list_reservations(
-                date_from=date_from, date_to=date_to, page=1, page_size=10000
+        if kind not in EXPORT_KINDS:
+            raise ValidationFailed(
+                f"不支持的导出类型：{kind}；可选值为 {', '.join(sorted(EXPORT_KINDS))}"
             )
-            headers = ["预约号", "日期", "开始", "结束", "座位", "自习室", "学生", "状态", "来源", "结束原因"]
-            rows = [
-                [
-                    item.reservation.id,
-                    item.reservation.day.isoformat(),
-                    item.reservation.start_time,
-                    item.reservation.end_time,
-                    item.seat_id,
-                    item.room_name,
-                    item.user_name,
-                    item.reservation.status,
-                    item.reservation.source,
-                    item.reservation.end_reason or "",
-                ]
-                for item in page.items
-            ]
-            return headers, rows
-        if kind == "violations":
-            page = self.repo.list_violations(page=1, page_size=10000)
-            headers = ["违规号", "预约号", "学号", "类型", "扣分", "来源", "状态", "发生时间", "说明"]
-            rows = [
-                [
-                    item.id,
-                    item.reservation_id,
-                    item.user_id,
-                    item.violation_type,
-                    item.points,
-                    item.source,
-                    item.status,
-                    fmt_datetime(item.occurred_at) or "",
-                    item.note,
-                ]
-                for item in page.items
-            ]
-            return headers, rows
-        if kind == "audit":
-            self._require(actor, {Role.SYS_ADMIN}, "PR-15")
-            page = self.repo.list_audit(page=1, page_size=10000)
-            headers = ["日志号", "操作人", "角色", "动作", "对象类型", "对象", "时间", "IP"]
-            rows = [
-                [
-                    item.id,
-                    item.actor_id,
-                    item.actor_role,
-                    item.action,
-                    item.target_type,
-                    item.target_id,
-                    fmt_datetime(item.created_at) or "",
-                    item.ip,
-                ]
-                for item in page.items
-            ]
-            return headers, rows
-        raise ValidationFailed(
-            f"不支持的导出类型：{kind}；可选值为 {', '.join(sorted(EXPORT_KINDS))}"
+        self._validate_date_range(date_from, date_to)
+        return self.repo.export_rows(
+            kind,
+            date_from=date_from,
+            date_to=date_to,
         )
 
     def param_snapshot_json(self) -> str:
