@@ -1933,3 +1933,36 @@ body.shell .toast { top: 58px; }
     min-width: 700px;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   C · 预约续约弹窗
+   --------------------------------------------------------------------------- */
+.extend-summary {
+  margin: 2px 0 14px;
+  line-height: 1.55;
+}
+
+.extend-summary strong {
+  color: var(--label);
+  font-weight: 650;
+}
+
+.extend-preview {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--gray-soft);
+  color: var(--label-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.extend-preview strong {
+  color: var(--blue);
+  font-weight: 650;
+}
+
+.extend-note {
+  margin: 10px 0 0;
+  line-height: 1.55;
+}
