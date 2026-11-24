@@ -62,6 +62,7 @@ from .models import (
 )
 from .params import PARAM_INDEX, ParamSet, check_consistency, validate_value
 from .ports import Repository
+from . import resource_rules
 from .rules import (
     blacklist_threshold_reached,
     cancel_phase,
@@ -94,17 +95,7 @@ from .timeutil import (
 REWARD_REASON = "按时签到签退奖励"
 _CROCKFORD = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 # FR-54 / FR-62 / FR-72 要求的导出类型；路由与引擎共用，避免"前端有链接、后端不认"。
-EXPORT_KINDS = (
-    "reservations",
-    "violations",
-    "audit",
-    "complaints",
-    "blacklist",
-    "credit_logs",
-    "waitlist",
-)
-ANALYTICS_DEFAULT_DAYS = 7
-MAX_ANALYTICS_DAYS = 90
+EXPORT_KINDS = ("reservations", "violations", "audit")
 
 
 def _new_credential() -> str:
@@ -1130,13 +1121,14 @@ class DomainEngine:
     # ------------------------------------------------------------------
     # 定时任务
     # ------------------------------------------------------------------
-    @implements("BR-04", "BR-05", "BR-06", "BR-08", "BR-16", "NFR-02", "ST-02", "ST-07", "ST-09")
+    @implements("BR-04", "BR-05", "BR-06", "BR-08", "BR-09", "BR-16", "NFR-02", "ST-02", "ST-07", "ST-09")
     def run_timeout_sweep(self, now: datetime) -> dict[str, int]:
         summary = {
             "no_show": 0,
             "away_timeout": 0,
             "late_checkout": 0,
             "waitlist_expired": 0,
+            "seat_blocks_expired": 0,
             "reminders": 0,
         }
         for reservation in self.repo.list_due_pending(now):
@@ -1202,6 +1194,49 @@ class DomainEngine:
             self._offer_waitlist(entry.seat_id, entry.day, entry.start_slot, entry.end_slot, now)
             summary["waitlist_expired"] += 1
 
+        # 封禁到期：关闭记录，并且只在“维护状态由封禁流程设置”时才恢复座位。
+        # 手工维护、停用（disabled）座位一律保持原状态，避免误恢复。
+        expired_blocks = self.repo.expire_seat_blocks(now)
+        restored_seats: set[str] = set()
+        for block in expired_blocks:
+            if block.seat_id in restored_seats:
+                continue
+            restored_seats.add(block.seat_id)
+            seat = self.repo.get_seat(block.seat_id)
+            if seat is None:  # pragma: no cover - 外键保证存在
+                continue
+            remaining = self.repo.active_seat_blocks(seat.id)
+            target_status, target_marker = resource_rules.seat_state_after_blocks_closed(
+                seat, remaining
+            )
+            if (target_status, target_marker) == (
+                seat.admin_status,
+                seat.maintenance_by_block,
+            ):
+                continue
+            before = {
+                "seat_status": seat.admin_status,
+                "maintenance_by_block": seat.maintenance_by_block,
+            }
+            seat.admin_status, seat.maintenance_by_block = target_status, target_marker
+            self.repo.save_seat(seat)
+            self._audit(
+                None,
+                "seat_block_expired",
+                "seat",
+                seat.id,
+                before=before,
+                after={
+                    "seat_status": seat.admin_status,
+                    "maintenance_by_block": seat.maintenance_by_block,
+                    "expired_blocks": [
+                        item.id for item in expired_blocks if item.seat_id == seat.id
+                    ],
+                },
+                now=now,
+            )
+        summary["seat_blocks_expired"] = len(expired_blocks)
+
         summary["reminders"] = self.send_reminders(now)
         return summary
 
@@ -1249,7 +1284,10 @@ class DomainEngine:
         seat = self.repo.get_seat(seat_id)
         if seat is None:
             raise NotFound(f"座位 {seat_id} 不存在")
-        before = {"seat_status": seat.admin_status}
+        before = {
+            "seat_status": seat.admin_status,
+            "maintenance_by_block": seat.maintenance_by_block,
+        }
         block = SeatBlock(
             id=self.repo.next_id("seatblock", "SB-", 6),
             seat_id=seat_id,
@@ -1260,7 +1298,11 @@ class DomainEngine:
             created_at=now,
         )
         self.repo.insert_seat_block(block)
-        seat.admin_status = "maintenance"
+        # 状态迁移交给纯规则：手工维护/停用不改状态，未来封禁不立即生效，
+        # 只有“封禁流程管理的维护中座位”才会在到期/释放时自动恢复。
+        seat.admin_status, seat.maintenance_by_block = resource_rules.seat_state_after_block(
+            seat, block, now
+        )
         self.repo.save_seat(seat)
 
         affected: list[str] = []
@@ -1285,17 +1327,35 @@ class DomainEngine:
             "seat",
             seat_id,
             before=before,
-            after={"seat_status": "maintenance", "block_id": block.id, "affected": affected},
+            after={
+                "seat_status": seat.admin_status,
+                "maintenance_by_block": seat.maintenance_by_block,
+                "block_id": block.id,
+                "block_start": fmt_datetime(block_start),
+                "block_end": fmt_datetime(block_end),
+                "affected": affected,
+            },
             now=now,
             ip=ip,
         )
         return Result.success(
-            {"seat_id": seat_id, "block": block.as_dict(), "affected_reservations": affected},
+            {
+                "seat_id": seat_id,
+                "block": block.as_dict(),
+                "seat_status": seat.admin_status,
+                "maintenance_by_block": seat.maintenance_by_block,
+                "affected_reservations": affected,
+            },
             f"已封禁，取消 {len(affected)} 条受影响预约",
         )
 
     @implements("PR-06")
     def unblock_seat(self, actor: Actor, seat_id: str, now: datetime, *, ip: str = "") -> Result:
+        """解封整个座位：关闭该座位全部未释放封禁（既有 DELETE 接口的行为）。
+
+        只有“由封禁流程管理的维护中座位”才恢复 ``available``；手工维护保持维护、
+        停用（``disabled``）座位保持停用，必须走座位管理显式启用。
+        """
         self._require(actor, {Role.ROOM_ADMIN, Role.SYS_ADMIN}, "PR-06")
         seat = self.repo.get_seat(seat_id)
         if seat is None:
@@ -1305,23 +1365,279 @@ class DomainEngine:
             raise RuleViolation("该座位当前没有生效中的封禁", rule="ST-12")
         for block in blocks:
             self.repo.close_seat_block(block.id, now)
-        before_status = seat.admin_status
-        # 仅当座位是因本次封禁进入 maintenance 时才恢复为可预约；
-        # 原本处于 disabled（停用）的座位不得被解封操作降级。
-        if seat.admin_status == "maintenance":
-            seat.admin_status = "available"
+        before = {
+            "seat_status": seat.admin_status,
+            "maintenance_by_block": seat.maintenance_by_block,
+        }
+        seat.admin_status, seat.maintenance_by_block = (
+            resource_rules.seat_state_after_blocks_closed(seat, [])
+        )
+        restored = (
+            seat.admin_status == "available"
+            and before["seat_status"] != "available"
+        )
         self.repo.save_seat(seat)
+        after = {
+            "seat_status": seat.admin_status,
+            "maintenance_by_block": seat.maintenance_by_block,
+            "released_blocks": [block.id for block in blocks],
+        }
         self._audit(
             actor,
             "seat_unblock",
             "seat",
             seat_id,
-            before={"seat_status": before_status},
-            after={"seat_status": seat.admin_status},
+            before=before,
+            after=after,
             now=now,
             ip=ip,
         )
-        return Result.success({"seat_id": seat_id}, "已解封")
+        message = (
+            "已解封，座位恢复可预约"
+            if restored
+            else f"已解封，座位保持{resource_rules.seat_status_label(seat.admin_status)}（未自动恢复）"
+        )
+        return Result.success(
+            {
+                "seat_id": seat_id,
+                "seat_status": seat.admin_status,
+                "maintenance_by_block": seat.maintenance_by_block,
+                "restored": restored,
+                "released_blocks": [block.id for block in blocks],
+            },
+            message,
+        )
+
+    # ------------------------------------------------------------------
+    # 座位封禁生命周期（v2 / FR-21，PR-06，ST-11）
+    # ------------------------------------------------------------------
+    @implements("FR-21", "PR-06")
+    def list_seat_blocks(
+        self,
+        actor: Actor,
+        *,
+        seat_id: str | None = None,
+        room_id: str | None = None,
+        active_only: bool = False,
+        page: int = 1,
+        page_size: int = 20,
+        now: datetime | None = None,
+    ) -> Result:
+        """封禁记录列表（含座位、自习室、原因、起止、是否此刻生效）。
+
+        未来封禁期间 ``admin_status`` 可能仍是 ``available``，因此管理端必须
+        同时展示封禁记录与 ``seat_views`` 的派生状态，不能只看 ``admin_status``。
+        """
+        self._require(actor, {Role.ROOM_ADMIN, Role.SYS_ADMIN}, "PR-06")
+        current = now or datetime.now()
+        result = self.repo.list_seat_blocks(
+            seat_id=seat_id,
+            room_id=room_id,
+            active_only=active_only,
+            page=page,
+            page_size=page_size,
+        )
+        return Result.success(
+            {
+                "items": result.items,
+                "total": result.total,
+                "page": result.page,
+                "page_size": result.page_size,
+                "generated_at": fmt_datetime(current),
+            }
+        )
+
+    @implements("PR-06", "ST-11", "ST-12")
+    def release_seat_block(
+        self,
+        actor: Actor,
+        block_id: str,
+        reason: str,
+        now: datetime,
+        *,
+        restore_seat: bool = False,
+        ip: str = "",
+    ) -> Result:
+        """按记录解封：只关闭指定封禁；``restore_seat`` 才会显式恢复座位。
+
+        默认 ``restore_seat=False``（不猜管理员意图，不动座位状态）。
+        ``disabled`` 座位即便传 ``True`` 也不会恢复，必须走 ``PUT /admin/seats/{id}``。
+        """
+        self._require(actor, {Role.ROOM_ADMIN, Role.SYS_ADMIN}, "PR-06")
+        if len(reason.strip()) < 2:
+            raise ValidationFailed("按记录解封必须填写原因", rule="PR-06")
+        block = self.repo.get_seat_block(block_id)
+        if block is None:
+            raise NotFound(f"封禁记录 {block_id} 不存在")
+        if block.released_at is not None:
+            raise RuleViolation("该封禁记录已释放，不能重复解封", rule="ST-12")
+        seat = self.repo.get_seat(block.seat_id)
+        if seat is None:
+            raise NotFound(f"座位 {block.seat_id} 不存在")
+        before = {
+            "seat_status": seat.admin_status,
+            "maintenance_by_block": seat.maintenance_by_block,
+            "block_released_at": None,
+        }
+        # 停用座位不能借“解封恢复”变成可预约：先拒绝，避免出现半个副作用。
+        if restore_seat and seat.admin_status == "disabled":
+            raise RuleViolation(
+                "停用座位不能通过解封恢复，请到座位管理显式启用", rule="PR-06"
+            )
+        self.repo.release_seat_block(block_id, now)
+        remaining = [item for item in self.repo.active_seat_blocks(seat.id)]
+        restorable = resource_rules.can_restore_seat(seat, remaining)
+        restored = False
+        if restore_seat:
+            if restorable:
+                seat.admin_status = "available"
+                seat.maintenance_by_block = False
+                self.repo.save_seat(seat)
+                restored = True
+        elif not remaining:
+            # 默认只关闭记录、不改座位状态：仅把“封禁来源”标记归零，
+            # 需要恢复可用必须显式传 restore_seat=true 或走座位管理。
+            seat.maintenance_by_block = False
+            self.repo.save_seat(seat)
+        self._audit(
+            actor,
+            "seat_block_release",
+            "seat",
+            seat.id,
+            before=before,
+            after={
+                "block_id": block_id,
+                "reason": reason.strip(),
+                "seat_status": seat.admin_status,
+                "maintenance_by_block": seat.maintenance_by_block,
+                "restored": restored,
+                "remaining_blocks": [item.id for item in remaining],
+            },
+            now=now,
+            ip=ip,
+        )
+        block.released_at = now
+        return Result.success(
+            {
+                "block": block.as_dict(),
+                "seat_id": seat.id,
+                "seat_status": seat.admin_status,
+                "maintenance_by_block": seat.maintenance_by_block,
+                "restored": restored,
+                "remaining_blocks": len(remaining),
+            },
+            "已按记录解封" + ("，座位恢复可预约" if restored else ""),
+        )
+
+    @implements("FR-21", "PR-05")
+    def bulk_create_seats(
+        self,
+        actor: Actor,
+        room_id: str,
+        seats: Iterable[dict[str, Any]],
+        now: datetime,
+        *,
+        ip: str = "",
+    ) -> Result:
+        """批量建座：全量成功或全量回滚（任一条非法则整批不落库）。"""
+        self._require(actor, {Role.ROOM_ADMIN, Role.SYS_ADMIN}, "PR-05")
+        items = list(seats)
+        limit_error = resource_rules.bulk_limit_violation(len(items))
+        if limit_error:
+            raise ValidationFailed(limit_error, rule="FR-21")
+        if self.repo.get_room(room_id) is None:
+            raise NotFound(f"自习室 {room_id} 不存在")
+        raw_ids = [str(item.get("id", "")).strip() for item in items]
+        if any(not seat_id for seat_id in raw_ids):
+            raise ValidationFailed("座位编号不能为空")
+        repeated = resource_rules.duplicate_ids(raw_ids)
+        if repeated:
+            raise Conflict(f"批量提交中座位编号重复：{'、'.join(repeated)}", rule="PR-05")
+        # 座位编号是全局主键：必须检查所有自习室，否则 save_seat 的 UPSERT 会把
+        # 其他房间的同号座位静默“搬”过来。
+        existing_ids = {seat.id for seat in self.repo.list_seats()}
+        already = [seat_id for seat_id in raw_ids if seat_id in existing_ids]
+        if already:
+            raise Conflict(f"座位已存在：{'、'.join(already)}", rule="PR-05")
+
+        created: list[Seat] = []
+        for item in items:
+            seat_type = str(item.get("type") or SeatType.STANDARD.value)
+            capacity = int(item.get("capacity") or 1)
+            self._validate_seat_shape(seat_type, capacity)
+            seat_id = str(item.get("id", "")).strip()
+            seat = Seat(
+                id=seat_id,
+                room_id=room_id,
+                seat_type=seat_type,
+                capacity=capacity,
+                has_power=bool(item.get("has_power", False)),
+                is_window=bool(item.get("is_window", False)),
+                note=str(item.get("note") or "").strip(),
+                created_at=now,
+            )
+            self.repo.save_seat(seat)
+            created.append(seat)
+
+        payload = []
+        for seat in created:
+            data = seat.as_dict()
+            data["admin_status"] = seat.admin_status
+            payload.append(data)
+        self._audit(
+            actor,
+            "seat_bulk_create",
+            "room",
+            room_id,
+            before=None,
+            after={"room_id": room_id, "created": [seat.id for seat in created]},
+            now=now,
+            ip=ip,
+        )
+        return Result.success(
+            {"room_id": room_id, "created": payload, "count": len(payload)},
+            f"已批量新增 {len(payload)} 个座位",
+        )
+
+    @implements("FR-21", "PR-05")
+    def room_impact(
+        self, actor: Actor, room_id: str, status: str | None = None
+    ) -> Result:
+        """停用/关闭自习室前的影响预览（只读，不修改任何数据）。
+
+        统计口径：该自习室下 ``pending/in_use/away`` 的预约（会被停用影响的对象）；
+        ``status`` 只用于回显管理员打算切换到的目标状态，不参与统计。
+        """
+        self._require(actor, {Role.ROOM_ADMIN, Role.SYS_ADMIN}, "PR-05")
+        room = self.repo.get_room(room_id)
+        if room is None:
+            raise NotFound(f"自习室 {room_id} 不存在")
+        target = status or "closed"
+        if target not in {"open", "closed"}:
+            raise ValidationFailed("自习室状态只能是 open 或 closed")
+        items: list[dict[str, Any]] = []
+        summary = {"pending": 0, "in_use": 0, "away": 0}
+        for state in summary:
+            page = self.repo.list_reservations(
+                room_id=room_id, status=state, page_size=20
+            )
+            summary[state] = page.total
+            items.extend(view.as_dict() for view in page.items)
+        items.sort(key=lambda item: (item.get("date") or "", item.get("start") or ""))
+        return Result.success(
+            {
+                "room_id": room_id,
+                "room_name": room.name,
+                "current_status": room.status,
+                "target_status": target,
+                "affected_count": sum(summary.values()),
+                "by_status": summary,
+                "items": items[:20],
+                "total": sum(summary.values()),
+                "page": 1,
+                "page_size": 20,
+            }
+        )
 
     @implements("PR-07", "ST-10", "NFR-09")
     def force_release(
@@ -1613,156 +1929,6 @@ class DomainEngine:
         return Result.success(user.as_dict(), f"角色已调整为{ROLE_LABELS[user.role]}")
 
     # ------------------------------------------------------------------
-    # A：账号生命周期与个人中心（PR-14）
-    # ------------------------------------------------------------------
-    @implements("PR-14")
-    def create_user(
-        self, actor: Actor, now: datetime, *, user_id: str, name: str, role: str,
-        department: str = "", class_name: str = "", password: str | None = None,
-        ip: str = "",
-    ) -> Result:
-        from ..security import hash_password
-
-        self._require(actor, {Role.SYS_ADMIN}, "PR-14")
-        user_id, name = user_id.strip(), name.strip()
-        department, class_name = department.strip(), class_name.strip()
-        if (not user_id or len(user_id) > 64
-                or any(ch.isspace() or ch in "/\\" for ch in user_id)):
-            raise ValidationFailed("账号须为 1～64 字符，不能包含空白或斜杠")
-        if not name or len(name) > 100 or len(department) > 100 or len(class_name) > 100:
-            raise ValidationFailed("姓名必填，姓名、院系和班级不能超过 100 字符")
-        try:
-            new_role = Role(role)
-        except ValueError as exc:
-            raise ValidationFailed("角色取值不合法") from exc
-        if password is not None and not 8 <= len(password) <= 128:
-            raise ValidationFailed("初始密码须为 8～128 字符")
-        if self.repo.get_user(user_id) is not None:
-            raise Conflict("账号已存在")
-        initial_password = password if password is not None else secrets.token_urlsafe(12)
-        user = User(
-            id=user_id, name=name, role=new_role.value, department=department,
-            class_name=class_name, password_hash=hash_password(initial_password),
-            must_change_password=True, created_at=now, updated_at=now,
-        )
-        self.repo.save_user(user)
-        self._audit(actor, "user_create", "user", user.id, before=None,
-                    after=user.as_dict(), now=now, ip=ip)
-        data = {"user": user.as_dict()}
-        if password is None:
-            data["initial_password"] = initial_password
-        return Result.success(data, "账号已创建，首次登录需修改密码")
-
-    @implements("PR-14")
-    def set_user_status(
-        self, actor: Actor, user_id: str, status: str, reason: str, now: datetime,
-        *, ip: str = "",
-    ) -> Result:
-        self._require(actor, {Role.SYS_ADMIN}, "PR-14")
-        if status not in {"active", "disabled"}:
-            raise ValidationFailed("账号状态不合法")
-        reason = reason.strip()
-        if not reason or len(reason) > 500:
-            raise ValidationFailed("请填写 1～500 字符的操作原因")
-        user = self.repo.get_user(user_id)
-        if user is None:
-            raise NotFound("账号不存在")
-        if status == "disabled":
-            if user.id == actor.id:
-                raise RuleViolation("不能停用自己的账号", rule="PR-14")
-            if (user.is_active and user.role == Role.SYS_ADMIN.value
-                    and self.repo.count_sys_admins(exclude=user.id) == 0):
-                raise RuleViolation("不能停用最后一名启用中的系统管理员", rule="PR-14")
-        before = {"status": user.status}
-        user.status, user.updated_at = status, now
-        self.repo.save_user(user)
-        if status == "disabled":
-            self.repo.delete_sessions(user.id)
-        self._audit(actor, "user_status_change", "user", user.id, before=before,
-                    after={"status": status, "reason": reason}, now=now, ip=ip)
-        return Result.success({"user": user.as_dict()}, "账号已启用" if user.is_active else "账号已停用")
-
-    @implements("PR-14")
-    def reset_user_password(
-        self, actor: Actor, user_id: str, now: datetime, *, ip: str = "",
-    ) -> Result:
-        from ..security import hash_password
-
-        self._require(actor, {Role.SYS_ADMIN}, "PR-14")
-        user = self.repo.get_user(user_id)
-        if user is None:
-            raise NotFound("账号不存在")
-        initial_password = secrets.token_urlsafe(12)
-        user.password_hash = hash_password(initial_password)
-        user.must_change_password, user.updated_at = True, now
-        self.repo.save_user(user)
-        revoked = self.repo.delete_sessions(user.id)
-        # 与 AuthService.reset_password 相同的原语，在本次引擎事务中原子完成，避免嵌套写锁。
-        self._audit(actor, "user_reset_password", "user", user.id, before=None,
-                    after={"must_change_password": True, "revoked": revoked}, now=now, ip=ip)
-        return Result.success({"initial_password": initial_password}, "密码已重置，所有设备需重新登录")
-
-    def list_user_sessions(
-        self, actor: Actor, user_id: str, now: datetime, *, current_token_hash: str,
-        idle_minutes: int = 30,
-    ) -> dict[str, Any]:
-        if actor.id != user_id:
-            self._require(actor, {Role.SYS_ADMIN}, "PR-14")
-        if self.repo.get_user(user_id) is None:
-            raise NotFound("账号不存在")
-        items = []
-        for row in self.repo.list_sessions(user_id):
-            absolute = datetime.fromisoformat(row["expires_at"])
-            idle = datetime.fromisoformat(row["last_seen_at"]) + timedelta(minutes=idle_minutes)
-            if now >= min(absolute, idle):
-                continue
-            items.append({
-                **{key: row[key] for key in ("created_at", "last_seen_at", "expires_at", "ip", "user_agent")},
-                "current": secrets.compare_digest(row["token_hash"], current_token_hash),
-            })
-        return {"items": items, "current": any(item["current"] for item in items)}
-
-    def revoke_user_sessions(
-        self, actor: Actor, user_id: str, now: datetime, *,
-        except_token_hash: str | None = None, ip: str = "",
-    ) -> Result:
-        if actor.id != user_id or except_token_hash is None:
-            self._require(actor, {Role.SYS_ADMIN}, "PR-14")
-        if self.repo.get_user(user_id) is None:
-            raise NotFound("账号不存在")
-        if except_token_hash is not None and not any(
-            row["token_hash"] == except_token_hash for row in self.repo.list_sessions(user_id)
-        ):
-            raise RuleViolation("当前会话已失效，请重新登录")
-        revoked = self.repo.delete_sessions(user_id, except_token_hash=except_token_hash)
-        self._audit(actor, "session_revoke", "user", user_id, before=None,
-                    after={"revoked": revoked, "keep_current": except_token_hash is not None},
-                    now=now, ip=ip)
-        return Result.success({"revoked": revoked}, "登录会话已注销")
-
-    def update_my_profile(
-        self, actor: Actor, now: datetime, *, name: str | None = None,
-        department: str | None = None, ip: str = "",
-    ) -> Result:
-        user = self._user(actor)
-        if name is None and department is None:
-            raise ValidationFailed("请至少填写一项资料")
-        if name is not None and (not name.strip() or len(name.strip()) > 100):
-            raise ValidationFailed("姓名须为 1～100 字符")
-        if department is not None and len(department.strip()) > 100:
-            raise ValidationFailed("院系不能超过 100 字符")
-        before = {"name": user.name, "department": user.department}
-        if name is not None:
-            user.name = name.strip()
-        if department is not None:
-            user.department = department.strip()
-        user.updated_at = now
-        self.repo.save_user(user)
-        self._audit(actor, "profile_update", "user", user.id, before=before,
-                    after={"name": user.name, "department": user.department}, now=now, ip=ip)
-        return Result.success({"user": user.as_dict()}, "个人资料已更新")
-
-    # ------------------------------------------------------------------
     # 自习室 / 座位资源管理（FR-21 / PR-05）
     # ------------------------------------------------------------------
     @implements("FR-21", "PR-05")
@@ -1980,9 +2146,22 @@ class DomainEngine:
             raise NotFound(f"座位 {seat_id} 不存在")
         before = seat.as_dict()
         before["admin_status"] = seat.admin_status
-        if room_id is not None:
+        if room_id is not None and room_id != seat.room_id:
             if self.repo.get_room(room_id) is None:
                 raise NotFound(f"自习室 {room_id} 不存在")
+            # 跨自习室移动保护：已有待签到/使用中/暂离预约时禁止改写房间归属，
+            # 否则历史预约的房间统计会被改写（PR-05）。
+            occupied = self.repo.list_active_overlapping(
+                seat_id,
+                now - timedelta(days=self.params.int("booking.window_days")),
+                now + timedelta(days=self.params.int("booking.window_days")),
+            )
+            if resource_rules.has_occupying_reservation(occupied):
+                raise Conflict(
+                    f"座位 {seat_id} 仍有进行中或未开始的预约，不能移动到其他自习室",
+                    rule="PR-05",
+                )
+        if room_id is not None:
             seat.room_id = room_id
         if seat_type is not None:
             seat.seat_type = seat_type
@@ -1990,9 +2169,12 @@ class DomainEngine:
             seat.capacity = capacity
         self._validate_seat_shape(seat.seat_type, seat.capacity)
         if admin_status is not None:
-            if admin_status not in {"available", "maintenance", "disabled"}:
+            if admin_status not in set(resource_rules.SEAT_ADMIN_STATUSES):
                 raise ValidationFailed("座位状态只能是 available / maintenance / disabled")
             seat.admin_status = admin_status
+            # 管理员显式设置状态即“手工意图优先”：清零封禁来源标记，
+            # 之后该座位不会再被到期封禁自动恢复。
+            seat.maintenance_by_block = False
         if has_power is not None:
             seat.has_power = has_power
         if is_window is not None:
@@ -2515,77 +2697,69 @@ class DomainEngine:
         self._require(actor, {Role.ROOM_ADMIN, Role.SYS_ADMIN}, "PR-12")
         return self.repo.admin_stats(now, room_id)
 
-    @staticmethod
-    def _validate_date_range(
-        date_from: date | None,
-        date_to: date | None,
-        *,
-        max_days: int | None = None,
-    ) -> None:
-        if date_from is not None and date_to is not None and date_from > date_to:
-            raise ValidationFailed("开始日期不能晚于结束日期")
-        if max_days is not None and date_from is not None and date_to is not None:
-            days = (date_to - date_from).days + 1
-            if days > max_days:
-                raise ValidationFailed(f"日期跨度不能超过 {max_days} 天")
-
-    def _resolve_analytics_dates(
-        self,
-        date_from: date | None,
-        date_to: date | None,
-        now: datetime,
-    ) -> tuple[date, date]:
-        """补齐分析日期：未给出的一端按 7 天窗口对称补齐。"""
-        if date_from is None and date_to is None:
-            date_to = now.date()
-            date_from = date_to - timedelta(days=ANALYTICS_DEFAULT_DAYS - 1)
-        elif date_from is None:
-            assert date_to is not None
-            date_from = date_to - timedelta(days=ANALYTICS_DEFAULT_DAYS - 1)
-        elif date_to is None:
-            date_to = date_from + timedelta(days=ANALYTICS_DEFAULT_DAYS - 1)
-        self._validate_date_range(date_from, date_to, max_days=MAX_ANALYTICS_DAYS)
-        return date_from, date_to
-
-    @implements("FR-61", "FR-69", "PR-12")
-    def admin_analytics(
-        self,
-        actor: Actor,
-        *,
-        date_from: date | None = None,
-        date_to: date | None = None,
-        room_id: str | None = None,
-        now: datetime | None = None,
-    ) -> dict[str, Any]:
-        """按 SRS PR-12 返回全校/指定自习室的运营分析。"""
-        self._require(actor, {Role.ROOM_ADMIN, Role.SYS_ADMIN}, "PR-12")
-        now = now or datetime.now()
-        resolved_from, resolved_to = self._resolve_analytics_dates(date_from, date_to, now)
-        room_id = room_id.strip() if room_id else None
-        if room_id and self.repo.get_room(room_id) is None:
-            raise NotFound(f"自习室 {room_id} 不存在")
-        data = self.repo.analytics_range(
-            date_from=resolved_from,
-            date_to=resolved_to,
-            room_id=room_id,
-        )
-        data["generated_at"] = fmt_datetime(now)
-        return data
-
     def export_rows(
         self, actor: Actor, kind: str, *, date_from: date | None, date_to: date | None
     ) -> tuple[list[str], list[list[Any]]]:
-        # PR-16：导出权限集中在 DomainEngine，Repository 只做查询。
         self._require(actor, {Role.SYS_ADMIN}, "PR-16")
-        if kind not in EXPORT_KINDS:
-            raise ValidationFailed(
-                f"不支持的导出类型：{kind}；可选值为 {', '.join(sorted(EXPORT_KINDS))}"
+        if kind == "reservations":
+            page = self.repo.list_reservations(
+                date_from=date_from, date_to=date_to, page=1, page_size=10000
             )
-        self._validate_date_range(date_from, date_to)
-        return self.repo.export_rows(
-            kind,
-            date_from=date_from,
-            date_to=date_to,
+            headers = ["预约号", "日期", "开始", "结束", "座位", "自习室", "学生", "状态", "来源", "结束原因"]
+            rows = [
+                [
+                    item.reservation.id,
+                    item.reservation.day.isoformat(),
+                    item.reservation.start_time,
+                    item.reservation.end_time,
+                    item.seat_id,
+                    item.room_name,
+                    item.user_name,
+                    item.reservation.status,
+                    item.reservation.source,
+                    item.reservation.end_reason or "",
+                ]
+                for item in page.items
+            ]
+            return headers, rows
+        if kind == "violations":
+            page = self.repo.list_violations(page=1, page_size=10000)
+            headers = ["违规号", "预约号", "学号", "类型", "扣分", "来源", "状态", "发生时间", "说明"]
+            rows = [
+                [
+                    item.id,
+                    item.reservation_id,
+                    item.user_id,
+                    item.violation_type,
+                    item.points,
+                    item.source,
+                    item.status,
+                    fmt_datetime(item.occurred_at) or "",
+                    item.note,
+                ]
+                for item in page.items
+            ]
+            return headers, rows
+        if kind == "audit":
+            self._require(actor, {Role.SYS_ADMIN}, "PR-15")
+            page = self.repo.list_audit(page=1, page_size=10000)
+            headers = ["日志号", "操作人", "角色", "动作", "对象类型", "对象", "时间", "IP"]
+            rows = [
+                [
+                    item.id,
+                    item.actor_id,
+                    item.actor_role,
+                    item.action,
+                    item.target_type,
+                    item.target_id,
+                    fmt_datetime(item.created_at) or "",
+                    item.ip,
+                ]
+                for item in page.items
+            ]
+            return headers, rows
+        raise ValidationFailed(
+            f"不支持的导出类型：{kind}；可选值为 {', '.join(sorted(EXPORT_KINDS))}"
         )
 
     def param_snapshot_json(self) -> str:
