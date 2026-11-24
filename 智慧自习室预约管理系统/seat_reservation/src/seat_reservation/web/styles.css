@@ -1830,3 +1830,106 @@ body.shell .toast { top: 58px; }
   }
 }
 
+/* A：账号、登录设备与个人候补 */
+.account-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.account-toolbar p { margin: 0; }
+.account-toolbar > .btn { flex-shrink: 0; }
+.account-tags, .account-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.account-tags { margin-top: 8px; }
+.account-actions { justify-content: flex-end; flex-shrink: 0; max-width: 310px; }
+.account-note { margin-bottom: 14px; }
+.account-session { padding: 14px 0; border-bottom: 1px solid var(--separator); }
+.account-session:last-child { border-bottom: 0; }
+.account-agent { color: var(--secondary); font-size: 12px; overflow-wrap: anywhere; margin-top: 8px; }
+.account-secret { margin-top: 20px; }
+.account-secret input { font-family: Consolas, monospace; letter-spacing: 1px; }
+.sheet-actions:has(.btn:nth-child(4)) { flex-wrap: wrap; }
+.sheet-actions:has(.btn:nth-child(4)) .btn { flex-basis: 40%; }
+@media (max-width: 680px) {
+  .account-row, .account-waitlist-row { flex-wrap: wrap; }
+  .account-row .row-main { min-width: calc(100% - 70px); }
+  .account-actions { width: 100%; max-width: none; justify-content: flex-start; }
+  .account-toolbar { align-items: flex-start; }
+}
+
+/* ---------- 运营分析（D 模块） ---------- */
+.analytics-toolbar {
+  padding: 16px;
+}
+
+.analytics-toolbar .toolbar-row {
+  align-items: center;
+}
+
+.analytics-toolbar .segmented {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.analytics-kpi-grid {
+  margin-top: 12px;
+}
+
+.analytics-room-card {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.analytics-table-wrap {
+  margin-top: 2px;
+}
+
+.analytics-table-wrap table.data {
+  min-width: 760px;
+}
+
+.analytics-table-note {
+  margin-top: 10px;
+  line-height: 1.5;
+}
+
+.analytics-detail-list {
+  padding: 0 2px;
+}
+
+.analytics-notes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 24px;
+}
+
+.analytics-note-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--secondary);
+}
+
+.analytics-note-item strong {
+  color: var(--label-2);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+@media (max-width: 920px) {
+  .analytics-notes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .analytics-toolbar {
+    padding: 13px;
+  }
+
+  .analytics-toolbar .segmented {
+    width: 100%;
+  }
+
+  .analytics-table-wrap table.data {
+    min-width: 700px;
+  }
+}
