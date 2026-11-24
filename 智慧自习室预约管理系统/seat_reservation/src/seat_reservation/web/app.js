@@ -25,6 +25,7 @@
     feedback: ['反馈', '投诉建议与处理结果'],
     messages: ['消息', '预约提醒与处理通知'],
     overview: ['概览', '实时使用率与近 7 日趋势'],
+    analytics: ['分析', '按日期区间查看运营指标'],
     floor: ['现场', '座位状态与现场处置'],
     resources: ['资源', '自习室与座位的增改、启用/停用、批量建座与封禁治理'],
     search: ['预约查询', '按状态、日期与关键词检索'],
@@ -422,13 +423,14 @@
       { title: '账户', items: [['credit', '信用', 'credit'], ['feedback', '反馈', 'feedback'], ['messages', '消息', 'bell']] },
     ],
     room_admin: [
-      { title: '运营', items: [['overview', '概览', 'overview'], ['floor', '现场', 'floor'], ['resources', '资源', 'floor'], ['search', '预约查询', 'search']] },
+      { title: '运营', items: [['overview', '概览', 'overview'], ['analytics', '分析', 'overview'], ['floor', '现场', 'floor'], ['resources', '资源', 'floor'], ['search', '预约查询', 'search']] },
       { title: '服务', items: [['complaints', '投诉', 'feedback'], ['reviews', '评价', 'star'], ['appeals', '违规申诉', 'alert'], ['students', '学生', 'users']] },
     ],
     teacher: [
       { title: '教学', items: [['class', '班级看板', 'class']] },
     ],
     sys_admin: [
+      { title: '运营', items: [['analytics', '分析', 'overview']] },
       { title: '系统', items: [['params', '参数', 'params'], ['resources', '资源', 'floor'], ['users', '账号', 'users'], ['audit', '审计', 'audit'], ['system', '系统', 'system']] },
     ],
   };
@@ -1177,6 +1179,201 @@
       content += '<text x="' + x + '" y="' + (H - 7) + '" text-anchor="middle" font-size="' + (compact ? 9.5 : 10) + '" fill="#8E8E93">' + esc(item.hour) + '</text>';
     });
     return '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="今日时段分布">' + content + '</svg>';
+  }
+
+  // ---------------------------------------------------------------------------
+  // 视图：管理员 · 运营分析（D 模块）
+  // 共享注册表由 B 按 SFCR-D-002 应用；本区只实现页面和交互函数。
+  // ---------------------------------------------------------------------------
+  const ANALYTICS_RANGE_DAYS = { '7d': 7, '30d': 30, '90d': 90 };
+  const ANALYTICS_WAITLIST_LABELS = {
+    queued: '排队中',
+    notified: '已通知',
+    confirmed: '已确认',
+    expired: '已过期',
+    cancelled: '已取消',
+  };
+
+  let analyticsRange = '7d';
+  let analyticsRoom = '';
+
+  function analyticsDateRange() {
+    const today = (state.meta && state.meta.today) || todayISO();
+    const days = ANALYTICS_RANGE_DAYS[analyticsRange] || 7;
+    return { date_from: shiftDay(today, -(days - 1)), date_to: today };
+  }
+
+  function setAnalyticsRange(range) {
+    if (!ANALYTICS_RANGE_DAYS[range]) return;
+    analyticsRange = range;
+    renderView();
+  }
+
+  function setAnalyticsRoom(roomId) {
+    analyticsRoom = roomId || '';
+    renderView();
+  }
+
+  async function analyticsView() {
+    const rooms = (state.meta && state.meta.rooms) || [];
+    if (analyticsRoom && !rooms.some((room) => room.id === analyticsRoom)) {
+      analyticsRoom = '';
+    }
+    const range = analyticsDateRange();
+    const data = await api('/admin/analytics', {
+      params: {
+        date_from: range.date_from,
+        date_to: range.date_to,
+        room_id: analyticsRoom || undefined,
+      },
+    });
+    return analyticsHtml(data);
+  }
+
+  function analyticsHtml(data) {
+    const kpi = data.kpi || {};
+    const rooms = data.rooms || [];
+    const daily = data.daily || [];
+    const peakHours = data.peak_hours || [];
+    const violationTypes = (data.violations && data.violations.by_type) || [];
+    const ratings = data.ratings || { distribution: [] };
+    const waitlist = data.waitlist || { by_status: [] };
+    const complaints = data.complaints || {};
+    const notes = data.metric_notes || {};
+    const metaRooms = (state.meta && state.meta.rooms) || [];
+
+    const num = (value) => (value === null || value === undefined ? '—' : String(value));
+    const pct = (value) => (value === null || value === undefined
+      ? '—'
+      : (Math.round(Number(value) * 10) / 10).toFixed(1) + '%');
+    const rangeLabel = { '7d': '近 7 天', '30d': '近 30 天', '90d': '近 90 天' }[analyticsRange] || '近 7 天';
+
+    const rangeButtons = [['7d', '近 7 天'], ['30d', '近 30 天'], ['90d', '近 90 天']].map(([value, label]) =>
+      '<button type="button" data-action="analytics-range" data-range="' + value + '" class="' +
+      (analyticsRange === value ? 'active' : '') + '">' + label + '</button>').join('');
+    const roomButtons = '<button type="button" data-action="analytics-room" data-room="" class="' +
+      (!analyticsRoom ? 'active' : '') + '">全部</button>' + metaRooms.map((room) =>
+      '<button type="button" data-action="analytics-room" data-room="' + esc(room.id) + '" class="' +
+      (analyticsRoom === room.id ? 'active' : '') + '">' + esc(room.name) + '</button>').join('');
+
+    const toolbar = '<div class="card toolbar analytics-toolbar">' +
+      '<div class="toolbar-row"><div class="segmented">' + rangeButtons + '</div>' +
+        '<div class="grow"></div><span class="tiny tertiary">' + esc(rangeLabel) +
+        ' · ' + esc((data.range && data.range.date_from) || '') + ' 至 ' +
+        esc((data.range && data.range.date_to) || '') + ' · 更新 ' +
+        esc(fmtDateTime(data.generated_at)) + '</span></div>' +
+      '<div class="toolbar-row"><div class="segmented">' + roomButtons + '</div></div>' +
+      '</div>';
+
+    const kpiCard = (label, value, foot, kind) =>
+      '<div class="kpi ' + (kind || '') + '"><div class="kpi-label">' + esc(label) +
+      '</div><div class="kpi-value">' + esc(value) + '</div><div class="kpi-foot">' + foot + '</div></div>';
+    const kpis = '<div class="kpi-grid analytics-kpi-grid">' +
+      kpiCard('预约数', num(kpi.reservations), '有效 ' + num(kpi.valid_reservations) + ' · 待签到 ' + num(kpi.pending)) +
+      kpiCard('完成数', num(kpi.completed), '完成率 ' + pct(kpi.completion_rate)) +
+      kpiCard('违约数', num(kpi.no_show), '违约率 ' + pct(kpi.no_show_rate)) +
+      kpiCard('取消数', num(kpi.cancelled), '取消率 ' + pct(kpi.cancel_rate) + ' · 已释放 ' + num(kpi.released)) +
+      kpiCard('签到率', pct(kpi.checkin_rate), '签到 ' + num(kpi.checkins) + ' / 应签到 ' + num(kpi.checkin_base), 'blue') +
+      kpiCard('完成率', pct(kpi.completion_rate), '完成 ' + num(kpi.completed) + ' / 出勤结果 ' + num(kpi.attendance_base)) +
+      kpiCard('投诉办结率', pct(kpi.complaint_resolution_rate),
+        '已办结 ' + num(complaints.completed) + ' / ' + num(complaints.total)) +
+      kpiCard('平均评分', kpi.average_rating == null ? '—' : num(kpi.average_rating),
+        '共 ' + num(ratings.total) + ' 条评价') +
+      '</div>';
+
+    const trend = '<div class="card chart-card"><div class="chart-head"><h3>每日预约与签到</h3>' +
+      '<div class="legend"><span><i style="background:#007AFF"></i>预约</span>' +
+      '<span><i style="background:#34C759"></i>签到</span></div></div>' +
+      '<div class="chart">' + (daily.length ? trendChart(daily) :
+        '<div class="chart-empty">当前区间没有预约数据</div>') + '</div></div>';
+
+    const peak = '<div class="card chart-card"><div class="chart-head"><h3>高峰时段分布</h3>' +
+      '<span class="tiny tertiary">按开始时间统计</span></div><div class="chart">' +
+      (peakHours.length ? hourlyChart(peakHours) :
+        '<div class="chart-empty">当前区间没有预约数据</div>') + '</div></div>';
+
+    const roomRows = rooms.length ? rooms.map((room) =>
+      '<tr><td><strong>' + esc(room.name) + '</strong><br><span class="tiny tertiary">' +
+      esc(room.id) + '</span></td>' +
+      '<td>' + num(room.total_seats) + '</td>' +
+      '<td>' + num(room.reservations) + '</td>' +
+      '<td>' + num(room.completed) + '</td>' +
+      '<td>' + num(room.no_show) + '</td>' +
+      '<td>' + num(room.cancelled) + '</td>' +
+      '<td>' + num(room.released) + '</td>' +
+      '<td class="nowrap">' + pct(room.booking_utilization) + '</td></tr>').join('')
+      : '<tr><td colspan="8" class="tiny tertiary">当前区间没有房间数据</td></tr>';
+    const roomRanking = '<div class="card chart-card analytics-room-card"><div class="chart-head"><h3>房间预约时段利用率</h3>' +
+      '<span class="tiny tertiary">非取消预约的预订时段 / 容量</span></div>' +
+      '<div class="table-wrap analytics-table-wrap"><table class="data"><thead><tr>' +
+      '<th>自习室</th><th>座位</th><th>预约</th><th>完成</th><th>违约</th><th>取消</th><th>释放</th><th>预约时段利用率</th>' +
+      '</tr></thead><tbody>' + roomRows + '</tbody></table></div>' +
+      '<p class="tiny tertiary analytics-table-note">预约时段利用率反映预约资源占用，不等同于实际签到后的使用时长。</p></div>';
+
+    const barList = (items, labelOf, valueOf, cls) => {
+      if (!items.length) return '<div class="chart-empty">当前区间没有数据</div>';
+      const max = Math.max(1, ...items.map((item) => Number(valueOf(item)) || 0));
+      return '<div class="bar-list">' + items.map((item) => {
+        const value = Number(valueOf(item)) || 0;
+        return '<div class="bar-item"><span class="bar-label">' + esc(labelOf(item)) +
+          '</span><span class="bar-track"><span class="bar-fill ' + (cls || '') +
+          '" style="width:' + Math.max(4, Math.round(value / max * 100)) + '%"></span></span>' +
+          '<span class="bar-value">' + num(value) + '</span></div>';
+      }).join('') + '</div>';
+    };
+
+    const violationLabels = (state.meta && state.meta.violation_types) || {};
+    const violations = '<div class="card chart-card"><div class="chart-head"><h3>违约类型</h3>' +
+      '<span class="tiny tertiary">当前区间</span></div>' +
+      barList(violationTypes, (item) => violationLabels[item.type] || item.type, (item) => item.count, 'red') +
+      '</div>';
+
+    const ratingBars = '<div class="card chart-card"><div class="chart-head"><h3>评价分布</h3>' +
+      '<span class="tiny tertiary">平均 ' + (ratings.average == null ? '—' : num(ratings.average)) + '</span></div>' +
+      barList(ratings.distribution || [], (item) => item.rating + ' 星', (item) => item.count, 'orange') +
+      '</div>';
+
+    const waitlistBars = '<div class="card chart-card"><div class="chart-head"><h3>候补状态</h3>' +
+      '<span class="tiny tertiary">确认率 ' + pct(waitlist.confirmed_rate) + '</span></div>' +
+      barList(waitlist.by_status || [],
+        (item) => ANALYTICS_WAITLIST_LABELS[item.status] || item.status,
+        (item) => item.count, 'green') +
+      '<p class="tiny tertiary analytics-table-note">候补 ' + num(waitlist.total) +
+      ' 条，等待中 ' + num(waitlist.waiting) + ' 条。</p></div>';
+
+    const complaintRows = [
+      ['投诉总数', num(complaints.total)],
+      ['待处理', num(complaints.pending)],
+      ['已办结', num(complaints.completed)],
+      ['办结率', pct(complaints.resolution_rate)],
+      ['平均处理时长', complaints.average_hours == null ? '—' : num(complaints.average_hours) + ' 小时'],
+      ['平均评分', complaints.average_rating == null ? '—' : num(complaints.average_rating)],
+    ];
+    const complaintsCard = '<div class="card chart-card"><div class="chart-head"><h3>投诉处理</h3>' +
+      '<span class="tiny tertiary">已办结含已评价</span></div><dl class="detail-list analytics-detail-list">' +
+      complaintRows.map(([label, value]) => '<div class="detail-row"><dt>' + esc(label) +
+        '</dt><dd>' + esc(value) + '</dd></div>').join('') + '</dl></div>';
+
+    const noteKeys = [
+      ['booking_utilization', '预约时段利用率'],
+      ['checkin_rate', '签到率'],
+      ['completion_rate', '完成率'],
+      ['no_show_rate', '违约率'],
+      ['cancel_rate', '取消率'],
+      ['complaint_resolution_rate', '投诉办结率'],
+      ['waitlist.confirmed_rate', '候补确认率'],
+      ['avg_minutes', '平均预约时长'],
+    ];
+    const noteItems = noteKeys.filter(([key]) => notes[key]).map(([key, label]) =>
+      '<div class="analytics-note-item"><strong>' + esc(label) + '</strong><span>' +
+      esc(notes[key]) + '</span></div>').join('');
+    const metricNotes = noteItems
+      ? '<div class="section"><div class="section-head"><h2>指标口径</h2></div>' +
+        '<div class="card card-pad analytics-notes">' + noteItems + '</div></div>'
+      : '';
+
+    return toolbar + kpis + '<div class="dash-grid">' + trend + peak + roomRanking +
+      violations + ratingBars + waitlistBars + complaintsCard + '</div>' + metricNotes;
   }
 
   // ---------------------------------------------------------------------------
@@ -2017,15 +2214,214 @@
   // 视图：系统管理员 · 账号
   // ---------------------------------------------------------------------------
   async function usersView() {
-    const data = await api('/admin/users', { params: { page_size: 100 } });
+    const data = await api('/admin/users', { params: { page: state.page, page_size: 20 } });
     const items = data.items || [];
-    return '<p class="small muted" style="margin-bottom:12px">点击账号调整角色，变更会写入审计日志。</p>' +
-      '<div class="list">' + items.map((user) =>
-        '<button class="list-row clickable" type="button" data-action="edit-role" data-id="' + esc(user.id) + '" data-name="' + esc(user.name) + '" data-role="' + esc(user.role) + '">' +
-        '<span class="avatar-sm">' + esc(user.name.slice(0, 1)) + '</span>' +
-        '<div class="row-main"><div class="row-title">' + esc(user.name) + ' <span class="tertiary small">' + esc(user.id) + '</span></div>' +
-        '<div class="row-sub">' + esc(user.department || '') + (user.class_name ? ' · ' + esc(user.class_name) : '') + '</div></div>' +
-        '<div class="row-side"><span class="pill gray plain">' + esc(ROLE_TEXT[user.role] || user.role) + '</span>' + icon('chevron', 'row-chevron') + '</div></button>').join('') + '</div>';
+    return '<div class="account-toolbar"><p class="small muted">创建和管理账号；停用与重置密码会退出该账号的所有设备。</p>' +
+      '<button class="btn btn-primary" type="button" data-action="account-create">新建账号</button></div>' +
+      (items.length ? '<div class="list">' + items.map((user) => {
+        const attrs = ' data-id="' + esc(user.id) + '" data-name="' + esc(user.name) + '"';
+        return '<div class="list-row account-row"><span class="avatar-sm">' + esc(user.name.slice(0, 1)) + '</span>' +
+          '<div class="row-main"><div class="row-title">' + esc(user.name) + ' <span class="tertiary small">' + esc(user.id) + '</span></div>' +
+          '<div class="row-sub">' + esc(user.department || '未填写院系') + (user.class_name ? ' · ' + esc(user.class_name) : '') + '</div>' +
+          '<div class="account-tags"><span class="pill gray">' + esc(ROLE_TEXT[user.role] || user.role) + '</span>' +
+          '<span class="pill ' + (user.status === 'active' ? 'green' : 'red') + '">' + (user.status === 'active' ? '已启用' : '已停用') + '</span>' +
+          (user.must_change_password ? '<span class="pill orange">需修改密码</span>' : '') + '</div></div>' +
+          '<div class="account-actions"><button class="btn btn-secondary btn-sm" type="button" data-action="edit-role"' + attrs + ' data-role="' + esc(user.role) + '">角色</button>' +
+          '<button class="btn btn-secondary btn-sm" type="button" data-action="account-sessions"' + attrs + '>登录设备</button>' +
+          '<button class="btn btn-secondary btn-sm" type="button" data-action="account-reset"' + attrs + '>重置密码</button>' +
+          '<button class="btn btn-secondary btn-sm" type="button" data-action="account-status"' + attrs + ' data-status="' + esc(user.status) + '"' +
+          (user.id === state.user.id && user.status === 'active' ? ' disabled title="不能停用自己的账号"' : '') + '>' +
+          (user.status === 'active' ? '停用' : '启用') + '</button></div></div>';
+      }).join('') + '</div>' : emptyBlock('暂无账号', '点击“新建账号”添加成员。')) +
+      accountPager(data, 20);
+  }
+
+  function accountPager(data, pageSize) {
+    return '<div class="pager"><span>共 ' + Number(data.total || 0) + ' 条 · 第 ' + Number(state.page) + ' 页</span><div class="row">' +
+      '<button class="btn btn-secondary btn-sm" type="button" data-action="page-prev"' + (state.page <= 1 ? ' disabled' : '') + '>上一页</button>' +
+      '<button class="btn btn-secondary btn-sm" type="button" data-action="page-next"' + (state.page * pageSize >= data.total ? ' disabled' : '') + '>下一页</button></div></div>';
+  }
+
+  function openAccountPanel(config) {
+    // 等旧面板关闭动画结束，避免旧面板的回调隐藏新面板遮罩。
+    if (state.sheet) {
+      closeSheet();
+      setTimeout(() => openSheet(config), 240);
+    } else openSheet(config);
+  }
+
+  function accountSheet() {
+    openAccountPanel({
+      title: '新建账号', subtitle: '新账号首次登录需要修改密码',
+      body: '<form id="accountForm" class="account-form">' +
+        '<label class="field"><span>账号</span><input id="accountId" required maxlength="64" autocomplete="off" placeholder="例如 S2026001"></label>' +
+        '<label class="field"><span>姓名</span><input id="accountName" required maxlength="100" autocomplete="off"></label>' +
+        '<label class="field"><span>角色</span><select id="accountRole">' + Object.entries(ROLE_TEXT).map(([value, label]) =>
+          '<option value="' + value + '">' + esc(label) + '</option>').join('') + '</select></label>' +
+        '<label class="field"><span>院系（可选）</span><input id="accountDepartment" maxlength="100"></label>' +
+        '<label class="field"><span>班级（可选）</span><input id="accountClass" maxlength="100"></label>' +
+        '<label class="field"><span>初始密码（留空自动生成）</span><input id="accountPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password"></label></form>',
+      actions: [
+        { label: '取消', kind: 'secondary', onClick: closeSheet },
+        { label: '创建账号', kind: 'primary', onClick: async () => {
+          if (!$('#accountForm').reportValidity()) return;
+          const body = { id: $('#accountId').value.trim(), name: $('#accountName').value.trim(), role: $('#accountRole').value,
+            department: $('#accountDepartment').value.trim(), class_name: $('#accountClass').value.trim() };
+          const password = $('#accountPassword').value;
+          if (password) body.password = password;
+          const data = await api('/admin/users', { method: 'POST', body });
+          state.page = 1;
+          renderView();
+          if (data.initial_password) initialPasswordSheet(data.user.id, data.initial_password);
+          else { closeSheet(); toast('账号已创建，首次登录需修改密码'); }
+        } },
+      ],
+      onMount: (wrap) => $('#accountForm', wrap).addEventListener('submit', (event) => event.preventDefault()),
+    });
+  }
+
+  function initialPasswordSheet(userId, password) {
+    openAccountPanel({
+      title: '请保存初始密码', subtitle: userId,
+      body: '<p class="small muted">密码仅在本次显示。请保存并私下交给账号使用者，首次登录后需修改。</p>' +
+        '<label class="field account-secret"><span>初始密码</span><input id="accountInitialPassword" readonly autocomplete="off" value="' + esc(password) + '"></label>',
+      actions: [{ label: '已保存，关闭', kind: 'primary', onClick: () => {
+        closeSheet();
+        if (userId === state.user.id) showLogin('密码已重置，请使用新密码登录');
+      } }],
+    });
+  }
+
+  function accountStatusSheet(config) {
+    const status = config.status === 'active' ? 'disabled' : 'active';
+    const label = status === 'disabled' ? '停用' : '启用';
+    openAccountPanel({
+      title: label + '账号', subtitle: config.name + ' · ' + config.id,
+      body: '<p class="small muted">' + (status === 'disabled' ? '停用后所有设备立即退出，已有预约记录保留。' : '启用后可使用原有密码重新登录。') + '</p>' +
+        '<form id="accountStatusForm"><label class="field"><span>操作原因</span><textarea id="accountReason" required maxlength="500"></textarea></label></form>',
+      actions: [
+        { label: '取消', kind: 'secondary', onClick: closeSheet },
+        { label: '确认' + label, kind: status === 'disabled' ? 'danger' : 'primary', onClick: async () => {
+          if (!$('#accountStatusForm').reportValidity()) return;
+          await api('/admin/users/' + encodeURIComponent(config.id) + '/status', {
+            method: 'PUT', body: { status, reason: $('#accountReason').value.trim() },
+          });
+          closeSheet(); toast('账号已' + label); renderView();
+        } },
+      ],
+      onMount: (wrap) => $('#accountStatusForm', wrap).addEventListener('submit', (event) => event.preventDefault()),
+    });
+  }
+
+  function accountResetSheet(config) {
+    openAccountPanel({
+      title: '重置密码', subtitle: config.name + ' · ' + config.id,
+      body: '<p class="small muted">将生成新的初始密码，旧密码失效，所有设备立即退出。账号下次登录需要修改密码。</p>',
+      actions: [
+        { label: '取消', kind: 'secondary', onClick: closeSheet },
+        { label: '确认重置', kind: 'danger', onClick: async () => {
+          const data = await api('/admin/users/' + encodeURIComponent(config.id) + '/reset-password', { method: 'POST', body: {} });
+          if (config.id === state.user.id) state.lastLoginPassword = '';
+          initialPasswordSheet(config.id, data.initial_password);
+        } },
+      ],
+    });
+  }
+
+  async function sessionSheet(config = null) {
+    const admin = Boolean(config);
+    const prefix = admin ? '/admin/users/' + encodeURIComponent(config.id) + '/sessions' : '/me/sessions';
+    const data = await api(prefix);
+    const items = data.items || [];
+    openAccountPanel({
+      title: admin ? '账号登录设备' : '我的登录设备', subtitle: admin ? config.name + ' · ' + config.id : state.user.id,
+      body: '<div class="account-sessions">' + (items.length ? items.map((item) =>
+        '<section class="account-session"><div class="row-between"><strong>' + esc(item.ip || '未知 IP') + '</strong>' +
+        (item.current ? '<span class="pill green">当前设备</span>' : '<span class="pill gray">其他设备</span>') + '</div>' +
+        '<p class="account-agent">' + esc(item.user_agent || '未提供设备信息') + '</p>' +
+        '<dl class="detail-list">' + [['登录时间', item.created_at], ['最后活跃', item.last_seen_at], ['最晚失效', item.expires_at]].map(([label, value]) =>
+          '<div class="detail-row"><dt>' + label + '</dt><dd>' + esc(fmtDateTime(value)) + '</dd></div>').join('') + '</dl></section>').join('') :
+        '<p class="small muted">暂无有效登录设备。</p>') + '</div>',
+      actions: [
+        { label: '关闭', kind: 'secondary', onClick: closeSheet },
+        { label: admin ? '注销全部设备' : '退出其他设备', kind: admin ? 'danger' : 'primary', disabled: admin ? !items.length : items.length <= 1,
+          onClick: async () => {
+            if (admin) {
+              openAccountPanel({ title: '注销全部设备', subtitle: config.name + ' · ' + config.id,
+                body: '<p class="small muted">该账号的所有设备都需要重新登录。</p>', actions: [
+                  { label: '取消', kind: 'secondary', onClick: closeSheet },
+                  { label: '确认注销', kind: 'danger', onClick: async () => {
+                    await api(prefix + '/revoke', { method: 'POST', body: {} });
+                    if (config.id === state.user.id) { await logout(); return; }
+                    await sessionSheet(config); toast('所有登录设备已注销');
+                  } },
+                ] });
+            } else {
+              const result = await api('/me/sessions/revoke-others', { method: 'POST', body: {} });
+              await sessionSheet(); toast('已退出其他 ' + result.revoked + ' 个设备');
+            }
+          } },
+      ],
+    });
+  }
+
+  function profileSheet() {
+    const user = state.user;
+    openAccountPanel({
+      title: '编辑个人资料', subtitle: user.id,
+      body: '<form id="accountProfileForm"><label class="field"><span>姓名</span><input id="profileName" required maxlength="100" value="' + esc(user.name) + '"></label>' +
+        '<label class="field"><span>院系</span><input id="profileDepartment" maxlength="100" value="' + esc(user.department || '') + '"></label>' +
+        '<p class="tiny tertiary">班级、角色和信用分由管理员管理。</p></form>',
+      actions: [
+        { label: '取消', kind: 'secondary', onClick: closeSheet },
+        { label: '保存', kind: 'primary', onClick: async () => {
+          if (!$('#accountProfileForm').reportValidity()) return;
+          const data = await api('/me/profile', { method: 'PUT', body: { name: $('#profileName').value.trim(), department: $('#profileDepartment').value.trim() } });
+          state.user = data.user;
+          if (state.meta) state.meta.user = data.user;
+          renderUser(); closeSheet(); toast('个人资料已更新'); renderView();
+        } },
+      ],
+      onMount: (wrap) => $('#accountProfileForm', wrap).addEventListener('submit', (event) => event.preventDefault()),
+    });
+  }
+
+  async function waitlistView() {
+    const data = await api('/waitlist', { params: { page: state.page, page_size: 20 } });
+    const labels = { queued: ['排队中', 'orange'], notified: ['待确认', 'blue'], confirmed: ['已确认', 'green'], expired: ['已过期', 'gray'], cancelled: ['已取消', 'gray'] };
+    const items = data.items || [];
+    return '<p class="small muted account-note">收到补位通知后，请在截止时间前确认。确认成功后，可在“我的预约”查看。</p>' +
+      (items.length ? '<div class="list">' + items.map((item) => {
+        const status = labels[item.status] || [item.status, 'gray'];
+        const deadline = item.confirm_deadline ? new Date(item.confirm_deadline.replace(' ', 'T')) : null;
+        const canConfirm = item.status === 'notified' && deadline && deadline.getTime() > Date.now();
+        return '<div class="list-row account-waitlist-row"><div class="row-main"><div class="row-title">' + esc(item.seat_id) +
+          ' <span class="pill ' + status[1] + '">' + esc(status[0]) + '</span></div>' +
+          '<div class="row-sub">' + esc(item.date) + ' · ' + esc(item.start) + '—' + esc(item.end) + ' · 排队序号 ' + Number(item.seq) + '</div>' +
+          '<div class="row-sub">确认截止：' + esc(fmtDateTime(item.confirm_deadline)) + '</div></div>' +
+          '<div class="account-actions">' + (item.status === 'notified' ? '<button class="btn btn-primary btn-sm" type="button" data-action="account-waitlist-confirm" data-id="' + esc(item.id) + '"' + (!canConfirm ? ' disabled' : '') + '>确认补位</button>' : '') +
+          (['queued', 'notified'].includes(item.status) ? '<button class="btn btn-secondary btn-sm" type="button" data-action="account-waitlist-cancel" data-id="' + esc(item.id) + '">取消候补</button>' : '') + '</div></div>';
+      }).join('') + '</div>' : emptyBlock('暂无候补记录', '在找座位页面选择已预约的座位，可以加入候补。')) + accountPager(data, 20);
+  }
+
+  async function accountConfirmWaitlist(el) {
+    if (el.disabled) return;
+    el.disabled = true;
+    try {
+      await api('/waitlist/' + encodeURIComponent(el.dataset.id) + '/confirm', { method: 'POST', body: {} });
+      toast('补位成功，请在“我的预约”查看');
+      renderView(); refreshBadge();
+    } finally { el.disabled = false; }
+  }
+
+  function accountCancelWaitlist(id) {
+    openAccountPanel({ title: '取消候补', body: '<p class="small muted">取消后将退出当前队列。如需候补，需要重新加入。</p>', actions: [
+      { label: '保留候补', kind: 'secondary', onClick: closeSheet },
+      { label: '确认取消', kind: 'danger', onClick: async () => {
+        await api('/waitlist/' + encodeURIComponent(id) + '/cancel', { method: 'POST', body: {} });
+        closeSheet(); toast('已取消候补'); renderView();
+      } },
+    ] });
   }
 
   function editRoleSheet(config) {
@@ -2114,7 +2510,7 @@
       '<div class="detail-row"><dt>' + label + '</dt><dd>' + esc(value) + '</dd></div>').join('') + '</dl></div>' +
       (scheduler.last_error ? '<div class="banner danger" style="margin-top:12px">' + icon('alert') + '<div>最近一次任务失败：' + esc(scheduler.last_error) + '</div></div>' : '') +
       '<div class="section"><div class="section-head"><h2>数据导出</h2></div><div class="list">' +
-        [['reservations', '预约记录'], ['violations', '违规记录'], ['audit', '审计日志']].map(([kind, label]) =>
+        [['reservations', '预约记录'], ['violations', '违规记录'], ['audit', '审计日志'], ['complaints', '投诉记录'], ['blacklist', '黑名单记录'], ['credit_logs', '信用流水'], ['waitlist', '候补记录']].map(([kind, label]) =>
           '<a class="list-row clickable" href="/api/admin/export/' + kind + '.csv"><div class="row-main"><div class="row-title">' + label + '</div><div class="row-sub">CSV · UTF-8 BOM · 可用 Excel 打开</div></div><div class="row-side">' + icon('download', 'row-chevron') + '</div></a>').join('') +
       '</div></div>' +
       '<div class="section"><div class="section-head"><h2>运维提示</h2></div><div class="card card-pad small muted">' +
@@ -2287,6 +2683,7 @@
     feedback: feedbackView,
     messages: messagesView,
     overview: overviewView,
+    analytics: analyticsView,
     floor: floorView,
     resources: resourcesView,
     search: searchView,
@@ -2334,6 +2731,8 @@
   const ACTIONS = {
     nav: (el) => go(el.dataset.view),
     refresh: () => renderView(),
+    'analytics-range': (el) => setAnalyticsRange(el.dataset.range),
+    'analytics-room': (el) => setAnalyticsRoom(el.dataset.room),
     'close-sheet': () => closeSheet(),
     logout: () => logout(),
     'user-menu': () => openUserMenu(),
@@ -2490,6 +2889,8 @@
       subtitle: user.id,
       body,
       actions: [
+        { label: '编辑资料', kind: 'secondary', onClick: profileSheet },
+        { label: '登录设备', kind: 'secondary', onClick: () => sessionSheet().catch(handleError) },
         { label: '修改密码', kind: 'secondary', onClick: () => changePasswordSheet() },
         { label: '退出登录', kind: 'danger', onClick: () => logout() },
       ],
