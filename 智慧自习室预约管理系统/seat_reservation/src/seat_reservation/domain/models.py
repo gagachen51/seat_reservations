@@ -318,6 +318,10 @@ class Seat:
     has_power: bool = False
     is_window: bool = False
     note: str = ""
+    #: 维护来源标记（v2 / FR-21）：
+    #: ``True`` = 维护状态由封禁流程设置，封禁到期或释放时可自动恢复为 available；
+    #: ``False`` = 非封禁管理（手工维护 / 停用 / 正常），任何封禁到期都不得自动恢复。
+    maintenance_by_block: bool = False
     created_at: datetime | None = None
 
     def as_dict(self) -> dict[str, Any]:
@@ -330,6 +334,7 @@ class Seat:
             "has_power": self.has_power,
             "is_window": self.is_window,
             "note": self.note,
+            "maintenance_by_block": self.maintenance_by_block,
         }
 
 
