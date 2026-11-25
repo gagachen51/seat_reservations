@@ -63,6 +63,14 @@ from .models import (
 from .params import PARAM_INDEX, ParamSet, check_consistency, validate_value
 from .ports import Repository
 from . import resource_rules
+from .reservation_rules import (
+    extended_end_slot,
+    extension_bounds_error,
+    extension_minutes_error,
+    extension_quota_error,
+    extension_state_error,
+    waitlist_cancel_state_error,
+)
 from .rules import (
     blacklist_threshold_reached,
     cancel_phase,
@@ -969,6 +977,126 @@ class DomainEngine:
         message = "已取消，不记违规" if phase == "free" else "已取消，记临近取消违规"
         return Result.success(self._view(reservation).as_dict(), message)
 
+    @implements("BR-01", "BR-02", "BR-09", "BR-11", "ST-12", "PR-03")
+    def extend_reservation(
+        self,
+        actor: Actor,
+        reservation_id: str,
+        extra_minutes: int,
+        now: datetime,
+    ) -> Result:
+        """延长使用中/暂离中的预约（v1.2 保守范围，不新增业务规则）。
+
+        校验顺序与创建预约一致：本人/状态 → 时长粒度 → 座位与自习室可用性
+        → BR-01 边界 → BR-02 当日额度 → BR-09 封禁 → BR-11 冲突。全部通过后
+        在同一写事务内先占用新增时段，再按版本号更新预约；任一步失败整体回滚。
+        """
+        reservation = self._own_reservation(actor, reservation_id)
+
+        state_error = extension_state_error(reservation.status, now, reservation.end_at)
+        if state_error:
+            rule, message = state_error
+            raise RuleViolation(message, rule=rule)
+
+        minutes_error = extension_minutes_error(extra_minutes)
+        if minutes_error:
+            raise ValidationFailed(minutes_error)
+
+        seat = self.repo.get_seat(reservation.seat_id)
+        if seat is None:
+            raise NotFound(f"座位 {reservation.seat_id} 不存在")
+        room = self.repo.get_room(seat.room_id)
+        if room is None:
+            raise NotFound(f"自习室 {seat.room_id} 不存在")
+        if room.status != "open":
+            raise RuleViolation("该自习室已停用，不能延长时段", rule="BR-09")
+
+        new_end_slot = extended_end_slot(reservation.end_slot, extra_minutes)
+        bounds_error = extension_bounds_error(
+            reservation.start_slot,
+            new_end_slot,
+            room.close_slot,
+            self.params.int("booking.max_minutes"),
+        )
+        if bounds_error:
+            rule, message = bounds_error
+            raise RuleViolation(message, rule=rule)
+
+        _, used_minutes = self.repo.daily_usage(reservation.user_id, reservation.day)
+        quota_error = extension_quota_error(
+            used_minutes,
+            extra_minutes,
+            self.params.int("booking.daily_max_minutes"),
+        )
+        if quota_error:
+            rule, message = quota_error
+            raise RuleViolation(message, rule=rule)
+
+        if seat.admin_status != "available":
+            label = "维护中" if seat.admin_status == "maintenance" else "已停用"
+            raise RuleViolation(
+                f"座位 {seat.id} 当前{label}，不能延长时段", rule="BR-09"
+            )
+
+        new_end_at = add_minutes(reservation.end_at, extra_minutes)
+        if self.repo.seat_block_overlaps(seat.id, reservation.end_at, new_end_at):
+            raise RuleViolation(
+                f"座位 {seat.id} 在延长时段处于维护封禁", rule="BR-09"
+            )
+
+        seat_conflict = self.repo.find_seat_conflict(
+            seat.id, reservation.day, reservation.end_slot, new_end_slot
+        )
+        if seat_conflict:
+            raise Conflict(
+                f"座位 {seat.id} 在 {hhmm(reservation.end_slot)}-{hhmm(new_end_slot)} 已被占用",
+                rule="BR-11",
+            )
+        user_conflict = self.repo.find_user_conflict(
+            reservation.user_id, reservation.day, reservation.end_slot, new_end_slot
+        )
+        if user_conflict:
+            raise Conflict("本人延长时段已有其他有效预约，不允许重叠", rule="BR-11")
+
+        before = {
+            "end_slot": reservation.end_slot,
+            "end_at": fmt_datetime(reservation.end_at),
+        }
+        expected_version = reservation.version
+        reservation.updated_at = now
+        try:
+            self.repo.occupy_extension(
+                reservation, reservation.end_slot, new_end_slot
+            )
+            updated = self.repo.extend_reservation(
+                reservation, new_end_slot, new_end_at, expected_version
+            )
+        except SlotConflict as exc:
+            raise Conflict(str(exc), rule=exc.rule) from exc
+        if not updated:
+            raise Conflict("预约已被其他操作修改，请刷新后重试")
+
+        reservation.end_slot = new_end_slot
+        reservation.end_at = new_end_at
+        reservation.version = expected_version + 1
+        self._audit(
+            actor,
+            "reservation_extend",
+            "reservation",
+            reservation.id,
+            before=before,
+            after={
+                "end_slot": new_end_slot,
+                "end_at": fmt_datetime(new_end_at),
+                "extra_minutes": extra_minutes,
+            },
+            now=now,
+        )
+        return Result.success(
+            self._view(reservation).as_dict(),
+            f"已延长 {extra_minutes} 分钟",
+        )
+
     # ------------------------------------------------------------------
     # 候补
     # ------------------------------------------------------------------
@@ -1127,6 +1255,29 @@ class DomainEngine:
             now,
         )
         return Result.success(self._view(reservation).as_dict(), "候补确认成功，已生成预约")
+
+    @implements("ST-12", "PR-04")
+    def cancel_waitlist(self, actor: Actor, entry_id: str, now: datetime) -> Result:
+        """学生取消本人候补。
+
+        v1.2 口径（Q-05 确认前）：只把状态改为 ``cancelled``，不调用
+        ``_offer_waitlist`` 顺延/通知下一位；不记违规、不扣信用分。
+        """
+        self._require(actor, {Role.STUDENT}, "PR-04")
+        entry = self.repo.get_waitlist(entry_id)
+        if entry is None:
+            raise NotFound("候补记录不存在")
+        if entry.user_id != actor.id:
+            raise Forbidden("只能取消本人的候补", rule="PR-04")
+
+        state_error = waitlist_cancel_state_error(entry.status)
+        if state_error:
+            rule, message = state_error
+            raise RuleViolation(message, rule=rule)
+
+        entry.status = WaitlistStatus.CANCELLED.value
+        self.repo.update_waitlist(entry)
+        return Result.success({"entry": entry.as_dict()}, "候补已取消")
 
     # ------------------------------------------------------------------
     # 定时任务

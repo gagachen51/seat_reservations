@@ -762,6 +762,34 @@ class SqliteRepository:
             ),
         )
 
+    def extend_reservation(
+        self,
+        reservation: Reservation,
+        new_end_slot: int,
+        new_end_at: datetime,
+        expected_version: int,
+    ) -> bool:
+        """按版本号乐观更新结束时段；版本不匹配返回 ``False``。
+
+        调用方必须已在同一事务内先写入新增时段（``occupy_extension``）。
+        失败时由外层事务回滚，不会留下半截时段。
+        """
+        cursor = self.conn.execute(
+            """
+            UPDATE reservations
+            SET end_slot = ?, end_at = ?, updated_at = ?, version = version + 1
+            WHERE id = ? AND version = ?
+            """,
+            (
+                new_end_slot,
+                fmt_datetime(new_end_at),
+                fmt_datetime(reservation.updated_at),
+                reservation.id,
+                expected_version,
+            ),
+        )
+        return cursor.rowcount == 1
+
     def occupy(self, reservation: Reservation) -> None:
         rows = [
             (
@@ -780,6 +808,36 @@ class SqliteRepository:
             )
         except sqlite3.IntegrityError as exc:
             raise SlotConflict("该座位或本人时段已被占用，请刷新后重试", rule="BR-11") from exc
+
+    def occupy_extension(
+        self,
+        reservation: Reservation,
+        new_start_slot: int,
+        new_end_slot: int,
+    ) -> None:
+        """只占用本次新增的 ``[new_start_slot, new_end_slot)`` 时段。
+
+        唯一约束（座位/本人）是并发底线：与已有预约冲突时抛 ``SlotConflict``。
+        """
+        rows = [
+            (
+                reservation.id,
+                reservation.seat_id,
+                reservation.user_id,
+                reservation.day.isoformat(),
+                slot,
+            )
+            for slot in range(new_start_slot, new_end_slot)
+        ]
+        try:
+            self.conn.executemany(
+                "INSERT INTO reservation_slots(reservation_id, seat_id, user_id, date, slot) VALUES (?, ?, ?, ?, ?)",
+                rows,
+            )
+        except sqlite3.IntegrityError as exc:
+            raise SlotConflict(
+                "该座位或本人延长时段已被占用，请刷新后重试", rule="BR-11"
+            ) from exc
 
     def release(self, reservation_id: str) -> None:
         self.conn.execute("DELETE FROM reservation_slots WHERE reservation_id = ?", (reservation_id,))

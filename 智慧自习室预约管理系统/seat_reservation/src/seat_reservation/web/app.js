@@ -689,6 +689,18 @@
     }).join('') + '</div>';
   }
 
+  function reservationEnded(item) {
+    if (!item || !item.date || !item.end) return true;
+    const end = new Date(item.date + 'T' + item.end + ':00');
+    return Number.isNaN(end.getTime()) || end.getTime() <= Date.now();
+  }
+
+  function shiftClock(value, minutes) {
+    const parts = String(value || '00:00').split(':').map(Number);
+    const total = (parts[0] || 0) * 60 + (parts[1] || 0) + minutes;
+    return pad(Math.floor((total % 1440) / 60)) + ':' + pad(total % 60);
+  }
+
   async function openReservation(id) {
     const item = await api('/reservations/' + encodeURIComponent(id));
     const statusMeta = RES_STATUS[item.status] || [item.status, 'gray'];
@@ -716,15 +728,18 @@
         '<div class="detail-row"><dt>' + label + '</dt><dd>' + esc(value) + '</dd></div>').join('') + '</dl>';
 
     const actions = [];
+    const canExtend = ['in_use', 'away'].includes(item.status) && !reservationEnded(item);
     if (item.status === 'pending') {
       actions.push({ label: '出示凭证', kind: 'secondary', onClick: () => openCredential(item.id) });
       actions.push({ label: '签到', kind: 'primary', onClick: async () => { await quickCheckIn(item.id); } });
       actions.push({ label: '取消', kind: 'secondary', onClick: () => cancelReservation(item.id) });
     } else if (item.status === 'in_use') {
       actions.push({ label: '暂离', kind: 'secondary', onClick: async () => { await postAction('/reservations/' + item.id + '/away', '已进入暂离'); } });
+      if (canExtend) actions.push({ label: '延长时段', kind: 'secondary', onClick: () => extendReservation(item) });
       actions.push({ label: '签退', kind: 'primary', onClick: async () => { await postAction('/reservations/' + item.id + '/check-out', '已签退'); } });
     } else if (item.status === 'away') {
       actions.push({ label: '返座', kind: 'primary', onClick: async () => { await postAction('/reservations/' + item.id + '/resume', '已返座'); } });
+      if (canExtend) actions.push({ label: '延长时段', kind: 'secondary', onClick: () => extendReservation(item) });
       actions.push({ label: '签退', kind: 'secondary', onClick: async () => { await postAction('/reservations/' + item.id + '/check-out', '已签退'); } });
     } else if (item.status === 'completed' && !item.has_review) {
       actions.push({ label: '评价座位', kind: 'primary', onClick: () => openReview(item.id) });
@@ -791,6 +806,55 @@
         closeSheet();
         toast('预约已取消');
         renderView();
+      },
+    });
+  }
+
+  function extendReservation(item) {
+    const options = [30, 60];
+    let extra = options[0];
+    const maxMinutes = (state.meta && state.meta.rules && state.meta.rules.max_minutes) || 240;
+    const body =
+      '<p class="small muted extend-summary">当前结束时间 <strong>' + esc(item.end) + '</strong>，确认后座位时段立即更新。</p>' +
+      '<div class="segmented block" id="extendOptions">' +
+        options.map((minutes) =>
+          '<button type="button" data-extra="' + minutes + '" class="' + (minutes === extra ? 'active' : '') + '">+' + minutes + ' 分钟</button>').join('') +
+      '</div>' +
+      '<p class="extend-preview" id="extendPreview"></p>' +
+      '<p class="tiny tertiary extend-note">续约受单次最长 ' + esc(String(maxMinutes)) + ' 分钟、当日预约额度、座位维护封禁与后续预约限制；以系统校验为准。</p>';
+
+    openSheet({
+      title: '延长时段',
+      subtitle: item.seat_id + ' · ' + fmtDay(item.date),
+      body,
+      actions: [
+        { label: '取消', kind: 'secondary', onClick: closeSheet },
+        { label: '确认延长', kind: 'primary', onClick: async () => {
+            await api('/reservations/' + encodeURIComponent(item.id) + '/extend', {
+              method: 'POST',
+              body: { extra_minutes: extra },
+            });
+            closeSheet();
+            toast('已延长 ' + extra + ' 分钟');
+            renderView();
+          } },
+      ],
+      onMount: (wrap) => {
+        const buttons = $$('#extendOptions button', wrap);
+        const preview = $('#extendPreview', wrap);
+        const update = () => {
+          buttons.forEach((button) => {
+            button.classList.toggle('active', Number(button.dataset.extra) === extra);
+          });
+          preview.innerHTML = '新结束时间 <strong>' + esc(shiftClock(item.end, extra)) + '</strong> · ' + esc(item.date);
+        };
+        buttons.forEach((button) => {
+          button.addEventListener('click', () => {
+            extra = Number(button.dataset.extra);
+            update();
+          });
+        });
+        update();
       },
     });
   }
