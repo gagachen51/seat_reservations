@@ -2474,6 +2474,10 @@
   // 动作
   // ---------------------------------------------------------------------------
   const ACTIONS = {
+    'account-create': () => accountSheet(),
+    'account-status': (el) => accountStatusSheet({ id: el.dataset.id, name: el.dataset.name, status: el.dataset.status }),
+    'account-reset': (el) => accountResetSheet({ id: el.dataset.id, name: el.dataset.name }),
+    'account-sessions': (el) => sessionSheet({ id: el.dataset.id, name: el.dataset.name }),
     nav: (el) => go(el.dataset.view),
     refresh: () => renderView(),
     'analytics-range': (el) => setAnalyticsRange(el.dataset.range),

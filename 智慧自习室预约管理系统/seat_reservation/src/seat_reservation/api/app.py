@@ -20,7 +20,7 @@ from ..errors import AppError
 from ..logging_setup import configure_logging, get_logger, request_id_var
 from ..security import constant_time_equals
 from ..service.container import AppContext
-from .routes import admin_routes, auth_routes, common_routes, student_routes
+from .routes import account_routes, admin_routes, auth_routes, common_routes, student_routes
 
 logger = get_logger("seat_reservation.http")
 WEB_DIR = Path(__file__).resolve().parents[1] / "web"
@@ -181,6 +181,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_routes.router, prefix="/api")
     app.include_router(student_routes.router, prefix="/api")
     app.include_router(admin_routes.router, prefix="/api")
+    app.include_router(account_routes.router, prefix="/api")
 
     if WEB_DIR.is_dir():
         app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
