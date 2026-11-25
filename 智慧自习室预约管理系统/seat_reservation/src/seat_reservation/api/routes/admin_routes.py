@@ -270,13 +270,19 @@ def block_seat(
     return render(result, status_code=201)
 
 
-@router.delete("/admin/seat-blocks/{seat_id}", summary="解封座位")
+@router.delete("/admin/seat-blocks/{seat_id}", summary="解封座位（关闭全部未释放封禁）")
 def unblock_seat(
     seat_id: str,
     request: Request,
     actor: Actor = Depends(get_actor),
     engine: DomainEngine = Depends(write_engine),
 ) -> JSONResponse:
+    """按座位解封：关闭该座位全部未释放封禁（B 负责的资源区，行为 v1.2 调整）。
+
+    只有“维护状态由封禁流程设置（``maintenance_by_block=1``）”的座位恢复
+    ``available``；手工维护保持维护、停用座位保持停用。按单条记录解封走
+    ``POST /admin/seat-blocks/{block_id}/release``（`resource_routes.py`）。
+    """
     return render(
         engine.unblock_seat(actor, seat_id, datetime.now(), ip=client_ip(request))
     )

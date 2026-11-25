@@ -62,6 +62,7 @@ from .models import (
 )
 from .params import PARAM_INDEX, ParamSet, check_consistency, validate_value
 from .ports import Repository
+from . import resource_rules
 from .rules import (
     blacklist_threshold_reached,
     cancel_phase,
@@ -1130,13 +1131,14 @@ class DomainEngine:
     # ------------------------------------------------------------------
     # 定时任务
     # ------------------------------------------------------------------
-    @implements("BR-04", "BR-05", "BR-06", "BR-08", "BR-16", "NFR-02", "ST-02", "ST-07", "ST-09")
+    @implements("BR-04", "BR-05", "BR-06", "BR-08", "BR-09", "BR-16", "NFR-02", "ST-02", "ST-07", "ST-09")
     def run_timeout_sweep(self, now: datetime) -> dict[str, int]:
         summary = {
             "no_show": 0,
             "away_timeout": 0,
             "late_checkout": 0,
             "waitlist_expired": 0,
+            "seat_blocks_expired": 0,
             "reminders": 0,
         }
         for reservation in self.repo.list_due_pending(now):
@@ -1202,6 +1204,49 @@ class DomainEngine:
             self._offer_waitlist(entry.seat_id, entry.day, entry.start_slot, entry.end_slot, now)
             summary["waitlist_expired"] += 1
 
+        # 封禁到期：关闭记录，并且只在“维护状态由封禁流程设置”时才恢复座位。
+        # 手工维护、停用（disabled）座位一律保持原状态，避免误恢复。
+        expired_blocks = self.repo.expire_seat_blocks(now)
+        restored_seats: set[str] = set()
+        for block in expired_blocks:
+            if block.seat_id in restored_seats:
+                continue
+            restored_seats.add(block.seat_id)
+            seat = self.repo.get_seat(block.seat_id)
+            if seat is None:  # pragma: no cover - 外键保证存在
+                continue
+            remaining = self.repo.active_seat_blocks(seat.id)
+            target_status, target_marker = resource_rules.seat_state_after_blocks_closed(
+                seat, remaining
+            )
+            if (target_status, target_marker) == (
+                seat.admin_status,
+                seat.maintenance_by_block,
+            ):
+                continue
+            before = {
+                "seat_status": seat.admin_status,
+                "maintenance_by_block": seat.maintenance_by_block,
+            }
+            seat.admin_status, seat.maintenance_by_block = target_status, target_marker
+            self.repo.save_seat(seat)
+            self._audit(
+                None,
+                "seat_block_expired",
+                "seat",
+                seat.id,
+                before=before,
+                after={
+                    "seat_status": seat.admin_status,
+                    "maintenance_by_block": seat.maintenance_by_block,
+                    "expired_blocks": [
+                        item.id for item in expired_blocks if item.seat_id == seat.id
+                    ],
+                },
+                now=now,
+            )
+        summary["seat_blocks_expired"] = len(expired_blocks)
+
         summary["reminders"] = self.send_reminders(now)
         return summary
 
@@ -1249,7 +1294,10 @@ class DomainEngine:
         seat = self.repo.get_seat(seat_id)
         if seat is None:
             raise NotFound(f"座位 {seat_id} 不存在")
-        before = {"seat_status": seat.admin_status}
+        before = {
+            "seat_status": seat.admin_status,
+            "maintenance_by_block": seat.maintenance_by_block,
+        }
         block = SeatBlock(
             id=self.repo.next_id("seatblock", "SB-", 6),
             seat_id=seat_id,
@@ -1260,7 +1308,11 @@ class DomainEngine:
             created_at=now,
         )
         self.repo.insert_seat_block(block)
-        seat.admin_status = "maintenance"
+        # 状态迁移交给纯规则：手工维护/停用不改状态，未来封禁不立即生效，
+        # 只有“封禁流程管理的维护中座位”才会在到期/释放时自动恢复。
+        seat.admin_status, seat.maintenance_by_block = resource_rules.seat_state_after_block(
+            seat, block, now
+        )
         self.repo.save_seat(seat)
 
         affected: list[str] = []
@@ -1285,17 +1337,35 @@ class DomainEngine:
             "seat",
             seat_id,
             before=before,
-            after={"seat_status": "maintenance", "block_id": block.id, "affected": affected},
+            after={
+                "seat_status": seat.admin_status,
+                "maintenance_by_block": seat.maintenance_by_block,
+                "block_id": block.id,
+                "block_start": fmt_datetime(block_start),
+                "block_end": fmt_datetime(block_end),
+                "affected": affected,
+            },
             now=now,
             ip=ip,
         )
         return Result.success(
-            {"seat_id": seat_id, "block": block.as_dict(), "affected_reservations": affected},
+            {
+                "seat_id": seat_id,
+                "block": block.as_dict(),
+                "seat_status": seat.admin_status,
+                "maintenance_by_block": seat.maintenance_by_block,
+                "affected_reservations": affected,
+            },
             f"已封禁，取消 {len(affected)} 条受影响预约",
         )
 
     @implements("PR-06")
     def unblock_seat(self, actor: Actor, seat_id: str, now: datetime, *, ip: str = "") -> Result:
+        """解封整个座位：关闭该座位全部未释放封禁（既有 DELETE 接口的行为）。
+
+        只有“由封禁流程管理的维护中座位”才恢复 ``available``；手工维护保持维护、
+        停用（``disabled``）座位保持停用，必须走座位管理显式启用。
+        """
         self._require(actor, {Role.ROOM_ADMIN, Role.SYS_ADMIN}, "PR-06")
         seat = self.repo.get_seat(seat_id)
         if seat is None:
@@ -1305,23 +1375,279 @@ class DomainEngine:
             raise RuleViolation("该座位当前没有生效中的封禁", rule="ST-12")
         for block in blocks:
             self.repo.close_seat_block(block.id, now)
-        before_status = seat.admin_status
-        # 仅当座位是因本次封禁进入 maintenance 时才恢复为可预约；
-        # 原本处于 disabled（停用）的座位不得被解封操作降级。
-        if seat.admin_status == "maintenance":
-            seat.admin_status = "available"
+        before = {
+            "seat_status": seat.admin_status,
+            "maintenance_by_block": seat.maintenance_by_block,
+        }
+        seat.admin_status, seat.maintenance_by_block = (
+            resource_rules.seat_state_after_blocks_closed(seat, [])
+        )
+        restored = (
+            seat.admin_status == "available"
+            and before["seat_status"] != "available"
+        )
         self.repo.save_seat(seat)
+        after = {
+            "seat_status": seat.admin_status,
+            "maintenance_by_block": seat.maintenance_by_block,
+            "released_blocks": [block.id for block in blocks],
+        }
         self._audit(
             actor,
             "seat_unblock",
             "seat",
             seat_id,
-            before={"seat_status": before_status},
-            after={"seat_status": seat.admin_status},
+            before=before,
+            after=after,
             now=now,
             ip=ip,
         )
-        return Result.success({"seat_id": seat_id}, "已解封")
+        message = (
+            "已解封，座位恢复可预约"
+            if restored
+            else f"已解封，座位保持{resource_rules.seat_status_label(seat.admin_status)}（未自动恢复）"
+        )
+        return Result.success(
+            {
+                "seat_id": seat_id,
+                "seat_status": seat.admin_status,
+                "maintenance_by_block": seat.maintenance_by_block,
+                "restored": restored,
+                "released_blocks": [block.id for block in blocks],
+            },
+            message,
+        )
+
+    # ------------------------------------------------------------------
+    # 座位封禁生命周期（v2 / FR-21，PR-06，ST-11）
+    # ------------------------------------------------------------------
+    @implements("FR-21", "PR-06")
+    def list_seat_blocks(
+        self,
+        actor: Actor,
+        *,
+        seat_id: str | None = None,
+        room_id: str | None = None,
+        active_only: bool = False,
+        page: int = 1,
+        page_size: int = 20,
+        now: datetime | None = None,
+    ) -> Result:
+        """封禁记录列表（含座位、自习室、原因、起止、是否此刻生效）。
+
+        未来封禁期间 ``admin_status`` 可能仍是 ``available``，因此管理端必须
+        同时展示封禁记录与 ``seat_views`` 的派生状态，不能只看 ``admin_status``。
+        """
+        self._require(actor, {Role.ROOM_ADMIN, Role.SYS_ADMIN}, "PR-06")
+        current = now or datetime.now()
+        result = self.repo.list_seat_blocks(
+            seat_id=seat_id,
+            room_id=room_id,
+            active_only=active_only,
+            page=page,
+            page_size=page_size,
+        )
+        return Result.success(
+            {
+                "items": result.items,
+                "total": result.total,
+                "page": result.page,
+                "page_size": result.page_size,
+                "generated_at": fmt_datetime(current),
+            }
+        )
+
+    @implements("PR-06", "ST-11", "ST-12")
+    def release_seat_block(
+        self,
+        actor: Actor,
+        block_id: str,
+        reason: str,
+        now: datetime,
+        *,
+        restore_seat: bool = False,
+        ip: str = "",
+    ) -> Result:
+        """按记录解封：只关闭指定封禁；``restore_seat`` 才会显式恢复座位。
+
+        默认 ``restore_seat=False``（不猜管理员意图，不动座位状态）。
+        ``disabled`` 座位即便传 ``True`` 也不会恢复，必须走 ``PUT /admin/seats/{id}``。
+        """
+        self._require(actor, {Role.ROOM_ADMIN, Role.SYS_ADMIN}, "PR-06")
+        if len(reason.strip()) < 2:
+            raise ValidationFailed("按记录解封必须填写原因", rule="PR-06")
+        block = self.repo.get_seat_block(block_id)
+        if block is None:
+            raise NotFound(f"封禁记录 {block_id} 不存在")
+        if block.released_at is not None:
+            raise RuleViolation("该封禁记录已释放，不能重复解封", rule="ST-12")
+        seat = self.repo.get_seat(block.seat_id)
+        if seat is None:
+            raise NotFound(f"座位 {block.seat_id} 不存在")
+        before = {
+            "seat_status": seat.admin_status,
+            "maintenance_by_block": seat.maintenance_by_block,
+            "block_released_at": None,
+        }
+        # 停用座位不能借“解封恢复”变成可预约：先拒绝，避免出现半个副作用。
+        if restore_seat and seat.admin_status == "disabled":
+            raise RuleViolation(
+                "停用座位不能通过解封恢复，请到座位管理显式启用", rule="PR-06"
+            )
+        self.repo.release_seat_block(block_id, now)
+        remaining = [item for item in self.repo.active_seat_blocks(seat.id)]
+        restorable = resource_rules.can_restore_seat(seat, remaining)
+        restored = False
+        if restore_seat:
+            if restorable:
+                seat.admin_status = "available"
+                seat.maintenance_by_block = False
+                self.repo.save_seat(seat)
+                restored = True
+        elif not remaining:
+            # 默认只关闭记录、不改座位状态：仅把“封禁来源”标记归零，
+            # 需要恢复可用必须显式传 restore_seat=true 或走座位管理。
+            seat.maintenance_by_block = False
+            self.repo.save_seat(seat)
+        self._audit(
+            actor,
+            "seat_block_release",
+            "seat",
+            seat.id,
+            before=before,
+            after={
+                "block_id": block_id,
+                "reason": reason.strip(),
+                "seat_status": seat.admin_status,
+                "maintenance_by_block": seat.maintenance_by_block,
+                "restored": restored,
+                "remaining_blocks": [item.id for item in remaining],
+            },
+            now=now,
+            ip=ip,
+        )
+        block.released_at = now
+        return Result.success(
+            {
+                "block": block.as_dict(),
+                "seat_id": seat.id,
+                "seat_status": seat.admin_status,
+                "maintenance_by_block": seat.maintenance_by_block,
+                "restored": restored,
+                "remaining_blocks": len(remaining),
+            },
+            "已按记录解封" + ("，座位恢复可预约" if restored else ""),
+        )
+
+    @implements("FR-21", "PR-05")
+    def bulk_create_seats(
+        self,
+        actor: Actor,
+        room_id: str,
+        seats: Iterable[dict[str, Any]],
+        now: datetime,
+        *,
+        ip: str = "",
+    ) -> Result:
+        """批量建座：全量成功或全量回滚（任一条非法则整批不落库）。"""
+        self._require(actor, {Role.ROOM_ADMIN, Role.SYS_ADMIN}, "PR-05")
+        items = list(seats)
+        limit_error = resource_rules.bulk_limit_violation(len(items))
+        if limit_error:
+            raise ValidationFailed(limit_error, rule="FR-21")
+        if self.repo.get_room(room_id) is None:
+            raise NotFound(f"自习室 {room_id} 不存在")
+        raw_ids = [str(item.get("id", "")).strip() for item in items]
+        if any(not seat_id for seat_id in raw_ids):
+            raise ValidationFailed("座位编号不能为空")
+        repeated = resource_rules.duplicate_ids(raw_ids)
+        if repeated:
+            raise Conflict(f"批量提交中座位编号重复：{'、'.join(repeated)}", rule="PR-05")
+        # 座位编号是全局主键：必须检查所有自习室，否则 save_seat 的 UPSERT 会把
+        # 其他房间的同号座位静默“搬”过来。
+        existing_ids = {seat.id for seat in self.repo.list_seats()}
+        already = [seat_id for seat_id in raw_ids if seat_id in existing_ids]
+        if already:
+            raise Conflict(f"座位已存在：{'、'.join(already)}", rule="PR-05")
+
+        created: list[Seat] = []
+        for item in items:
+            seat_type = str(item.get("type") or SeatType.STANDARD.value)
+            capacity = int(item.get("capacity") or 1)
+            self._validate_seat_shape(seat_type, capacity)
+            seat_id = str(item.get("id", "")).strip()
+            seat = Seat(
+                id=seat_id,
+                room_id=room_id,
+                seat_type=seat_type,
+                capacity=capacity,
+                has_power=bool(item.get("has_power", False)),
+                is_window=bool(item.get("is_window", False)),
+                note=str(item.get("note") or "").strip(),
+                created_at=now,
+            )
+            self.repo.save_seat(seat)
+            created.append(seat)
+
+        payload = []
+        for seat in created:
+            data = seat.as_dict()
+            data["admin_status"] = seat.admin_status
+            payload.append(data)
+        self._audit(
+            actor,
+            "seat_bulk_create",
+            "room",
+            room_id,
+            before=None,
+            after={"room_id": room_id, "created": [seat.id for seat in created]},
+            now=now,
+            ip=ip,
+        )
+        return Result.success(
+            {"room_id": room_id, "created": payload, "count": len(payload)},
+            f"已批量新增 {len(payload)} 个座位",
+        )
+
+    @implements("FR-21", "PR-05")
+    def room_impact(
+        self, actor: Actor, room_id: str, status: str | None = None
+    ) -> Result:
+        """停用/关闭自习室前的影响预览（只读，不修改任何数据）。
+
+        统计口径：该自习室下 ``pending/in_use/away`` 的预约（会被停用影响的对象）；
+        ``status`` 只用于回显管理员打算切换到的目标状态，不参与统计。
+        """
+        self._require(actor, {Role.ROOM_ADMIN, Role.SYS_ADMIN}, "PR-05")
+        room = self.repo.get_room(room_id)
+        if room is None:
+            raise NotFound(f"自习室 {room_id} 不存在")
+        target = status or "closed"
+        if target not in {"open", "closed"}:
+            raise ValidationFailed("自习室状态只能是 open 或 closed")
+        items: list[dict[str, Any]] = []
+        summary = {"pending": 0, "in_use": 0, "away": 0}
+        for state in summary:
+            page = self.repo.list_reservations(
+                room_id=room_id, status=state, page_size=20
+            )
+            summary[state] = page.total
+            items.extend(view.as_dict() for view in page.items)
+        items.sort(key=lambda item: (item.get("date") or "", item.get("start") or ""))
+        return Result.success(
+            {
+                "room_id": room_id,
+                "room_name": room.name,
+                "current_status": room.status,
+                "target_status": target,
+                "affected_count": sum(summary.values()),
+                "by_status": summary,
+                "items": items[:20],
+                "total": sum(summary.values()),
+                "page": 1,
+                "page_size": 20,
+            }
+        )
 
     @implements("PR-07", "ST-10", "NFR-09")
     def force_release(
@@ -1980,9 +2306,22 @@ class DomainEngine:
             raise NotFound(f"座位 {seat_id} 不存在")
         before = seat.as_dict()
         before["admin_status"] = seat.admin_status
-        if room_id is not None:
+        if room_id is not None and room_id != seat.room_id:
             if self.repo.get_room(room_id) is None:
                 raise NotFound(f"自习室 {room_id} 不存在")
+            # 跨自习室移动保护：已有待签到/使用中/暂离预约时禁止改写房间归属，
+            # 否则历史预约的房间统计会被改写（PR-05）。
+            occupied = self.repo.list_active_overlapping(
+                seat_id,
+                now - timedelta(days=self.params.int("booking.window_days")),
+                now + timedelta(days=self.params.int("booking.window_days")),
+            )
+            if resource_rules.has_occupying_reservation(occupied):
+                raise Conflict(
+                    f"座位 {seat_id} 仍有进行中或未开始的预约，不能移动到其他自习室",
+                    rule="PR-05",
+                )
+        if room_id is not None:
             seat.room_id = room_id
         if seat_type is not None:
             seat.seat_type = seat_type
@@ -1990,9 +2329,12 @@ class DomainEngine:
             seat.capacity = capacity
         self._validate_seat_shape(seat.seat_type, seat.capacity)
         if admin_status is not None:
-            if admin_status not in {"available", "maintenance", "disabled"}:
+            if admin_status not in set(resource_rules.SEAT_ADMIN_STATUSES):
                 raise ValidationFailed("座位状态只能是 available / maintenance / disabled")
             seat.admin_status = admin_status
+            # 管理员显式设置状态即“手工意图优先”：清零封禁来源标记，
+            # 之后该座位不会再被到期封禁自动恢复。
+            seat.maintenance_by_block = False
         if has_power is not None:
             seat.has_power = has_power
         if is_window is not None:

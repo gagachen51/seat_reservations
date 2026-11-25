@@ -27,7 +27,7 @@
     overview: ['概览', '实时使用率与近 7 日趋势'],
     analytics: ['分析', '按日期区间查看运营指标'],
     floor: ['现场', '座位状态与现场处置'],
-    resources: ['资源', '自习室与座位的增改、启用/停用'],
+    resources: ['资源', '自习室与座位的增改、启用/停用、批量建座与封禁治理'],
     search: ['预约查询', '按状态、日期与关键词检索'],
     complaints: ['投诉', '处理学生反馈并留痕'],
     reviews: ['评价', '查看座位与环境评价并回复'],
@@ -96,6 +96,7 @@
     resourceRoom: '',
     roomsAdmin: [],
     seatsAdmin: [],
+    seatBlocks: [],
     page: 1,
     sheet: null,
     sheetTimer: null,
@@ -1475,12 +1476,28 @@
       try { reservation = await api('/reservations/' + encodeURIComponent(seat.holder_reservation_id)); } catch (error) { reservation = null; }
     }
 
+    // 未来封禁期间 admin_status 可能仍是 available，必须同时看封禁记录，否则会误判“可用”。
+    let blocks = [];
+    try {
+      const data = await api('/admin/seat-blocks', { params: { seat_id: seat.id, active_only: true, page_size: 20 } });
+      blocks = data.items || [];
+    } catch (error) { blocks = []; }
+    const activeBlock = blocks.find((item) => !item.released_at && blockPhase(item) === 'active');
+    const futureBlock = blocks.find((item) => !item.released_at && blockPhase(item) === 'future');
+
     const details = [
       ['座位', seat.id + ' · ' + seat.room_name],
       ['类型', seat.type_label + (seat.capacity > 1 ? ' · ' + seat.capacity + ' 人' : '')],
       ['状态', seat.state_label],
       ['属性', [seat.has_power ? '电源' : '', seat.is_window ? '靠窗' : ''].filter(Boolean).join(' / ') || '—'],
     ];
+    if (activeBlock) {
+      details.push(['封禁', '生效中：' + activeBlock.reason]);
+      details.push(['封禁到期', fmtDateTime(activeBlock.end_at)]);
+    } else if (futureBlock) {
+      details.push(['封禁', '未开始：' + futureBlock.reason]);
+      details.push(['封禁时段', fmtDateTime(futureBlock.start_at) + ' → ' + fmtDateTime(futureBlock.end_at)]);
+    }
     if (reservation) {
       details.push(['预约人', reservation.user_name + '（' + reservation.user_id + '）']);
       details.push(['时段', reservation.start + '–' + reservation.end]);
@@ -1494,12 +1511,13 @@
       actions.push({ label: '登记违约', kind: 'secondary', onClick: () => manualViolationSheet(reservation.id) });
       actions.push({ label: '强制释放', kind: 'danger', onClick: () => forceReleaseSheet(reservation.id) });
     } else if (seat.state === 'maintenance') {
+      actions.push({ label: '封禁记录', kind: 'secondary', onClick: () => seatBlocksSheet({ seatId: seat.id }) });
       actions.push({ label: '解除封禁', kind: 'primary', onClick: () => unblockSeat(seat.id) });
     } else if (seat.state === 'available' || seat.state === 'disabled') {
       actions.push({ label: '封禁座位', kind: 'danger', onClick: () => blockSeatSheet(seat.id) });
     }
     if (!actions.length) actions.push({ label: '关闭', kind: 'secondary', onClick: closeSheet });
-    openSheet({ title: '座位 ' + seat.id, subtitle: seat.room_name, body, actions });
+    openSheet({ title: '座位 ' + seat.id, subtitle: seat.room_name + (blocks.length ? ' · 封禁记录 ' + blocks.length + ' 条' : ''), body, actions });
   }
 
   function manualViolationSheet(reservationId) {
@@ -1555,7 +1573,18 @@
       body:
         '<label class="field"><span>原因</span><input id="blockReason" maxlength="200" placeholder="例如：桌面损坏，等待维修"></label>' +
         '<div class="row" style="gap:10px"><label class="field grow"><span>开始</span><input id="blockStart" type="datetime-local" value="' + localDateTimeValue(now) + '"></label>' +
-        '<label class="field grow"><span>结束</span><input id="blockEnd" type="datetime-local" value="' + localDateTimeValue(later) + '"></label></div>',
+        '<label class="field grow"><span>结束</span><input id="blockEnd" type="datetime-local" value="' + localDateTimeValue(later) + '"></label></div>' +
+        '<p class="tiny tertiary" style="margin:0 0 6px">封禁自「开始」起生效：未来封禁不会立刻停用座位；到期后自动关闭记录，只有“由封禁管理的维护”才恢复可预约，手工维护与停用座位保持原状态。</p>' +
+        '<p class="tiny tertiary" id="blockHint" style="margin:0">本次预计结束：' + esc(fmtDateTime(localDateTimeValue(later))) + '</p>',
+      onMount: (wrap) => {
+        const sync = () => {
+          const hint = wrap.querySelector('#blockHint');
+          const endValue = wrap.querySelector('#blockEnd').value;
+          if (hint) hint.textContent = endValue ? '本次预计结束：' + fmtDateTime(endValue) : '';
+        };
+        wrap.querySelector('#blockStart').addEventListener('change', sync);
+        wrap.querySelector('#blockEnd').addEventListener('change', sync);
+      },
       actions: [
         { label: '取消', kind: 'secondary', onClick: closeSheet },
         { label: '确认封禁', kind: 'danger', onClick: async () => {
@@ -1578,7 +1607,7 @@
   function unblockSeat(seatId) {
     confirmSheet({
       title: '解除封禁',
-      message: '解封后座位恢复可预约，历史封禁记录保留。',
+      message: '将关闭该座位全部未释放的封禁记录。只有“封禁管理导致的维护”会恢复为启用；手工维护与停用座位保持原状态。',
       confirmLabel: '解封',
       onConfirm: async () => {
         await api('/admin/seat-blocks/' + encodeURIComponent(seatId), { method: 'DELETE' });
@@ -1586,6 +1615,214 @@
         toast('已解封');
         renderView();
       },
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 封禁治理（v1.2 / FR-21）：封禁记录、按记录解封、批量建座、停用影响预览
+  // ---------------------------------------------------------------------------
+  function parseDateTime(value) {
+    if (!value) return null;
+    const text = String(value).replace('T', ' ').trim();
+    const [datePart, timePart = '00:00:00'] = text.split(' ');
+    const [y, m, d] = datePart.split('-').map(Number);
+    const [hh, mm, ss = 0] = timePart.split(':').map(Number);
+    if (!y || !m || !d) return null;
+    return new Date(y, m - 1, d, hh || 0, mm || 0, ss || 0);
+  }
+
+  function blockPhase(block) {
+    if (block.released_at) return 'released';
+    const start = parseDateTime(block.start_at);
+    const end = parseDateTime(block.end_at);
+    if (!start || !end) return 'unknown';
+    const now = new Date();
+    if (start > now) return 'future';
+    if (end <= now) return 'expired';
+    return 'active';
+  }
+
+  const BLOCK_PHASE = {
+    active: ['green', '生效中'],
+    future: ['blue', '未开始'],
+    expired: ['gray', '已到期'],
+    released: ['gray', '已释放'],
+    unknown: ['gray', '未解析'],
+  };
+
+  async function seatBlocksSheet(options = {}) {
+    const params = { page_size: 50 };
+    if (options.seatId) params.seat_id = options.seatId;
+    if (options.roomId) params.room_id = options.roomId;
+    if (options.activeOnly !== false) params.active_only = true;
+    let data;
+    try { data = await api('/admin/seat-blocks', { params }); } catch (error) { handleError(error); return; }
+    const items = data.items || [];
+    const rows = items.map((item) => {
+      const phase = blockPhase(item);
+      const meta = BLOCK_PHASE[phase] || BLOCK_PHASE.unknown;
+      const managed = item.seat_maintenance_by_block
+        ? '封禁管理的维护'
+        : item.seat_status === 'maintenance'
+          ? '手工维护'
+          : item.seat_status === 'disabled' ? '停用' : '启用';
+      const action = item.released_at
+        ? ''
+        : '<button class="btn btn-secondary btn-sm" type="button" data-action="release-block" data-id="' + esc(item.id) +
+          '" data-seat="' + esc(item.seat_id) + '" data-status="' + esc(item.seat_status) +
+          '" data-managed="' + (item.seat_maintenance_by_block ? '1' : '0') + '">按记录解封</button>';
+      return '<div class="block-row">' +
+        '<div class="row-main">' +
+          '<div class="row-title mono">' + esc(item.seat_id) + ' · ' + esc(item.room_name || item.room_id) + '</div>' +
+          '<div class="row-sub">' + esc(item.reason) + '</div>' +
+          '<div class="row-sub tiny tertiary">' + fmtDateTime(item.start_at) + ' → ' + fmtDateTime(item.end_at) +
+            (item.released_at ? ' · 已释放 ' + fmtDateTime(item.released_at) : '') +
+            ' · 座位当前：' + esc(managed) + '</div>' +
+        '</div>' +
+        '<div class="row-side block-side"><span class="pill ' + meta[0] + '">' + meta[1] + '</span>' + action + '</div>' +
+      '</div>';
+    }).join('');
+    openSheet({
+      title: '封禁记录',
+      subtitle: (options.seatId ? '座位 ' + options.seatId + ' · ' : '') + '共 ' + (data.total || 0) + ' 条，按开始时间倒序',
+      body: rows
+        ? '<div class="stack block-list">' + rows + '</div>'
+        : '<div class="card empty">' + icon('empty') + '<strong>没有封禁记录</strong><p>在现场页封禁座位后，记录会出现在这里。</p></div>' +
+          '<p class="tiny tertiary" style="margin:12px 2px 0">未来封禁不会立刻停用座位，维护态按封禁时间窗派生；到期自动关闭记录，只有“封禁管理的维护”才恢复可预约。</p>',
+      actions: [{ label: '关闭', kind: 'secondary', onClick: closeSheet }],
+    });
+  }
+
+  function releaseSeatBlockSheet(info) {
+    const managed = info.managed === '1';
+    const disabled = info.status === 'disabled';
+    const hint = disabled
+      ? '该座位当前是「停用」，解封不会恢复成可预约；需要启用请到「资源」页编辑座位。'
+      : managed
+        ? '该座位是由封禁管理的维护，可勾选“同时恢复座位”；不勾选则只关闭记录、保留维护状态。'
+        : '该座位不是封禁管理的维护状态，解封只关闭记录、不改动座位状态。';
+    openSheet({
+      title: '按记录解封',
+      subtitle: '座位 ' + info.seat,
+      body:
+        '<label class="field"><span>解封原因</span><textarea id="releaseBlockReason" maxlength="500" placeholder="例如：维修完成，现场确认可恢复使用"></textarea></label>' +
+        '<label class="row small" style="gap:8px"><input id="releaseBlockRestore" type="checkbox"' +
+          (managed && !disabled ? '' : ' disabled') + '> 同时恢复座位为「启用」</label>' +
+        '<p class="tiny tertiary" style="margin:8px 0 0">' + esc(hint) + '</p>',
+      actions: [
+        { label: '取消', kind: 'secondary', onClick: closeSheet },
+        { label: '确认解封', kind: 'primary', onClick: async () => {
+            const reason = $('#releaseBlockReason').value.trim();
+            if (reason.length < 2) { toast('请填写解封原因', { error: true }); return; }
+            try {
+              await api('/admin/seat-blocks/' + encodeURIComponent(info.id) + '/release', { method: 'POST', body: {
+                reason,
+                restore_seat: Boolean($('#releaseBlockRestore') && $('#releaseBlockRestore').checked),
+              } });
+              closeSheet();
+              toast('已按记录解封');
+              renderView();
+            } catch (error) { handleError(error); }
+          } },
+      ],
+    });
+  }
+
+  function bulkSeatSheet() {
+    const rooms = state.roomsAdmin.length ? state.roomsAdmin : (state.meta.rooms || []);
+    const roomOptions = rooms.map((room) =>
+      '<option value="' + esc(room.id) + '"' + (state.resourceRoom === room.id ? ' selected' : '') + '>' + esc(room.name) + '</option>').join('');
+    const typeOptions = Object.entries(state.meta.seat_types || {}).map(([value, label]) =>
+      '<option value="' + esc(value) + '">' + esc(label) + '</option>').join('');
+    openSheet({
+      title: '批量新增座位',
+      subtitle: '一次最多 100 个；任一条非法则整批回滚，不留半截数据',
+      body:
+        '<label class="field"><span>所属自习室</span><select id="bulkRoom">' + roomOptions + '</select></label>' +
+        '<label class="field"><span>编号前缀</span><input id="bulkPrefix" maxlength="24" value="' + esc((state.resourceRoom || '') + '-') + '" placeholder="例如：A101-"></label>' +
+        '<div class="row" style="gap:10px">' +
+          '<label class="field grow"><span>起始序号</span><input id="bulkStart" type="number" min="1" max="999" value="1"></label>' +
+          '<label class="field grow"><span>数量（≤100）</span><input id="bulkCount" type="number" min="1" max="100" value="10"></label>' +
+        '</div>' +
+        '<div class="row" style="gap:10px">' +
+          '<label class="field grow"><span>类型</span><select id="bulkType">' + typeOptions + '</select></label>' +
+          '<label class="field grow"><span>容量（普通位填 1，讨论间 4~8）</span><input id="bulkCapacity" type="number" min="1" max="20" value="1"></label>' +
+        '</div>' +
+        '<label class="field"><span>备注（可选）</span><input id="bulkNote" maxlength="200" placeholder="例如：2026 春季新自习室初始化"></label>' +
+        '<p class="tiny tertiary" id="bulkPreview" style="margin:0">编号示例：' + esc((state.resourceRoom || '') + '-001 ~ ……') + '</p>',
+      onMount: (wrap) => {
+        const sync = () => {
+          const prefix = wrap.querySelector('#bulkPrefix').value;
+          const start = Number(wrap.querySelector('#bulkStart').value) || 1;
+          const count = Number(wrap.querySelector('#bulkCount').value) || 1;
+          const first = prefix + String(start).padStart(3, '0');
+          const last = prefix + String(start + count - 1).padStart(3, '0');
+          const hint = wrap.querySelector('#bulkPreview');
+          if (hint) hint.textContent = '将创建 ' + count + ' 个座位：' + first + ' … ' + last;
+        };
+        ['#bulkPrefix', '#bulkStart', '#bulkCount'].forEach((sel) => {
+          const el = wrap.querySelector(sel);
+          if (el) el.addEventListener('input', sync);
+        });
+        sync();
+      },
+      actions: [
+        { label: '取消', kind: 'secondary', onClick: closeSheet },
+        { label: '批量创建', kind: 'primary', onClick: async () => {
+            const roomId = $('#bulkRoom').value;
+            const prefix = $('#bulkPrefix').value.trim();
+            const start = Number($('#bulkStart').value);
+            const count = Number($('#bulkCount').value);
+            if (!roomId) { toast('请选择自习室', { error: true }); return; }
+            if (!prefix) { toast('请填写编号前缀', { error: true }); return; }
+            if (!Number.isInteger(start) || start < 1) { toast('起始序号必须是不小于 1 的整数', { error: true }); return; }
+            if (!Number.isInteger(count) || count < 1 || count > 100) { toast('数量必须在 1~100 之间', { error: true }); return; }
+            const seats = Array.from({ length: count }, (_, index) => ({
+              id: prefix + String(start + index).padStart(3, '0'),
+              type: $('#bulkType').value,
+              capacity: Number($('#bulkCapacity').value) || 1,
+              note: $('#bulkNote').value.trim(),
+            }));
+            try {
+              const result = await api('/admin/seats/bulk', { method: 'POST', body: { room_id: roomId, seats } });
+              closeSheet();
+              toast('已新增 ' + (result.count || seats.length) + ' 个座位');
+              renderView();
+            } catch (error) { handleError(error); }
+          } },
+      ],
+    });
+  }
+
+  async function roomImpactSheet(roomId) {
+    let data;
+    try { data = await api('/admin/rooms/' + encodeURIComponent(roomId) + '/impact', { params: { status: 'closed' } }); }
+    catch (error) { handleError(error); return; }
+    const by = data.by_status || {};
+    const rows = [
+      ['自习室', (data.room_name || '') + '（' + data.room_id + '）'],
+      ['当前状态', data.current_status === 'open' ? '开放' : '停用'],
+      ['受影响预约', String(data.affected_count || 0)],
+      ['待签到', String(by.pending || 0)],
+      ['使用中', String(by.in_use || 0)],
+      ['暂离', String(by.away || 0)],
+    ];
+    const items = (data.items || []).map((item) =>
+      '<div class="block-row"><div class="row-main">' +
+        '<div class="row-title mono">' + esc(item.seat_id) + ' · ' + esc(item.user_name || item.user_id) + '</div>' +
+        '<div class="row-sub tiny tertiary">' + esc(item.date) + ' ' + esc(item.start) + '–' + esc(item.end) + '</div>' +
+      '</div><div class="row-side">' + statusPill(item.status) + '</div></div>').join('');
+    openSheet({
+      title: '停用影响预览',
+      subtitle: '只读预览，不会修改任何数据',
+      body:
+        '<dl class="detail-list">' + rows.map(([label, value]) =>
+          '<div class="detail-row"><dt>' + label + '</dt><dd>' + esc(value) + '</dd></div>').join('') + '</dl>' +
+        (items
+          ? '<div class="stack block-list" style="margin-top:12px">' + items + '</div>'
+          : '<p class="small muted" style="margin-top:12px">当前没有待签到/使用中/暂离的预约。</p>') +
+        '<p class="tiny tertiary" style="margin:10px 0 0">停用自习室只改状态、不自动取消已有预约；关闭后不能再新建预约与签到，请先与受影响学生沟通。</p>',
+      actions: [{ label: '关闭', kind: 'secondary', onClick: closeSheet }],
     });
   }
 
@@ -2287,14 +2524,17 @@
   // 视图：管理员 · 资源管理（FR-21）
   // ---------------------------------------------------------------------------
   async function resourcesView() {
-    const [roomData, seatData] = await Promise.all([
+    const [roomData, seatData, blockData] = await Promise.all([
       api('/admin/rooms'),
       api('/admin/seats', { params: { room_id: state.resourceRoom || undefined } }),
+      api('/admin/seat-blocks', { params: { active_only: true, page_size: 1 } }),
     ]);
     state.roomsAdmin = roomData.items || [];
     state.seatsAdmin = seatData.items || [];
+    state.seatBlocks = blockData.items || [];
     const rooms = state.roomsAdmin;
     const seats = state.seatsAdmin;
+    const activeBlocks = blockData.total || 0;
     const roomOptions = '<option value="">全部自习室</option>' + rooms.map((room) =>
       '<option value="' + esc(room.id) + '"' + (state.resourceRoom === room.id ? ' selected' : '') + '>' + esc(room.name) + '</option>').join('');
     const roomRows = rooms.length ? rooms.map((room) =>
@@ -2304,12 +2544,18 @@
         '<td class="nowrap">' + esc(room.open_time) + '–' + esc(room.close_time) + '</td>' +
         '<td><span class="pill ' + (room.status === 'open' ? 'green' : 'gray') + '">' + (room.status === 'open' ? '开放' : '停用') + '</span></td>' +
         '<td>' + (room.seat_count || 0) + '</td>' +
-        '<td><button class="btn btn-secondary btn-sm" type="button" data-action="edit-room" data-id="' + esc(room.id) + '">编辑</button></td>' +
+        '<td class="nowrap">' +
+          '<button class="btn btn-secondary btn-sm" type="button" data-action="edit-room" data-id="' + esc(room.id) + '">编辑</button> ' +
+          '<button class="btn btn-secondary btn-sm" type="button" data-action="room-impact" data-id="' + esc(room.id) + '">停用影响</button>' +
+        '</td>' +
       '</tr>').join('') : '<tr><td colspan="6" class="tiny tertiary">暂无自习室</td></tr>';
     const seatRows = seats.length ? seats.map((seat) => {
+      // 维护来源要区分：封禁管理的维护会随到期/解封自动恢复，手工维护不会。
       const status = seat.admin_status === 'available'
         ? ['green', '启用']
-        : seat.admin_status === 'maintenance' ? ['orange', '维护中'] : ['gray', '停用'];
+        : seat.admin_status === 'maintenance'
+          ? (seat.maintenance_by_block ? ['orange', '维护 · 封禁'] : ['orange', '维护 · 手工'])
+          : ['gray', '停用'];
       const attrs = [seat.has_power ? '电源' : '', seat.is_window ? '靠窗' : ''].filter(Boolean).join(' / ') || '—';
       return '<tr>' +
         '<td class="mono">' + esc(seat.id) + '</td>' +
@@ -2317,7 +2563,10 @@
         '<td>' + esc(seat.type_label || seat.type) + (seat.capacity > 1 ? ' · ' + seat.capacity + ' 人' : '') + '</td>' +
         '<td><span class="pill ' + status[0] + '">' + status[1] + '</span></td>' +
         '<td class="tiny tertiary">' + attrs + '</td>' +
-        '<td><button class="btn btn-secondary btn-sm" type="button" data-action="edit-seat" data-id="' + esc(seat.id) + '">编辑</button></td>' +
+        '<td class="nowrap">' +
+          '<button class="btn btn-secondary btn-sm" type="button" data-action="edit-seat" data-id="' + esc(seat.id) + '">编辑</button> ' +
+          '<button class="btn btn-secondary btn-sm" type="button" data-action="seat-blocks" data-id="' + esc(seat.id) + '">封禁记录</button>' +
+        '</td>' +
       '</tr>';
     }).join('') : '<tr><td colspan="6" class="tiny tertiary">暂无座位</td></tr>';
     return '<div class="section">' +
@@ -2325,8 +2574,14 @@
         '<div class="card table-wrap"><table class="data"><thead><tr><th>编号</th><th>名称 / 位置</th><th>开放时间</th><th>状态</th><th>座位数</th><th>操作</th></tr></thead><tbody>' + roomRows + '</tbody></table></div>' +
       '</div>' +
       '<div class="section">' +
-        '<div class="section-head"><h2>座位</h2><div class="row"><select class="select-compact" data-action-select="resource-room">' + roomOptions + '</select><button class="btn btn-primary btn-sm" type="button" data-action="new-seat">新增座位</button></div></div>' +
-        '<p class="small muted" style="margin:0 0 10px">停用/维护只影响新预约；已有预约请到「现场」页处理。封禁/解封仍走现场页。</p>' +
+        '<div class="section-head"><h2>座位</h2><div class="row">' +
+          '<span class="pill ' + (activeBlocks ? 'orange' : 'gray') + ' plain">生效封禁 ' + activeBlocks + '</span>' +
+          '<select class="select-compact" data-action-select="resource-room">' + roomOptions + '</select>' +
+          '<button class="btn btn-secondary btn-sm" type="button" data-action="seat-blocks">封禁记录</button>' +
+          '<button class="btn btn-secondary btn-sm" type="button" data-action="bulk-seat">批量新增</button>' +
+          '<button class="btn btn-primary btn-sm" type="button" data-action="new-seat">新增座位</button>' +
+        '</div></div>' +
+        '<p class="small muted" style="margin:0 0 10px">停用/维护只影响新预约；已有预约请到「现场」页处理。封禁与按记录解封可在本页「封禁记录」或现场页完成。</p>' +
         '<div class="card table-wrap"><table class="data"><thead><tr><th>编号</th><th>自习室</th><th>类型 / 容量</th><th>状态</th><th>属性</th><th>操作</th></tr></thead><tbody>' + seatRows + '</tbody></table></div>' +
       '</div>';
   }
@@ -2510,6 +2765,11 @@
     'mark-all-read': async () => { await api('/notifications/read', { method: 'POST', body: { ids: null } }); toast('已全部标记为已读'); refreshBadge(); renderView(); },
     'block-seat': (el) => blockSeatSheet(el.dataset.id),
     'unblock-seat': (el) => unblockSeat(el.dataset.id),
+    // 封禁治理（B / FR-21）：封禁记录、按记录解封、批量建座、停用影响预览
+    'seat-blocks': (el) => seatBlocksSheet({ seatId: el.dataset.id || undefined, roomId: el.dataset.room || undefined }),
+    'release-block': (el) => releaseSeatBlockSheet({ id: el.dataset.id, seat: el.dataset.seat, status: el.dataset.status, managed: el.dataset.managed }),
+    'bulk-seat': () => bulkSeatSheet(),
+    'room-impact': (el) => roomImpactSheet(el.dataset.id),
     'manual-violation': (el) => manualViolationSheet(el.dataset.id),
     'force-release': (el) => forceReleaseSheet(el.dataset.id),
     'resolve-complaint': (el) => resolveComplaintSheet(el.dataset.id),

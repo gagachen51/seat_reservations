@@ -1775,6 +1775,60 @@ body.shell .sidebar { padding-top: 14px; }
    会被整条盖住、完全看不到。这里下移到标题栏下方，与 topbar 的让位保持一致。 */
 body.shell .toast { top: 58px; }
 
+/* ==========================================================================
+   资源与座位治理（成员 B / FR-21 / PR-05 / PR-06）
+   仅追加本模块样式：封禁记录列表、按记录解封、批量建座、停用影响预览
+   ========================================================================== */
+.block-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.block-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.block-row .row-main { min-width: 0; flex: 1 1 auto; }
+.block-row .row-title { font-weight: 600; font-size: 14px; }
+.block-row .row-sub { font-size: 13px; color: var(--secondary); word-break: break-word; }
+.block-row .row-sub + .row-sub { margin-top: 2px; }
+
+.block-row .row-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.block-row .block-side .btn { white-space: nowrap; }
+
+.block-hint {
+  font-size: 12px;
+  color: var(--tertiary);
+  margin: 0;
+}
+
+.seat-block-form .row { flex-wrap: wrap; }
+
+@media (max-width: 640px) {
+  .block-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .block-row .row-side {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
 
 /* A：账号、登录设备与个人候补 */
 .account-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }

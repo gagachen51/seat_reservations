@@ -302,6 +302,17 @@ _V1 = (
 )
 
 
+# v2：座位封禁生命周期（FR-21 / BR-09 / PR-06）
+# 只加列、**不回填**：
+#   maintenance_by_block = 1 → 维护状态由封禁流程设置，封禁到期/释放时可自动恢复为 available
+#   maintenance_by_block = 0 → 非封禁管理（手工维护/停用/正常），任何封禁到期都不得自动恢复
+# 历史数据没有“维护来源”记录，按“手工维护”保守处理，避免把人工维护的座位误恢复。
+_V2 = (
+    "ALTER TABLE seats ADD COLUMN maintenance_by_block INTEGER NOT NULL DEFAULT 0",
+)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial_schema", _V1),
+    Migration(2, "seat_block_lifecycle", _V2),
 )

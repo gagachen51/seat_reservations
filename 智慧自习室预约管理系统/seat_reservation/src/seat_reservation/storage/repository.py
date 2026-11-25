@@ -107,6 +107,7 @@ class SqliteRepository:
             has_power=bool(row["has_power"]),
             is_window=bool(row["is_window"]),
             note=row["note"],
+            maintenance_by_block=bool(row["maintenance_by_block"]),
             created_at=_dt(row["created_at"]),
         )
 
@@ -374,12 +375,13 @@ class SqliteRepository:
     def save_seat(self, seat: Seat) -> None:
         self.conn.execute(
             """
-            INSERT INTO seats(id, room_id, seat_type, capacity, admin_status, has_power, is_window, note, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO seats(id, room_id, seat_type, capacity, admin_status, has_power, is_window, note, maintenance_by_block, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 room_id=excluded.room_id, seat_type=excluded.seat_type, capacity=excluded.capacity,
                 admin_status=excluded.admin_status, has_power=excluded.has_power,
-                is_window=excluded.is_window, note=excluded.note
+                is_window=excluded.is_window, note=excluded.note,
+                maintenance_by_block=excluded.maintenance_by_block
             """,
             (
                 seat.id,
@@ -390,6 +392,7 @@ class SqliteRepository:
                 int(seat.has_power),
                 int(seat.is_window),
                 seat.note,
+                int(seat.maintenance_by_block),
                 fmt_datetime(seat.created_at or datetime.now()),
             ),
         )
@@ -541,6 +544,129 @@ class SqliteRepository:
             (seat_id, fmt_datetime(end), fmt_datetime(start)),
         ).fetchone()
         return row is not None
+
+    # -- 封禁记录生命周期（v2 / FR-21，PR-06）--------------------------------
+    # 本区只做 SQL：状态迁移（是否恢复座位）由 domain/resource_rules.py 决定，
+    # 仓储不猜测维护来源，也不写业务规则。
+    @staticmethod
+    def _seat_block(row: sqlite3.Row) -> SeatBlock:
+        return SeatBlock(
+            id=row["id"],
+            seat_id=row["seat_id"],
+            reason=row["reason"],
+            start_at=_dt(row["start_at"]) or datetime.min,
+            end_at=_dt(row["end_at"]) or datetime.min,
+            created_by=row["created_by"],
+            created_at=_dt(row["created_at"]),
+            released_at=_dt(row["released_at"]),
+        )
+
+    def get_seat_block(self, block_id: str) -> SeatBlock | None:
+        row = self.conn.execute(
+            "SELECT * FROM seat_blocks WHERE id = ?", (block_id,)
+        ).fetchone()
+        return self._seat_block(row) if row else None
+
+    def get_seat_blocks(self, seat_id: str) -> list[SeatBlock]:
+        """某座位的全部封禁记录（含已释放），按开始时间倒序。"""
+        rows = self.conn.execute(
+            "SELECT * FROM seat_blocks WHERE seat_id = ? ORDER BY start_at DESC",
+            (seat_id,),
+        ).fetchall()
+        return [self._seat_block(row) for row in rows]
+
+    def list_seat_blocks(
+        self,
+        *,
+        seat_id: str | None = None,
+        room_id: str | None = None,
+        block_id: str | None = None,
+        active_only: bool = False,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> Page:
+        """封禁记录分页查询（管理员封禁列表）。
+
+        ``active_only`` 只过滤“未释放”，是否此刻生效（时间窗）由领域层判定，
+        避免把“未来的封禁”从列表里漏掉。
+        """
+        where, params = ["1=1"], []
+        if block_id:
+            where.append("b.id = ?")
+            params.append(block_id)
+        if seat_id:
+            where.append("b.seat_id = ?")
+            params.append(seat_id)
+        if room_id:
+            where.append("s.room_id = ?")
+            params.append(room_id)
+        if active_only:
+            where.append("b.released_at IS NULL")
+        clause = " AND ".join(where)
+        base = """
+            FROM seat_blocks b
+            JOIN seats s ON s.id = b.seat_id
+            JOIN rooms rm ON rm.id = s.room_id
+        """
+        total = int(
+            self.conn.execute(
+                f"SELECT COUNT(*) AS c {base} WHERE {clause}", params
+            ).fetchone()["c"]
+        )
+        rows = self.conn.execute(
+            f"""
+            SELECT b.*, s.room_id AS room_id, s.admin_status AS seat_status,
+                   s.maintenance_by_block AS seat_maintenance_by_block,
+                   rm.name AS room_name
+            {base} WHERE {clause}
+            ORDER BY b.start_at DESC, b.id DESC LIMIT ? OFFSET ?
+            """,
+            [*params, page_size, (page - 1) * page_size],
+        ).fetchall()
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            data = self._seat_block(row).as_dict()
+            data.update(
+                {
+                    "room_id": row["room_id"],
+                    "room_name": row["room_name"],
+                    "seat_status": row["seat_status"],
+                    "seat_maintenance_by_block": bool(row["seat_maintenance_by_block"]),
+                }
+            )
+            items.append(data)
+        return Page(items, total, page, page_size)
+
+    def expire_seat_blocks(self, now: datetime) -> list[SeatBlock]:
+        """关闭所有已到期且未释放的封禁记录，返回被关闭的记录（不修改座位）。"""
+        rows = self.conn.execute(
+            """
+            SELECT * FROM seat_blocks
+            WHERE released_at IS NULL AND end_at <= ?
+            ORDER BY end_at, id
+            """,
+            (fmt_datetime(now),),
+        ).fetchall()
+        expired: list[SeatBlock] = []
+        for row in rows:
+            block = self._seat_block(row)
+            self.close_seat_block(block.id, now)
+            block.released_at = now
+            expired.append(block)
+        return expired
+
+    def release_seat_block(self, block_id: str, now: datetime) -> SeatBlock | None:
+        """按记录解封：只关闭指定的未释放封禁，返回该记录（已释放也原样返回）。
+
+        是否恢复座位由调用方（领域层）依据 ``maintenance_by_block`` 决定，
+        仓储不在这里做状态猜测。
+        """
+        block = self.get_seat_block(block_id)
+        if block is None or block.released_at is not None:
+            return block
+        self.close_seat_block(block.id, now)
+        block.released_at = now
+        return block
 
     # ------------------------------------------------------------------
     # 预约
