@@ -1,5 +1,8 @@
 # 设计说明：D 模块运营分析与报表
 
+> 文档口径（v2.0.3，2026-11-26）：当前发布版本 **v2.0.3**；`pytest` **499 passed / 1 skipped**，Node **43 passed**；用户启动方式统一为安装 `setup.exe`。本文历史章节中的旧版本/测试数字仅代表当时基线，最新口径以根目录 `README.md` 与 `CHANGELOG.md` 为准。
+
+
 > - 模块：运营分析与报表（成员 D）
 > - 分支：`feature/analytics-module-v1.2`
 > - 对应计划：`docs/collaboration/四人协作分工与开发计划-v1.2.md`

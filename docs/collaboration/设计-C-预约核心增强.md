@@ -1,5 +1,8 @@
 # C 模块：预约核心增强（续约 + 候补取消）
 
+> 文档口径（v2.0.3，2026-11-26）：当前发布版本 **v2.0.3**；`pytest` **499 passed / 1 skipped**，Node **43 passed**；用户启动方式统一为安装 `setup.exe`。本文历史章节中的旧版本/测试数字仅代表当时基线，最新口径以根目录 `README.md` 与 `CHANGELOG.md` 为准。
+
+
 ## 1. 范围与交付状态
 
 > 当前集成状态：C 的续约/候补功能与安全整改已合入 `integration/v1.2` @ `be8f2de`；数据库迁移 **v4**，全量 **470 passed, 1 skipped**。本文保留首次交付的设计说明，M-04/M-06/M-07/L-07 的最终实现以《C模块安全整改报告.md》和 `tests/test_security_remediation_c.py` 为准。

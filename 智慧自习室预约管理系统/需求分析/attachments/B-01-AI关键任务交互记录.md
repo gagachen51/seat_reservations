@@ -73,7 +73,7 @@
 | 实际追问及 AI 后续调整 | 追问 1：「T17 失败了，先判断是测试错还是实现错」→ 分析确认是**实现缺陷**（BR-13 的 60 秒被当成 60 分钟），修复实现并补 T45/T46 回归；追问 2：「T23 也失败」→ 定位为时间字段类型问题（V-04），统一为字符串时间戳；追问 3：「把发现的缺陷记录成问题编号」→ 形成 V-03、V-04 并进入 A.7 台账 |
 | 独立核验方法、范围与结果 | 方法：① **功能测试**（node:test，46 条，含边界与并发唯一性）；② **人工代码走查**（对照 SRS 抽查 BR-01/02/04/05/10、PR-06/07/13/15 的实现）；③ 页面对照（后续 AI-05）。范围：`domain.js` 领域逻辑层；结果：46/46 通过；发现实现缺陷 2 项（V-03、V-04）与 1 项页面口径问题（V-05，在 AI-05 中确认） |
 | 人工决定与理由 | **采纳**（含修复）。理由：测试可重复、无外部依赖、时间可注入，能作为可核验证据；对失败用例坚持"先判断实现与测试哪一方错误"而不是直接改测试（结果证明 2 次失败中 1 次为实现缺陷、1 次为时间类型缺陷，测试用例本身也有 2 处设计错误被修正并说明） |
-| 最终处理、需求影响与产物位置 | `prototype/domain.js`、`prototype/seed.js`、`prototype/index.html`、`prototype/styles.css`、`prototype/app.js`、`prototype/tests/domain.test.cjs`、`prototype/tests/_probe.test.cjs`、`prototype/README.md`；证据 E-TEST-01；问题 V-03、V-04 进入 A-06 |
+| 最终处理、需求影响与产物位置 | `prototype/domain.js`、`prototype/seed.js`、`prototype/index.html`、`prototype/styles.css`、`prototype/app.js`、`prototype/tests/domain.test.cjs`、`prototype/tests/_probe.test.cjs`、`prototype/原型说明.md`；证据 E-TEST-01；问题 V-03、V-04 进入 A-06 |
 | 尚未解决的问题 | 后端持久化、真实并发压测未实现（NFR-03 仅有逻辑层模拟验证 T42）；教师端"本班数据"为模拟口径 |
 
 ---
@@ -92,7 +92,7 @@
 | 独立核验方法、范围与结果 | 方法：① 页面脚本动态走查（U1~U16 实际执行）；② 静态接口一致性检查（E-CD-01）；③ 与 AI-04 的功能验证交叉比对（同一规则在逻辑层与页面层均被触及）。范围：`app.js` + `index.html` 的交互链路；结果：U1~U16 全部通过（共 62 条测试全绿：46 领域/回归 + 16 页面）；发现 V-05 |
 | 人工决定与理由 | **采纳（含范围限制声明）**。理由：该方法能在受限环境下提供"真实执行"的证据，且其局限已如实说明，不会误导为"已完成浏览器验收"；决定方：`陈高阳`、`沈家炜` |
 | 最终处理、需求影响与产物位置 | `prototype/tests/ui.test.cjs`、`prototype/app.js`（V-05 修复）、`attachments/evidence/E-TEST-02-页面交互走查运行日志.md`、`attachments/evidence/E-CD-01-页面与逻辑接口一致性检查.md`、附件 A-05（PV-01~PV-15）；问题 V-05 进入 A-06 |
-| 尚未解决的问题 | 真实浏览器（Chrome/Edge）目视走查、响应式与兼容性（NFR-07）**未开展**，需人工在浏览器中按 `prototype/README.md` 第四节步骤走查 |
+| 尚未解决的问题 | 真实浏览器（Chrome/Edge）目视走查、响应式与兼容性（NFR-07）**未开展**，需人工在浏览器中按 `prototype/原型说明.md` 第四节步骤走查 |
 
 ---
 

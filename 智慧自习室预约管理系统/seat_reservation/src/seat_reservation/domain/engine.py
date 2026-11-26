@@ -2511,7 +2511,7 @@ class DomainEngine:
         department: str = "", class_name: str = "", password: str | None = None,
         ip: str = "",
     ) -> Result:
-        from ..security import hash_password
+        from ..security import DEFAULT_TEMP_PASSWORD, hash_password
 
         self._require(actor, {Role.SYS_ADMIN}, "PR-14")
         user_id, name = user_id.strip(), name.strip()
@@ -2529,7 +2529,7 @@ class DomainEngine:
             raise ValidationFailed("初始密码须为 8～128 字符")
         if self.repo.get_user(user_id) is not None:
             raise Conflict("账号已存在")
-        initial_password = password if password is not None else secrets.token_urlsafe(12)
+        initial_password = password if password is not None else DEFAULT_TEMP_PASSWORD
         user = User(
             id=user_id, name=name, role=new_role.value, department=department,
             class_name=class_name, password_hash=hash_password(initial_password),
@@ -2576,13 +2576,13 @@ class DomainEngine:
     def reset_user_password(
         self, actor: Actor, user_id: str, now: datetime, *, ip: str = "",
     ) -> Result:
-        from ..security import hash_password
+        from ..security import DEFAULT_TEMP_PASSWORD, hash_password
 
         self._require(actor, {Role.SYS_ADMIN}, "PR-14")
         user = self.repo.get_user(user_id)
         if user is None:
             raise NotFound("账号不存在")
-        initial_password = secrets.token_urlsafe(12)
+        initial_password = DEFAULT_TEMP_PASSWORD
         user.password_hash = hash_password(initial_password)
         user.must_change_password, user.updated_at = True, now
         self.repo.save_user(user)

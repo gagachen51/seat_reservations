@@ -13,6 +13,33 @@ import secrets
 ALGORITHM = "pbkdf2_sha256"
 DEFAULT_ITERATIONS = 260_000
 
+#: 管理员新建账号 / 重置密码时统一使用的临时密码。
+#: 仅用于“下一次登录必须改密”的一次性入口，不作为长期密码。
+DEFAULT_TEMP_PASSWORD = "12345678"
+
+
+def password_change_error(new_password: str) -> str | None:
+    """个人改密时的强密码校验；返回错误文案或 ``None``。
+
+    临时密码 ``12345678`` 只允许由管理员生成，用户首次登录后不得继续沿用。
+    复杂度要求：至少 8 位，且大写字母/小写字母/数字/符号至少包含 3 类。
+    """
+    if len(new_password) < 8:
+        return "新密码至少 8 位"
+    if new_password == DEFAULT_TEMP_PASSWORD:
+        return "新密码不能继续使用临时密码 12345678，请设置个人新密码"
+    classes = sum(
+        (
+            any(ch.islower() for ch in new_password),
+            any(ch.isupper() for ch in new_password),
+            any(ch.isdigit() for ch in new_password),
+            any(not ch.isalnum() for ch in new_password),
+        )
+    )
+    if classes < 3:
+        return "新密码需包含大写字母、小写字母、数字、符号中的至少 3 类"
+    return None
+
 
 def hash_password(password: str, *, iterations: int = DEFAULT_ITERATIONS) -> str:
     if len(password) < 8:
