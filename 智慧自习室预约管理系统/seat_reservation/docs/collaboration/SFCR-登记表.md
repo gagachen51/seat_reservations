@@ -1,5 +1,8 @@
 # SFCR 登记表（共享文件变更请求）
 
+> 文档口径（v2.0.3，2026-11-26）：当前发布版本 **v2.0.3**；`pytest` **499 passed / 1 skipped**，Node **43 passed**；用户启动方式统一为安装 `setup.exe`。本文历史章节中的旧版本/测试数字仅代表当时基线，最新口径以根目录 `README.md` 与 `CHANGELOG.md` 为准。
+
+
 > 责任人：成员 B（共享文件唯一修改人）
 > 依据：《四人协作分工与开发计划-v1.2》第 8.7 节
 > 用途：`api/app.py`、`domain/ports.py`、`domain/models.py`、`storage/migrations.py`、`domain/params.py`、`api/schemas.py`、`web/app.js` 共享注册表、`tests/helpers.py`、`conftest.py` 的任何改动，都必须先有一条登记记录，才能在 PR 中合并。

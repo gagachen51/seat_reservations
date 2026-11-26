@@ -26,6 +26,7 @@ from ..security import (
     hash_token,
     new_csrf_token,
     new_session_token,
+    password_change_error,
     verify_password,
 )
 from ..storage.database import Database
@@ -300,8 +301,9 @@ class AuthService:
         self, user_id: str, old_password: str, new_password: str, *, now: datetime | None = None
     ) -> None:
         now = now or datetime.now()
-        if len(new_password) < 8:
-            raise Forbidden("新密码至少 8 位")
+        policy_error = password_change_error(new_password)
+        if policy_error:
+            raise Forbidden(policy_error)
         if old_password == new_password:
             raise Forbidden("新密码不能与旧密码相同")
         with self.db.transaction() as conn:
@@ -326,8 +328,14 @@ class AuthService:
             cursor = conn.execute("DELETE FROM sessions WHERE expires_at < ?", (now.strftime("%Y-%m-%d %H:%M:%S"),))
             return cursor.rowcount or 0
 
-    def reset_password(self, user_id: str, new_password: str, *, now: datetime | None = None) -> None:
-        """管理员重置密码；调用方负责鉴权。"""
+    def reset_password(
+        self, user_id: str, new_password: str = "12345678", *, now: datetime | None = None
+    ) -> None:
+        """管理员重置密码；调用方负责鉴权。
+
+        未显式指定时使用统一临时密码 ``12345678``，并强制下次登录改密。
+        CLI 运维通道如需自定义密码仍可显式传入。
+        """
         now = now or datetime.now()
         with self.db.transaction() as conn:
             repo = SqliteRepository(conn)

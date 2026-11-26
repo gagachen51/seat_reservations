@@ -1,5 +1,8 @@
 # SFCR-C-001：`domain/ports.py` 增加续约协议方法
 
+> 文档口径（v2.0.3，2026-11-26）：当前发布版本 **v2.0.3**；`pytest` **499 passed / 1 skipped**，Node **43 passed**；用户启动方式统一为安装 `setup.exe`。本文历史章节中的旧版本/测试数字仅代表当时基线，最新口径以根目录 `README.md` 与 `CHANGELOG.md` 为准。
+
+
 > 按 v1.2 计划 8.7 模板提交。C 不直接修改共享文件，请 B 在
 > `chore/shared-integration` 应用并审核；应用后 C 复核。
 

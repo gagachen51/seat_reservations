@@ -1,5 +1,8 @@
 # A 模块：账号与个人中心
 
+> 文档口径（v2.0.3，2026-11-26）：当前发布版本 **v2.0.3**；`pytest` **499 passed / 1 skipped**，Node **43 passed**；用户启动方式统一为安装 `setup.exe`。本文历史章节中的旧版本/测试数字仅代表当时基线，最新口径以根目录 `README.md` 与 `CHANGELOG.md` 为准。
+
+
 ## 范围与交付状态
 
 基于 `integration/v1.2` 的 `6cb1c5c`，开发分支为 `feature/account-center`（沿用已创建的分支）。
@@ -93,12 +96,13 @@ git apply --ignore-space-change docs/collaboration/SFCR-A-001-registration.patch
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
 node --test tests/account_frontend.test.cjs
-.\.venv\Scripts\python.exe run.py --db var/account-demo.db serve --port 8010 --demo
+# 历史设计中的 --demo 启动命令已废弃；当前用户统一安装 setup.exe，
+# 演示数据在“系统”页 →“初始化演示数据”完成。
 ```
 
-使用新演示库验收，避免重置已有业务库。演示管理员为 `Y0001`，演示密码沿用项目 README。
+使用新演示库验收，避免重置已有业务库。演示管理员为 `Y0001`，演示密码只在初始化成功提示中显示一次。
 
-1. 管理员 → 账号 → 新建学生：检查初始密码仅显示一次、列表状态为启用。
+1. 管理员 → 账号 → 新建学生：检查临时密码 `12345678` 仅显示一次、列表状态为启用。
 2. 新账号登录 → 提示改密 → 改密后重新登录。
 3. 两个独立浏览器会话登录学生 → 查看登录设备 → 退出其他设备，当前设备仍可用。
 4. 管理员停用学生 → 学生旧会话失效、登录被拒；启用后可重新登录。

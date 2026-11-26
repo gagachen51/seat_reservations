@@ -143,6 +143,6 @@
 
 | 产物 | 位置 | 说明 |
 |---|---|---|
-| 原型（6 个功能页 / 零依赖 / 可离线运行） | `prototype/`（`index.html`、`styles.css`、`app.js`、`domain.js`、`seed.js`、`README.md`） | 证据 E-07 |
+| 原型（6 个功能页 / 零依赖 / 可离线运行） | `prototype/`（`index.html`、`styles.css`、`app.js`、`domain.js`、`seed.js`、`原型说明.md`） | 证据 E-07 |
 | 领域逻辑测试与回归测试 | `prototype/tests/domain.test.cjs`（T01~T44）、`prototype/tests/_probe.test.cjs`（T45~T46） | 证据 E-08（`E-TEST-01`） |
 | 缺陷 V-03 / V-04 修复 | `prototype/domain.js` 的 `checkIn`、`stamp()` | 见 `attachments/A-06-问题处理与复核记录.md`（证据 E-13） |

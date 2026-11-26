@@ -2457,7 +2457,7 @@
         '<label class="field"><span>班级（选填，可直接输入）</span>' +
           '<input id="accountClass" maxlength="100" list="accountClassOptions" autocomplete="off" placeholder="例如：计科2301">' +
           '<datalist id="accountClassOptions">' + datalistOptions(classes) + '</datalist></label>' +
-        '<label class="field"><span>初始密码（留空自动生成）</span><input id="accountPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password" placeholder="不填写则由系统生成"></label>' +
+        '<label class="field"><span>初始密码（留空则使用临时密码 12345678）</span><input id="accountPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password" placeholder="留空 = 12345678，首次登录必须修改"></label>' +
         '<p class="tiny tertiary">院系与班级可留空；下拉项来自已有账号与常用预设，也可以直接输入任意文本。</p></form>',
       actions: [
         { label: '取消', kind: 'secondary', onClick: closeSheet },
@@ -2480,12 +2480,13 @@
 
   function initialPasswordSheet(userId, password) {
     openAccountPanel({
-      title: '请保存初始密码', subtitle: userId,
-      body: '<p class="small muted">密码仅在本次显示。请保存并私下交给账号使用者，首次登录后需修改。</p>' +
-        '<label class="field account-secret"><span>初始密码</span><input id="accountInitialPassword" readonly autocomplete="off" value="' + esc(password) + '"></label>',
+      title: '临时密码', subtitle: userId,
+      body: '<p class="small muted">已将临时密码重置为 12345678，该账号下次登录时必须修改为新密码。</p>' +
+        '<p class="tiny tertiary">该密码只用于本次登录入口，请私下交给账号使用者；首次登录会强制改密。</p>' +
+        '<label class="field account-secret"><span>临时密码</span><input id="accountInitialPassword" readonly autocomplete="off" value="' + esc(password) + '"></label>',
       actions: [{ label: '已保存，关闭', kind: 'primary', onClick: () => {
         closeSheet();
-        if (userId === state.user.id) showLogin('密码已重置，请使用新密码登录');
+        if (userId === state.user.id) showLogin('密码已重置，请使用临时密码 12345678 登录并立即修改');
       } }],
     });
   }
@@ -2514,7 +2515,7 @@
   function accountResetSheet(config) {
     openAccountPanel({
       title: '重置密码', subtitle: config.name + ' · ' + config.id,
-      body: '<p class="small muted">将生成新的初始密码，旧密码失效，所有设备立即退出。账号下次登录需要修改密码。</p>',
+      body: '<p class="small muted">重置后临时密码固定为 12345678，旧密码立即失效，所有设备退出；该账号下次登录时必须修改为新密码。</p>',
       actions: [
         { label: '取消', kind: 'secondary', onClick: closeSheet },
         { label: '确认重置', kind: 'danger', onClick: async () => {
@@ -3283,7 +3284,7 @@
   function changePasswordSheet(forced) {
     let hint = '';
     if (forced) {
-      hint = '<p class="tiny tertiary" style="margin-bottom:12px">该账号要求首次登录修改密码，完成后需要用新密码重新登录。</p>';
+      hint = '<p class="tiny tertiary" style="margin-bottom:12px">该账号使用临时密码 12345678，首次登录必须修改为新密码；不能继续使用 12345678。</p>';
     }
 
     openSheet({
@@ -3291,8 +3292,8 @@
       body:
         hint +
         '<label class="field"><span>原密码</span><input id="oldPassword" type="password" autocomplete="current-password"></label>' +
-        '<label class="field"><span>新密码（至少 8 位）</span><input id="newPassword" type="password" autocomplete="new-password"></label>' +
-        '<p class="tiny tertiary">修改成功后所有设备都需要重新登录。</p>',
+        '<label class="field"><span>新密码（至少 8 位，含大小写/数字/符号至少 3 类）</span><input id="newPassword" type="password" autocomplete="new-password"></label>' +
+        '<p class="tiny tertiary">不能使用临时密码 12345678。修改成功后所有设备都需要重新登录。</p>',
       actions: [
         ...(forced ? [] : [{ label: '取消', kind: 'secondary', onClick: closeSheet }]),
         { label: '保存', kind: 'primary', onClick: async () => {

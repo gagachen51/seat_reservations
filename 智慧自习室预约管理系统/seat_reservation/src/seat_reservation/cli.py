@@ -9,7 +9,6 @@ import argparse
 import csv
 import json
 import os
-import secrets
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -20,7 +19,7 @@ from .domain.models import Actor, Role
 from .domain.timeutil import parse_datetime
 from .errors import AppError
 from .logging_setup import configure_logging
-from .security import hash_password
+from .security import DEFAULT_TEMP_PASSWORD, hash_password
 from .service.container import AppContext
 from .storage.repository import SqliteRepository
 from .storage.seed import resolve_demo_password, seed_if_empty
@@ -134,9 +133,9 @@ def cmd_user(args: argparse.Namespace) -> int:
             )
         return 0
     if args.user_command == "create":
-        # 需求 §7.4：不指定密码时由系统生成随机初始密码，并强制首次登录修改。
+        # 需求 §7.4：不指定密码时使用统一临时密码 12345678，并强制首次登录修改。
         generated = not args.password
-        password = args.password or secrets.token_urlsafe(9)
+        password = args.password or DEFAULT_TEMP_PASSWORD
         with ctx.db.transaction() as conn:
             repo = SqliteRepository(conn)
             if repo.get_user(args.id):
@@ -167,11 +166,11 @@ def cmd_user(args: argparse.Namespace) -> int:
         return 0
     if args.user_command == "passwd":
         generated = not args.password
-        password = args.password or secrets.token_urlsafe(9)
+        password = args.password or DEFAULT_TEMP_PASSWORD
         ctx.auth.reset_password(args.id, password)
         print(
             f"已重置 {args.id} 的密码"
-            + (f"，系统生成新密码：{password}" if generated else "")
+            + (f"，临时密码：{password}" if generated else "")
             + "，并要求下次登录修改"
         )
         return 0

@@ -33,7 +33,7 @@ test('create form sends trimmed fields and requests generated password only when
         { id: 'S2', name: '乙', department: '软件学院', class_name: '软工2302' },
       ] };
     }
-    return { user: { id: 'S9' }, initial_password: 'Generated-123' };
+    return { user: { id: 'S9' }, initial_password: '12345678' };
   });
   h.field('#accountForm', '', true);
   h.field('#accountId', ' S9 '); h.field('#accountName', ' 新姓名 ');
@@ -41,6 +41,7 @@ test('create form sends trimmed fields and requests generated password only when
   h.field('#accountClass', ' 班级 '); h.field('#accountPassword', '');
   await h.a.accountSheet();
   assert.match(h.panels[0].body, /院系（选填，可直接输入）/);
+  assert.match(h.panels[0].body, /初始密码（留空则使用临时密码 12345678）/);
   assert.match(h.panels[0].body, /例如：计算机科学与技术学院/);
   assert.match(h.panels[0].body, /例如：计科2301/);
   assert.match(h.panels[0].body, /信息工程学院/);
@@ -49,8 +50,9 @@ test('create form sends trimmed fields and requests generated password only when
   const post = h.calls.find((call) => call.options.method === 'POST');
   assert.deepEqual(post, { url: '/admin/users', options: { method: 'POST',
     body: { id: 'S9', name: '新姓名', role: 'student', department: '院系', class_name: '班级' } } });
-  assert.match(h.panels[1].body, /Generated-123/);
-  assert.ok(!JSON.stringify(h.a.state).includes('Generated-123'));
+  assert.match(h.panels[1].body, /已将临时密码重置为 12345678，该账号下次登录时必须修改为新密码。/);
+  assert.match(h.panels[1].body, /12345678/);
+  assert.ok(!JSON.stringify(h.a.state).includes('12345678'));
 });
 
 test('invalid create form never sends a request', async () => {
@@ -72,14 +74,16 @@ test('status change requires a reason and targets only the selected account', as
     options: { method: 'PUT', body: { status: 'disabled', reason: '暂停使用' } } });
 });
 
-test('password reset calls the correct endpoint and displays the new password once', async () => {
+test('password reset calls the correct endpoint and shows the 12345678 temp password', async () => {
   const h = harness();
-  h.respond(() => ({ initial_password: 'Reset-12345678' }));
+  h.respond(() => ({ initial_password: '12345678' }));
   h.a.accountResetSheet({ id: 'S1', name: '同学' });
+  assert.match(h.panels[0].body, /重置后临时密码固定为 12345678/);
   await h.panels[0].actions[1].onClick();
   assert.equal(h.calls[0].url, '/admin/users/S1/reset-password');
-  assert.match(h.panels[1].body, /Reset-12345678/);
-  assert.ok(!JSON.stringify(h.a.state).includes('Reset-12345678'));
+  assert.match(h.panels[1].body, /已将临时密码重置为 12345678，该账号下次登录时必须修改为新密码。/);
+  assert.match(h.panels[1].body, /12345678/);
+  assert.ok(!JSON.stringify(h.a.state).includes('12345678'));
 });
 
 test('session view escapes untrusted user agent and revokes only other devices', async () => {
@@ -199,6 +203,8 @@ test('change-password form never pre-fills a previous password', () => {
   assert.ok(!body.includes('value="'));
   assert.match(body, /id="oldPassword"/);
   assert.match(body, /id="newPassword"/);
+  assert.match(body, /不能使用临时密码 12345678/);
+  assert.match(body, /至少 3 类/);
 });
 
 test('first login with must_change_password skips /meta and opens forced change sheet', async () => {
