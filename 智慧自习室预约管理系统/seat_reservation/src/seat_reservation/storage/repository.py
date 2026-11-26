@@ -774,6 +774,46 @@ class SqliteRepository:
             ),
         )
 
+    def delete_reservation(self, reservation_id: str) -> None:
+        """删除预约及其全部时段占用（仅用于同事务内的失败清理）。
+
+        典型场景：候补确认先 ``insert_reservation`` 再 ``occupy``，后者抛出
+        ``SlotConflict`` 时必须显式清除已插入的预约，避免留下无 slot 的孤儿行。
+        """
+        self.conn.execute(
+            "DELETE FROM reservation_slots WHERE reservation_id = ?", (reservation_id,)
+        )
+        self.conn.execute("DELETE FROM reservations WHERE id = ?", (reservation_id,))
+
+    def update_credential(
+        self,
+        reservation: Reservation,
+        code: str,
+        issued_at: datetime,
+        expected_version: int,
+    ) -> bool:
+        """按版本号条件更新凭证；并发下只有一个写者能成功。
+
+        ``WHERE status='pending'`` 保证预约已进入使用/取消后不会再被写凭证；
+        ``version`` 条件保证后写者不会覆盖先写者已返回的凭证。
+        """
+        cursor = self.conn.execute(
+            """
+            UPDATE reservations
+            SET credential_code = ?, credential_issued_at = ?, credential_used = 0,
+                updated_at = ?, version = version + 1
+            WHERE id = ? AND version = ? AND status = 'pending'
+            """,
+            (
+                code,
+                fmt_datetime(issued_at),
+                fmt_datetime(reservation.updated_at),
+                reservation.id,
+                expected_version,
+            ),
+        )
+        return cursor.rowcount == 1
+
     def extend_reservation(
         self,
         reservation: Reservation,
