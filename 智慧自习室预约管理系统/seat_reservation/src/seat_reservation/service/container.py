@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Iterator
+from typing import Any, Iterator
 
 from ..config import Settings
 from ..domain.engine import DomainEngine
@@ -59,7 +59,7 @@ class AppContext:
         with self.db.read() as conn:
             return SqliteRepository(conn).load_params()
 
-    def seed_demo(self, now: datetime | None = None, *, password: str | None = None) -> dict[str, int]:
+    def seed_demo(self, now: datetime | None = None, *, password: str | None = None) -> dict[str, Any]:
         return seed_demo(self.db, now or datetime.now(), password=password)
 
     def start_background_jobs(self) -> None:

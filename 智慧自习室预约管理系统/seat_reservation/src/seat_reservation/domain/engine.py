@@ -776,6 +776,39 @@ class DomainEngine:
         )
         return [view.as_dict() for view in views]
 
+    @implements("FR-24", "PR-01")
+    def seat_room_totals(
+        self, actor: Actor, *, room_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """每个自习室的物理启用座位数（排除 ``disabled`` 的座位）。
+
+        学生的座位列表会按筛选条件（仅看空闲/电源/靠窗）过滤，前端不能用过滤后
+        的数组长度当分母，否则会出现 ``7 / 7 空闲``。这里提供稳定的房间分母。
+        """
+        self._require(
+            actor,
+            {Role.STUDENT, Role.TEACHER, Role.ROOM_ADMIN, Role.SYS_ADMIN},
+            "PR-01",
+        )
+        seats = self.repo.list_seats(room_id=room_id)
+        enabled: dict[str, int] = {}
+        for seat in seats:
+            if seat.admin_status == "disabled":
+                continue
+            enabled[seat.room_id] = enabled.get(seat.room_id, 0) + 1
+        items: list[dict[str, Any]] = []
+        for room in self.repo.list_rooms():
+            if room_id and room.id != room_id:
+                continue
+            items.append(
+                {
+                    "id": room.id,
+                    "name": room.name,
+                    "total_seats": enabled.get(room.id, 0),
+                }
+            )
+        return items
+
     # ------------------------------------------------------------------
     # 预约主流程
     # ------------------------------------------------------------------
@@ -814,7 +847,7 @@ class DomainEngine:
         if room is None:
             raise NotFound(f"自习室 {seat.room_id} 不存在")
         if room.status != "open":
-            raise RuleViolation("该自习室已停用", rule="FR-21")
+            raise RuleViolation("该自习室已停用", rule="FR-21", code="ROOM_UNAVAILABLE")
 
         ok, message = validate_slot_range(
             start_slot,
@@ -844,21 +877,39 @@ class DomainEngine:
             raise RuleViolation(quota_error, rule="BR-02")
 
         if seat.admin_status != "available":
-            label = "维护中" if seat.admin_status == "maintenance" else "已停用"
-            raise RuleViolation(f"座位 {seat_id} 当前{label}，不可预约", rule="BR-09")
+            code = "SEAT_UNAVAILABLE" if seat.admin_status == "maintenance" else "SEAT_DISABLED"
+            raise RuleViolation(
+                "该座位已停用维护，暂不支持预约",
+                rule="BR-09",
+                code=code,
+            )
 
         start_at, end_at = datetime_at(day, start_slot), datetime_at(day, end_slot)
         if self.repo.seat_block_overlaps(seat_id, start_at, end_at):
-            raise RuleViolation(f"座位 {seat_id} 在该时段处于维护封禁", rule="BR-09")
+            raise RuleViolation(
+                "该座位已停用维护，暂不支持预约",
+                rule="BR-09",
+                code="SEAT_UNAVAILABLE",
+            )
         if start_at <= now:
             raise RuleViolation("预约开始时间必须晚于当前时间", rule="BR-03")
 
-        conflict = self.repo.find_seat_conflict(seat_id, day, start_slot, end_slot)
-        if conflict:
-            raise Conflict(f"座位 {seat_id} 在 {hhmm(start_slot)}-{hhmm(end_slot)} 已被占用", rule="BR-11")
+        # 先判断用户自身冲突：即使目标座位恰好也被他人预约，也应提示“本人时段冲突”，
+        # 而不是误导为“座位被占用、可加入候补”。
         user_conflict = self.repo.find_user_conflict(user.id, day, start_slot, end_slot)
         if user_conflict:
-            raise Conflict("本人该时段已有其他有效预约，不允许重叠", rule="BR-11")
+            raise Conflict(
+                "您在当前时段已有预约，每人同时段仅限预约 1 个座位",
+                rule="BR-11",
+                code="USER_TIME_CONFLICT",
+            )
+        conflict = self.repo.find_seat_conflict(seat_id, day, start_slot, end_slot)
+        if conflict:
+            raise Conflict(
+                f"座位 {seat_id} 在 {hhmm(start_slot)}-{hhmm(end_slot)} 已被占用",
+                rule="BR-11",
+                code="SEAT_OCCUPIED",
+            )
 
         policy = self.params
         reservation = Reservation(
@@ -1382,10 +1433,11 @@ class DomainEngine:
         if room is None:
             raise NotFound(f"自习室 {seat.room_id} 不存在")
         start_at, end_at = datetime_at(day, start_slot), datetime_at(day, end_slot)
+        blocked = self.repo.seat_block_overlaps(seat.id, start_at, end_at)
         target_error = waitlist_target_error(
             room.status,
             seat.admin_status,
-            self.repo.seat_block_overlaps(seat.id, start_at, end_at),
+            blocked,
             start_slot,
             end_slot,
             room.open_slot,
@@ -1395,11 +1447,26 @@ class DomainEngine:
         )
         if target_error:
             rule, target_message = target_error
-            raise RuleViolation(target_message, rule=rule)
+            code = None
+            if room.status != "open":
+                code = "ROOM_UNAVAILABLE"
+            elif seat.admin_status != "available":
+                code = (
+                    "SEAT_DISABLED"
+                    if seat.admin_status == "disabled"
+                    else "SEAT_UNAVAILABLE"
+                )
+            elif blocked:
+                code = "SEAT_UNAVAILABLE"
+            raise RuleViolation(target_message, rule=rule, code=code)
         if self.repo.find_seat_conflict(seat_id, day, start_slot, end_slot) is None:
             raise RuleViolation("该时段座位仍可预约，无需候补", rule="BR-08")
         if self.repo.find_user_conflict(user.id, day, start_slot, end_slot):
-            raise Conflict("本人该时段已有其他有效预约，不能重复候补", rule="BR-11")
+            raise Conflict(
+                "您在当前时段已有预约，每人同时段仅限预约 1 个座位",
+                rule="BR-11",
+                code="USER_TIME_CONFLICT",
+            )
         count, used_minutes = self.repo.daily_usage(user.id, day)
         quota_error = quota_exceeded(
             count,

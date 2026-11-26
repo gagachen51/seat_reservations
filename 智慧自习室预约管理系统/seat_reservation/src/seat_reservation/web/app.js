@@ -633,6 +633,8 @@
     };
     const data = await api('/seats', { params });
     state.seatCache = data.items || [];
+    // 分母来自后端“物理启用座位数”，不能用过滤后的数组长度。
+    const roomTotals = Object.fromEntries((data.rooms || []).map((room) => [room.id, Number(room.total_seats) || 0]));
     if (state.selectedSeat && !state.seatCache.some((seat) => seat.id === state.selectedSeat.id && seat.available)) {
       state.selectedSeat = null;
     }
@@ -688,8 +690,9 @@
     } else {
       body = grouped.map(({ room, seats }) => {
         const free = seats.filter((seat) => seat.available).length;
-        return '<section class="seat-room"><div class="seat-room-head"><div><h3>' + esc(room.name) + '</h3><p>' + esc(room.location || '') + ' · ' + free + ' / ' + seats.length + ' 空闲</p></div></div>' +
-          '<div class="seat-grid">' + seats.map(seatCard).join('') + '</div></section>';
+        const total = roomTotals[room.id] === undefined ? seats.length : roomTotals[room.id];
+        return '<section class="seat-room"><div class="seat-room-head"><div><h3>' + esc(room.name) + '</h3><p>' + esc(room.location || '') + ' · ' + free + ' / ' + total + ' 空闲</p></div></div>' +
+          '<div class="seat-grid">' + seats.map((seat) => seatCard(seat, { showState: true })).join('') + '</div></section>';
       }).join('');
     }
 
@@ -1117,15 +1120,35 @@
     }).join('') + '</div>';
   }
 
-  function newComplaintSheet() {
+  async function newComplaintSheet() {
     const types = Object.entries(state.meta.complaint_types || {});
+    let seatOptions = '<option value="">不指定具体座位（选填）</option>';
+    let seatHint = '';
+    try {
+      // 每次打开都实时拉取最新座位（管理员新增房间/座位后立即可选）。
+      const data = await api('/seats', {
+        params: { date: state.meta.today, start: '08:00', end: '08:30' },
+      });
+      const seen = new Set();
+      const options = [];
+      (data.items || []).forEach((seat) => {
+        if (!seat || !seat.id || seen.has(seat.id)) return;
+        seen.add(seat.id);
+        options.push('<option value="' + esc(seat.id) + '">' + esc((seat.room_name || seat.room_id) + ' · ' + seat.id) + '</option>');
+      });
+      if (options.length) seatOptions += options.join('');
+      else seatHint = '<p class="tiny tertiary">当前没有可选的座位。</p>';
+    } catch (error) {
+      if (error && error.code === 'UNAUTHENTICATED') return;
+      seatHint = '<p class="tiny tertiary">座位列表暂时无法加载，可先提交不指定座位的投诉。</p>';
+    }
     openSheet({
       title: '新建投诉',
       subtitle: '管理员办结时必须填写反馈',
       body:
         '<label class="field"><span>类型</span><select id="complaintType">' + types.map(([value, label]) =>
           '<option value="' + esc(value) + '">' + esc(label) + '</option>').join('') + '</select></label>' +
-        '<label class="field"><span>座位（可选）</span><input id="complaintSeat" placeholder="例如 B201-003" maxlength="20"></label>' +
+        '<label class="field"><span>座位（可选）</span><select id="complaintSeat">' + seatOptions + '</select></label>' + seatHint +
         '<label class="field"><span>具体情况</span><textarea id="complaintContent" maxlength="1000" placeholder="说明时间、位置和现象，便于现场核查"></textarea></label>',
       actions: [
         { label: '取消', kind: 'secondary', onClick: closeSheet },
@@ -1135,7 +1158,7 @@
             await api('/complaints', { method: 'POST', body: {
               type: $('#complaintType').value,
               content,
-              seat_id: $('#complaintSeat').value.trim() || null,
+              seat_id: $('#complaintSeat').value || null,
             } });
             closeSheet();
             toast('投诉已提交');
@@ -1316,6 +1339,50 @@
     cancelled: '已取消',
   };
 
+  // 指标口径：只使用中文业务表述，不把后端状态字段名暴露给学生/管理员。
+  const ANALYTICS_METRIC_GUIDE = [
+    {
+      label: '预约时段利用率',
+      desc: '已预约时段占全部可用时段的比例，反映座位资源被预订的多少，不等同于实际坐下来的时长。',
+      formula: '非取消预约的时段数 ÷（座位数 × 每日开放时段数 × 天数）',
+    },
+    {
+      label: '签到率',
+      desc: '按预约实际签到的情况计算；签到后被释放仍算签到，签到前被释放不算。',
+      formula: '已签到预约 ÷（已签到 + 明确未签到）',
+    },
+    {
+      label: '完成率',
+      desc: '正常完成使用（含按时签退）的预约比例。',
+      formula: '正常完成预约 ÷（正常完成 + 爽约）',
+    },
+    {
+      label: '违约率',
+      desc: '预约后未在规定时间内签到（爽约）的比例。',
+      formula: '爽约预约 ÷（正常完成 + 爽约）',
+    },
+    {
+      label: '取消率',
+      desc: '主动取消的预约占全部预约的比例。',
+      formula: '已取消预约 ÷ 全部预约',
+    },
+    {
+      label: '投诉办结率',
+      desc: '已处理并给出反馈的投诉比例（含已评价）。',
+      formula: '已办结投诉 ÷ 投诉总数',
+    },
+    {
+      label: '候补确认率',
+      desc: '收到候补通知后成功确认补位的比例。',
+      formula: '已确认候补 ÷ 候补总数',
+    },
+    {
+      label: '平均预约时长',
+      desc: '已完成预约的平均时长，不等同于实际在座时长。',
+      formula: '已完成预约总时长 ÷ 已完成预约数',
+    },
+  ];
+
   let analyticsRange = '7d';
   let analyticsRoom = '';
 
@@ -1361,7 +1428,6 @@
     const ratings = data.ratings || { distribution: [] };
     const waitlist = data.waitlist || { by_status: [] };
     const complaints = data.complaints || {};
-    const notes = data.metric_notes || {};
     const metaRooms = (state.meta && state.meta.rooms) || [];
 
     const num = (value) => (value === null || value === undefined ? '—' : String(value));
@@ -1476,23 +1542,13 @@
       complaintRows.map(([label, value]) => '<div class="detail-row"><dt>' + esc(label) +
         '</dt><dd>' + esc(value) + '</dd></div>').join('') + '</dl></div>';
 
-    const noteKeys = [
-      ['booking_utilization', '预约时段利用率'],
-      ['checkin_rate', '签到率'],
-      ['completion_rate', '完成率'],
-      ['no_show_rate', '违约率'],
-      ['cancel_rate', '取消率'],
-      ['complaint_resolution_rate', '投诉办结率'],
-      ['waitlist.confirmed_rate', '候补确认率'],
-      ['avg_minutes', '平均预约时长'],
-    ];
-    const noteItems = noteKeys.filter(([key]) => notes[key]).map(([key, label]) =>
-      '<div class="analytics-note-item"><strong>' + esc(label) + '</strong><span>' +
-      esc(notes[key]) + '</span></div>').join('');
-    const metricNotes = noteItems
-      ? '<div class="section"><div class="section-head"><h2>指标口径</h2></div>' +
-        '<div class="card card-pad analytics-notes">' + noteItems + '</div></div>'
-      : '';
+    const metricNotes = '<div class="section"><div class="section-head"><h2>指标口径</h2>' +
+      '<span class="tiny tertiary">全部为中文业务口径，不展示数据库字段名</span></div>' +
+      '<div class="analytics-metric-grid">' + ANALYTICS_METRIC_GUIDE.map((item) =>
+        '<article class="analytics-metric-card"><h3>' + esc(item.label) + '</h3>' +
+        '<p>' + esc(item.desc) + '</p>' +
+        '<span class="analytics-formula">' + esc(item.formula) + '</span></article>').join('') +
+      '</div></div>';
 
     return toolbar + kpis + '<div class="dash-grid">' + trend + peak + roomRanking +
       violations + ratingBars + waitlistBars + complaintsCard + '</div>' + metricNotes;
@@ -2696,7 +2752,7 @@
         '</div></div>' +
       '<div class="section"><div class="section-head"><h2>数据导出</h2></div><div class="list">' +
         [['reservations', '预约记录'], ['violations', '违规记录'], ['audit', '审计日志'], ['complaints', '投诉记录'], ['blacklist', '黑名单记录'], ['credit_logs', '信用流水'], ['waitlist', '候补记录']].map(([kind, label]) =>
-          '<a class="list-row clickable" href="/api/admin/export/' + kind + '.csv"><div class="row-main"><div class="row-title">' + label + '</div><div class="row-sub">CSV · UTF-8 BOM · 可用 Excel 打开</div></div><div class="row-side">' + icon('download', 'row-chevron') + '</div></a>').join('') +
+          '<button class="list-row clickable" type="button" data-action="export-csv" data-kind="' + kind + '" data-label="' + label + '"><div class="row-main"><div class="row-title">' + label + '</div><div class="row-sub">CSV · UTF-8 BOM · 桌面版弹出另存为</div></div><div class="row-side">' + icon('download', 'row-chevron') + '</div></button>').join('') +
       '</div></div>' +
       '<div class="section"><div class="section-head"><h2>运维提示</h2></div><div class="card card-pad small muted">' +
         '<p>· 数据库为单机 SQLite（WAL），备份时请同时复制 <span class="mono">.db</span> 与 <span class="mono">-wal</span> 文件，或先停止服务再复制。</p>' +
@@ -2705,12 +2761,64 @@
       '</div></div>';
   }
 
+  function exportFilename(kind) {
+    const d = new Date();
+    const stamp = d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes());
+    return kind + '-' + stamp + '.csv';
+  }
+
+  async function exportAdminCsv(kind, label) {
+    const response = await fetch('/api/admin/export/' + encodeURIComponent(kind) + '.csv', {
+      credentials: 'same-origin',
+      headers: { Accept: 'text/csv' },
+    });
+    if (response.status === 401) {
+      showLogin();
+      throw new ApiError('登录状态已失效', 'UNAUTHENTICATED');
+    }
+    if (!response.ok) {
+      let message = '导出失败，请稍后重试';
+      try {
+        const payload = await response.json();
+        message = (payload && payload.error && payload.error.message) || message;
+      } catch (error) { /* 非 JSON 错误体 */ }
+      throw new ApiError(message, 'EXPORT_FAILED');
+    }
+    let content = await response.text();
+    // response.text() 可能吃掉 BOM；Excel 打开中文 CSV 需要 UTF-8 BOM。
+    if (!content.startsWith('\ufeff')) content = '\ufeff' + content;
+    const filename = exportFilename(kind);
+    const bridge = window.pywebview && window.pywebview.api;
+    if (bridge && typeof bridge.save_export_file === 'function') {
+      const result = await bridge.save_export_file(filename, content);
+      if (result && result.canceled) { toast('已取消保存'); return; }
+      if (!result || result.ok !== true) {
+        throw new ApiError((result && result.error) || '保存失败，请重试', 'EXPORT_SAVE_FAILED');
+      }
+      toast('已保存到 ' + result.path);
+      return;
+    }
+    // 网页版：标准 Blob 下载。
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    toast('已开始下载 ' + label + ' CSV');
+  }
+
   function initDemoDataSheet() {
     confirmSheet({
       title: '初始化演示数据',
       subtitle: '仅用于课程演示与测试',
       message: '此操作会清空当前库中的账号、预约、资源等业务数据，写入标准演示数据（审计日志保留）。'
-        + '写入后所有演示账号使用同一个统一初始密码，密码只显示一次；当前登录会话会立即失效。确认继续？',
+        + '学生、教师、自习室管理员演示账号会使用统一初始密码；若已有活跃系统管理员，其原有密码与资料会保留。'
+        + '统一演示密码只显示一次；当前登录会话会立即失效。确认继续？',
       confirmLabel: '确认初始化',
       danger: true,
       onConfirm: async () => {
@@ -2726,16 +2834,24 @@
   function demoInitializedSheet(data) {
     const accounts = Array.isArray(data.accounts) ? data.accounts : [];
     const password = data.demo_password || '';
+    const preserved = data.admin_password_preserved === true;
     const accountRows = accounts.map((account) =>
       '<div class="detail-row"><dt>' + esc(account.role_label || ROLE_TEXT[account.role] || account.role) + '</dt>' +
-      '<dd><span class="mono">' + esc(account.username) + '</span> · ' + esc(account.name) + '</dd></div>').join('');
+      '<dd><span class="mono">' + esc(account.username) + '</span> · ' + esc(account.name) +
+      (account.password_preserved ? ' <span class="pill gray">原密码保留</span>' : '') + '</dd></div>').join('');
     openAccountPanel({
       title: '演示数据已初始化',
-      subtitle: '统一演示密码只显示这一次',
+      subtitle: preserved ? '演示账号统一密码只显示这一次' : '统一演示密码只显示这一次',
       body: '<p class="small muted">请立即记录以下统一初始密码。关闭本窗口后系统不再展示，遗忘只能重新初始化演示数据。</p>' +
-        '<label class="field account-secret"><span>统一初始密码</span><input id="demoInitialPassword" readonly autocomplete="off" value="' + esc(password) + '"></label>' +
+        '<label class="field account-secret"><span>演示账号统一初始密码</span><input id="demoInitialPassword" readonly autocomplete="off" value="' + esc(password) + '"></label>' +
+        (preserved
+          ? '<div class="banner" style="margin-top:12px;background:#f2f2f7;border-radius:10px;padding:10px 12px">' + icon('check') +
+            '<div>当前系统管理员原有密码已保留，请继续使用原密码登录；上方统一密码仅适用于学生、教师与自习室管理员演示账号。</div></div>'
+          : '') +
         '<div class="card card-pad" style="margin-top:12px"><dl class="detail-list">' + accountRows + '</dl></div>' +
-        '<p class="tiny tertiary" style="margin-top:12px">演示数据已写入；当前登录会话已失效，请使用上述任一演示账号与统一密码重新登录。' +
+        '<p class="tiny tertiary" style="margin-top:12px">演示数据已写入；当前登录会话已失效，请' +
+        (preserved ? '使用学生/教师/自习室管理员账号与统一密码，或使用系统管理员原密码' : '使用上述任一演示账号与统一密码') +
+        '重新登录。' +
         (data.counts ? '（账号 ' + Number(data.counts.users || 0) + ' · 自习室 ' + Number(data.counts.rooms || 0) + ' · 座位 ' + Number(data.counts.seats || 0) + '）' : '') + '</p>',
       actions: [
         { label: '复制密码', kind: 'secondary', onClick: async () => {
@@ -2750,7 +2866,7 @@
           } },
         { label: '重新登录', kind: 'primary', onClick: () => {
             closeSheet();
-            showLogin('演示数据已初始化，请使用演示账号与刚才的统一密码重新登录');
+            showLogin('演示数据已初始化，请使用演示账号与提示中的密码重新登录');
           } },
       ],
     });
@@ -2975,6 +3091,7 @@
     'analytics-room': (el) => setAnalyticsRoom(el.dataset.room),
     'account-create': () => accountSheet(),
     'system-init-demo': () => initDemoDataSheet(),
+    'export-csv': (el) => exportAdminCsv(el.dataset.kind, el.dataset.label || '').catch(handleError),
     'account-status': (el) => accountStatusSheet({ id: el.dataset.id, name: el.dataset.name, status: el.dataset.status }),
     'account-reset': (el) => accountResetSheet({ id: el.dataset.id, name: el.dataset.name }),
     'account-sessions': (el) => sessionSheet({ id: el.dataset.id, name: el.dataset.name }).catch(handleError),
@@ -3075,17 +3192,31 @@
   }
 
   function openSeatInfo(seat) {
+    const occupied = ['reserved', 'occupied', 'held'].includes(seat.state);
+    const reason = seat.state === 'maintenance'
+      ? '该座位正在维护中，暂不支持预约。'
+      : seat.state === 'disabled'
+        ? '该座位已停用，暂不支持预约。'
+        : '该座位在当前时段已被预约，可以加入候补队列。';
     const body = '<dl class="detail-list">' +
       [['座位', seat.id], ['自习室', seat.room_name], ['类型', seat.type_label], ['状态', seat.state_label], ['属性', [seat.has_power ? '电源' : '', seat.is_window ? '靠窗' : ''].filter(Boolean).join(' / ') || '—']]
-        .map(([label, value]) => '<div class="detail-row"><dt>' + label + '</dt><dd>' + esc(value) + '</dd></div>').join('') + '</dl>';
+        .map(([label, value]) => '<div class="detail-row"><dt>' + label + '</dt><dd>' + esc(value) + '</dd></div>').join('') + '</dl>' +
+      '<p class="small muted" style="margin-top:12px">' + esc(reason) + '</p>';
+    const actions = [{ label: '关闭', kind: 'secondary', onClick: closeSheet }];
+    if (occupied) actions.push({ label: '加入候补', kind: 'primary', onClick: async () => { await joinWaitlist(seat.id); } });
     openSheet({
       title: seat.id,
       subtitle: seat.room_name,
       body,
-      actions: [
-        { label: '关闭', kind: 'secondary', onClick: closeSheet },
-        { label: '加入候补', kind: 'primary', onClick: async () => { await joinWaitlist(seat.id); } },
-      ],
+      actions,
+    });
+  }
+
+  function openNoticeSheet(title, message) {
+    openSheet({
+      title,
+      body: '<p class="small muted" style="margin:2px 0 6px">' + esc(message) + '</p>',
+      actions: [{ label: '知道了', kind: 'primary', onClick: closeSheet }],
     });
   }
 
@@ -3100,13 +3231,20 @@
       state.selectedSeat = null;
       go('reservations');
     } catch (error) {
-      if (error.rule === 'BR-11') {
+      const code = error && error.code;
+      if (code === 'SEAT_OCCUPIED') {
         confirmSheet({
           title: '该时段已被占用',
           message: '可以加入候补队列，有人取消时按顺序通知你。',
           confirmLabel: '加入候补',
           onConfirm: async () => { await joinWaitlist(seat.id); },
         });
+      } else if (code === 'USER_TIME_CONFLICT') {
+        openNoticeSheet('您在当前时段已有预约', '您在当前时段已有预约，每人同时段仅限预约 1 个座位。如需换座，请先取消原预约。');
+      } else if (code === 'SEAT_DISABLED' || code === 'SEAT_UNAVAILABLE') {
+        openNoticeSheet('座位不可预约', '该座位已停用维护，暂不支持预约。请选择其他空闲座位。');
+      } else if (code === 'ROOM_UNAVAILABLE') {
+        openNoticeSheet('自习室不可预约', '该自习室已停用，暂不支持预约。请选择其他自习室。');
       } else {
         handleError(error);
       }
