@@ -150,6 +150,41 @@ def test_it_02_force_password_blocks_business_api(api: TestClient) -> None:
 
 
 # ---------------------------------------------------------------------------
+# IT-02B A + 共享层：强制改密死锁热修复回归
+# ---------------------------------------------------------------------------
+def test_it_02b_must_change_login_keeps_session_until_password_updated(api: TestClient) -> None:
+    """首次登录的强制改密账号必须先保住会话、再完成改密。
+
+    对应前端修复：``must_change_password=true`` 时跳过 ``/api/meta``（该接口
+    仍按既有安全边界返回 403），直接弹改密框。本用例锁定服务端契约：
+    登录成功 → 会话可查 → 业务接口仍 403 → 改密 → 新密码登录后恢复。
+    """
+    admin = login(api)
+    created = create_user_api(api, admin, "IT-02B")
+    assert created.status_code == 201, created.text
+
+    headers = login(api, "IT-02B", "TempPass123")
+    me = api.get("/api/auth/me", headers=headers)
+    assert me.status_code == 200
+    assert me.json()["data"]["user"]["must_change_password"] is True
+
+    blocked = api.get("/api/meta", headers=headers)
+    assert blocked.status_code == 403
+    assert blocked.json()["error"]["code"] == "PASSWORD_CHANGE_REQUIRED"
+
+    changed = api.post(
+        "/api/auth/change-password",
+        headers=headers,
+        json={"old_password": "TempPass123", "new_password": "Changed-Pass-123"},
+    )
+    assert changed.status_code == 200
+
+    new_headers = login(api, "IT-02B", "Changed-Pass-123")
+    assert api.get("/api/meta", headers=new_headers).status_code == 200
+    assert api.get("/api/auth/me", headers=new_headers).json()["data"]["user"]["must_change_password"] is False
+
+
+# ---------------------------------------------------------------------------
 # IT-03 A/B/C/D + 共享层：四角色权限矩阵
 # ---------------------------------------------------------------------------
 def test_it_03_four_role_matrix(api: TestClient) -> None:
