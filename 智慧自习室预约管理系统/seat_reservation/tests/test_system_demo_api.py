@@ -158,27 +158,34 @@ def test_initialize_demo_writes_accounts_audits_and_invalidates_session(
     password = data["demo_password"]
     assert data["must_relogin"] is True
     assert data["counts"] == {"users": 9, "seats": 24, "reservations": 21, "rooms": 3}
+    assert data["admin_password_preserved"] is True
+    assert data["preserved_admin_ids"] == ["Y1"]
     assert {item["username"] for item in data["accounts"]} == {
         "S2023001",
         "T7001",
         "A9001",
-        "Y0001",
+        "Y1",
     }
+    assert next(item for item in data["accounts"] if item["username"] == "Y1")["password_preserved"] is True
     assert len(password) >= 8
 
     # 会话表被清空：旧会话立即失效。
     assert client.get("/api/admin/system", headers=headers).status_code == 401
 
-    # 统一演示密码对四个角色账号都有效。
+    # 统一演示密码只作用于学生/教师/自习室管理员；系统管理员 Y1 原密码保留。
     with ctx.db.read() as conn:
         repo = SqliteRepository(conn)
-        for user_id in (*DEMO_USER_IDS, "Y0001"):
+        for user_id in DEMO_USER_IDS:
             user = repo.get_user(user_id)
             assert user is not None
             assert verify_password(password, user.password_hash)
+        admin = repo.get_user("Y1")
+        assert admin is not None
+        assert verify_password(PASSWORD, admin.password_hash)
+        assert not verify_password(password, admin.password_hash)
 
     # 重新登录后审计仍保留历史记录，并新增初始化事件；密码不进入审计。
-    new_headers = _login(client, "Y0001", password)
+    new_headers = _login(client, "Y1", PASSWORD)
     audit = client.get(
         "/api/admin/audit",
         params={"page_size": 100},
@@ -204,7 +211,8 @@ def test_initialize_demo_twice_uses_new_password_and_keeps_audit(
     assert first.status_code == 200, first.text
     first_password = first.json()["data"]["demo_password"]
 
-    second_headers = _login(client, "Y0001", first_password)
+    # 系统管理员原密码保留，重新初始化前用原密码登录。
+    second_headers = _login(client, "Y1", PASSWORD)
     monkeypatch.setenv("SEAT_DEMO_PASSWORD", "Second-Demo-Pass-456")
     second = client.post(
         "/api/admin/system/demo-data",
@@ -220,18 +228,25 @@ def test_initialize_demo_twice_uses_new_password_and_keeps_audit(
         ).fetchone()["c"]
     assert audit_count == 2
 
-    # 新密码可登录，旧密码失效。
+    # 演示账号使用最新演示密码；系统管理员仍使用原密码。
     assert (
         client.post(
             "/api/auth/login",
-            json={"username": "Y0001", "password": "Second-Demo-Pass-456"},
+            json={"username": "S2023001", "password": "Second-Demo-Pass-456"},
         ).status_code
         == 200
     )
     assert (
         client.post(
             "/api/auth/login",
-            json={"username": "Y0001", "password": first_password},
+            json={"username": "Y1", "password": PASSWORD},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            "/api/auth/login",
+            json={"username": "Y1", "password": first_password},
         ).status_code
         == 401
     )

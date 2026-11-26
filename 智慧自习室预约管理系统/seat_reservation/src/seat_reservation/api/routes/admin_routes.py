@@ -47,12 +47,18 @@ router = APIRouter(tags=["admin"])
 DEMO_INIT_CONFIRM = "INITIALIZE_DEMO_DATA"
 
 # 与 storage/seed.py 中的标准演示账号保持一致；仅用于成功提示展示。
+# 系统管理员是特例：已有活跃管理员时保留原密码，不随演示账号统一密码重置。
 DEMO_ACCOUNT_CARDS = (
     {"username": "S2023001", "name": "张伟", "role": "student", "role_label": "学生"},
     {"username": "T7001", "name": "刘明", "role": "teacher", "role_label": "教师"},
     {"username": "A9001", "name": "王丽", "role": "room_admin", "role_label": "自习室管理员"},
-    {"username": "Y0001", "name": "陈刚", "role": "sys_admin", "role_label": "系统管理员"},
 )
+DEFAULT_ADMIN_CARD = {
+    "username": "Y0001",
+    "name": "陈刚",
+    "role": "sys_admin",
+    "role_label": "系统管理员",
+}
 
 
 @router.get("/admin/stats", summary="运营看板")
@@ -606,13 +612,26 @@ def initialize_demo_data(
             )
         raise
 
+    preserved_admins = list(counts.pop("preserved_admins", []) or [])
+    report_counts = {
+        k: v
+        for k, v in counts.items()
+        if isinstance(v, int) and k != "admin_preserved"
+    }
+    admin_password_preserved = bool(preserved_admins)
+    accounts = [dict(item) for item in DEMO_ACCOUNT_CARDS]
+    if admin_password_preserved:
+        accounts.extend(dict(item) for item in preserved_admins)
+    else:
+        accounts.append({**DEFAULT_ADMIN_CARD, "password_preserved": False})
+
     with ctx.engine() as engine:
         engine.audit_event(
             actor,
             "initialize_demo_data",
             "system",
             "demo",
-            details={"counts": counts},
+            details={"counts": report_counts, "admin_password_preserved": admin_password_preserved},
             now=now,
             ip=client_ip(request),
         )
@@ -620,9 +639,11 @@ def initialize_demo_data(
     # 演示数据写入会清空 sessions：当前会话已失效，必须提示重新登录。
     return success(
         {
-            "counts": counts,
-            "accounts": [dict(item) for item in DEMO_ACCOUNT_CARDS],
+            "counts": report_counts,
+            "accounts": accounts,
             "demo_password": password,
+            "admin_password_preserved": admin_password_preserved,
+            "preserved_admin_ids": [item["username"] for item in preserved_admins],
             "must_relogin": True,
         },
         "演示数据已初始化",

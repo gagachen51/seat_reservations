@@ -1915,8 +1915,63 @@ body.shell .toast { top: 58px; }
   font-weight: 600;
 }
 
+/* 指标口径：4×2 独立子卡片，公式用浅蓝胶囊高亮 */
+.analytics-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.analytics-metric-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 14px 12px;
+  border: 1px solid var(--separator, rgba(60, 60, 67, 0.14));
+  border-radius: 12px;
+  background: var(--card, #fff);
+}
+
+.analytics-metric-card h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--label);
+}
+
+.analytics-metric-card p {
+  margin: 0;
+  flex: 1;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--secondary);
+}
+
+.analytics-formula {
+  align-self: flex-start;
+  display: inline-block;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: #eaf4ff;
+  color: #0b63c9;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+@media (max-width: 1200px) {
+  .analytics-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 920px) {
   .analytics-notes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .analytics-metric-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }

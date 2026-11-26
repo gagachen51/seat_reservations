@@ -2,7 +2,7 @@
 
 > 需求基线：《需求规格说明书》v1.2（2026-10-15）
 > 实现形态：FastAPI + SQLite + 原生前端；桌面窗口与安装包共用同一套业务代码
-> 规模：9,300 行 Python，62 个接口，17 张业务表（另有 1 张迁移记录表），测试 485 通过 / 1 跳过（另有 Node 前端测试 32 通过）
+> 规模：9,300 行 Python，62 个接口，17 张业务表（另有 1 张迁移记录表），测试 493 通过 / 1 跳过（另有 Node 前端测试 43 通过）
 
 ## 1. 交付物
 
@@ -170,13 +170,13 @@ python -m pytest -q
 除需要浏览器驱动的 `tests/test_e2e.py`（设置 `SEAT_E2E=1` 且安装 playwright 后才执行）外，其余用例应全部通过。
 未安装 playwright 时会跳过 1 个端到端用例，属预期行为。
 
-当前结果：`485 passed, 1 skipped`。前端视图测试不依赖第三方包：
+当前结果：`493 passed, 1 skipped`。前端视图测试不依赖第三方包：
 
 ```bat
-node --test tests/account_frontend.test.cjs tests/system_demo_ui.test.cjs
+node --test tests/account_frontend.test.cjs tests/system_demo_ui.test.cjs tests/desktop_ux.test.cjs
 ```
 
-结果：`32 pass / 0 fail`。
+结果：`43 pass / 0 fail`。
 
 | 测试文件 | 覆盖 |
 |---|---|
@@ -192,6 +192,7 @@ node --test tests/account_frontend.test.cjs tests/system_demo_ui.test.cjs
 | `test_jobs.py` | 调度器、超时扫描、候补顺延 |
 | `test_concurrency.py` | 并发预约不超卖 |
 | `test_system_demo_api.py` | 系统状态接口、演示数据初始化与审计只增不删 |
+| `test_desktop_ux_api.py` | 座位分母、冲突分类、管理员密码保留、桌面导出桥接 |
 | `test_e2e.py` | 真实浏览器端到端（默认跳过） |
 
 ## 9. 文档

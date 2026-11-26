@@ -66,7 +66,16 @@ def list_seats(
         is_window=is_window,
         only_available=only_available,
     )
-    return success({"items": seats, "total": len(seats), "date": day.isoformat()})
+    # 房间分母取“物理启用座位数”，不受 only_available/电源/靠窗筛选影响。
+    rooms = engine.seat_room_totals(actor, room_id=room_id)
+    return success(
+        {
+            "items": seats,
+            "total": len(seats),
+            "rooms": rooms,
+            "date": day.isoformat(),
+        }
+    )
 
 
 @router.get("/reservations", summary="预约列表")

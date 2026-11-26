@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
+from typing import Any
 
 from ..domain.models import (
     AuditLog,
@@ -118,7 +119,13 @@ def _reset(conn) -> None:
         )
 
 
-def _make_users(now: datetime, password: str, iterations: int) -> list[User]:
+def _make_users(
+    now: datetime,
+    password: str,
+    iterations: int,
+    *,
+    include_default_admin: bool = True,
+) -> list[User]:
     encoded = hash_password(password, iterations=iterations)
     base = [
         ("S2023001", "张伟", Role.STUDENT, "计算机学院", "软件 2301", 100),
@@ -133,6 +140,8 @@ def _make_users(now: datetime, password: str, iterations: int) -> list[User]:
     ]
     users = []
     for user_id, name, role, department, class_name, credit in base:
+        if not include_default_admin and role == Role.SYS_ADMIN:
+            continue
         users.append(
             User(
                 id=user_id,
@@ -225,27 +234,44 @@ def seed_demo(
     password: str | None = None,
     reset: bool = True,
     hash_iterations: int = 260_000,
-) -> dict[str, int]:
+) -> dict[str, Any]:
     """写入演示数据，返回各表行数摘要。
 
     ``password`` 为空时随机生成，调用方需要展示时先用 ``resolve_demo_password``
     取得同一份值再传入。
+
+    **保留现有系统管理员**：若库中已有活跃 ``sys_admin``（如 Y0001），重复初始化
+    不会覆盖其密码、强制改密标记和个人资料，只重置学生/教师/自习室管理员演示
+    账号与演示资源。只有完全没有活跃系统管理员时才创建默认 Y0001。
     """
     password = password or generate_initial_password()
     db.migrate()
     params = ParamSet()
-    counts: dict[str, int] = {}
+    counts: dict[str, Any] = {}
 
     with db.transaction() as conn:
         repo = SqliteRepository(conn)
+        preserved_admins = [
+            user
+            for user in repo.list_users(role=Role.SYS_ADMIN.value, page_size=1000).items
+            if user.status == "active"
+        ]
         if reset:
             _reset(conn)
         repo.save_params({k: v for k, v in params.snapshot().items()}, "SYSTEM", now)
 
-        users = _make_users(now, password, hash_iterations)
+        users = _make_users(
+            now,
+            password,
+            hash_iterations,
+            include_default_admin=not preserved_admins,
+        )
         for user in users:
             repo.save_user(user)
-        counts["users"] = len(users)
+        for admin in preserved_admins:
+            # 原样写回：password_hash / must_change_password / 资料 / 状态全部保留。
+            repo.save_user(admin)
+        counts["users"] = len(users) + len(preserved_admins)
 
         rooms = [
             Room(
@@ -507,9 +533,21 @@ def seed_demo(
         counts["reservations"] = conn.execute(
             "SELECT COUNT(*) AS c FROM reservations"
         ).fetchone()["c"]
-        counts["users"] = len(users)
+        counts["users"] = len(users) + len(preserved_admins)
         counts["seats"] = len(seats)
         counts["rooms"] = len(rooms)
+        counts["admin_preserved"] = len(preserved_admins)
+        # 仅用于初始化成功提示展示账号；不是表计数，调用方返回前会剥离。
+        counts["preserved_admins"] = [
+            {
+                "username": admin.id,
+                "name": admin.name,
+                "role": Role.SYS_ADMIN.value,
+                "role_label": "系统管理员",
+                "password_preserved": True,
+            }
+            for admin in preserved_admins
+        ]
 
     return counts
 

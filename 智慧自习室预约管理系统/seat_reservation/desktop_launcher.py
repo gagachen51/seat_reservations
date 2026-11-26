@@ -256,6 +256,54 @@ class Bridge:
             except Exception:  # noqa: BLE001 - 部分后端不支持运行期改尺寸
                 pass
 
+    # ---- 数据导出：原生另存为 ----
+    def save_export_file(self, suggested_name: str = "export.csv", content: str = "") -> dict:
+        """把前端导出的 CSV/JSON 内容写入用户选择的本地路径。
+
+        pywebview 的窗口内点击普通 ``<a download>`` 不会弹出保存框，因此由前端
+        通过桥接调用本方法。返回值必须是可 JSON 序列化的字典：
+        ``{"ok": True, "path": ...}`` 或 ``{"ok": False, "canceled": True}``。
+        """
+        import webview
+
+        if self._window is None:
+            return {"ok": False, "error": "窗口尚未就绪"}
+        raw_name = Path(str(suggested_name or "export.csv")).name
+        safe_name = "".join(
+            ch for ch in raw_name if ch not in '\\/:*?"<>|\r\n\t'
+        ).strip() or "export.csv"
+        suffix = Path(safe_name).suffix.lower()
+        if suffix == ".json":
+            file_types = ("JSON 文件 (*.json)",)
+        elif suffix == ".csv":
+            file_types = ("CSV 文件 (*.csv)",)
+        else:
+            file_types = ("所有文件 (*.*)",)
+        downloads = Path.home() / "Downloads"
+        directory = downloads if downloads.is_dir() else Path.home()
+        try:
+            selection = self._window.create_file_dialog(
+                webview.SAVE_DIALOG,
+                directory=str(directory),
+                save_filename=safe_name,
+                file_types=file_types,
+            )
+        except Exception as exc:  # noqa: BLE001 - 对话框失败要回传给前端
+            return {"ok": False, "error": f"无法打开保存对话框：{exc}"}
+        if not selection:
+            return {"ok": False, "canceled": True}
+        selected = selection[0] if isinstance(selection, (list, tuple)) else selection
+        target = Path(str(selected))
+        if target.suffix == "" and suffix:
+            target = target.with_suffix(suffix)
+        payload = content if content.startswith("\ufeff") else "\ufeff" + content
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(payload, encoding="utf-8")
+        except OSError as exc:
+            return {"ok": False, "error": f"写入文件失败：{exc}"}
+        return {"ok": True, "path": str(target)}
+
     # ---- 窗口控制 ----
     def _handle(self):
         if self._hwnd:
