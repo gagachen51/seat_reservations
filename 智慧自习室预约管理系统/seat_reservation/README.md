@@ -1,52 +1,103 @@
-# 智慧自习室预约管理系统
+# seat_reservation
 
-本项目通过浏览器使用。主机运行一个 FastAPI/Uvicorn 服务，SQLite 保存在主机本地；其他设备通过局域网地址或 ngrok 的 HTTPS 地址访问同一服务。
+智慧自习室预约管理系统的源码目录。技术栈为 Python 3.11+ / FastAPI / SQLite，前端是原生 HTML/CSS/JavaScript 单页应用，没有 npm 与构建步骤。
 
-## 启动
+## 目录结构
 
-在 `智慧自习室预约管理系统/seat_reservation` 目录执行：
+```
+seat_reservation/
+├── run.py                     命令行入口
+├── requirements.txt           运行与测试依赖
+├── pyproject.toml             包定义与 pytest 配置
+├── .env.example               配置样例
+├── scripts/
+│   ├── backup.py              在线备份 + 完整性校验
+│   ├── restore_resources.py   从旧库导入自习室与座位
+│   └── verify_release.py      交付前检查
+├── src/seat_reservation/
+│   ├── api/                   FastAPI 应用、路由、依赖、请求模型
+│   ├── domain/                领域引擎、规则、参数、仓储端口
+│   ├── service/               容器、认证、调度器
+│   ├── storage/               SQLite、仓储、迁移、种子
+│   ├── web/                   index.html / app.js / styles.css
+│   ├── config.py              环境变量与校验
+│   ├── security.py            密码哈希、令牌、CSRF、签到凭证
+│   └── network.py             本机 IPv4 枚举（`--lan` 启动提示）
+├── tests/                     后端 pytest 与前端 Node 测试
+└── docs/                      技术文档、局域网说明
+```
+
+## 常用命令
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+# 初始化 / 迁移数据库
+.\.venv\Scripts\python.exe run.py --db var/delivery.db init-db
+
+# 启动（局域网可访问）
 .\.venv\Scripts\python.exe run.py --db var/delivery.db serve --lan --port 8010
+
+# 只监听本机
+.\.venv\Scripts\python.exe run.py --db var/delivery.db serve --port 8010
+
+# 执行一次超时扫描（不启动服务）
+.\.venv\Scripts\python.exe run.py --db var/delivery.db sweep
+
+# 账号
+.\.venv\Scripts\python.exe run.py --db var/delivery.db user list
+.\.venv\Scripts\python.exe run.py --db var/delivery.db user create S2026001 张三 --role student
+.\.venv\Scripts\python.exe run.py --db var/delivery.db user passwd S2026001
+
+# 业务参数
+.\.venv\Scripts\python.exe run.py --db var/delivery.db params list
+.\.venv\Scripts\python.exe run.py --db var/delivery.db params set checkin.before_minutes 20
+
+# 导出与清理
+.\.venv\Scripts\python.exe run.py --db var/delivery.db export reservations --out var/reservations.csv
+.\.venv\Scripts\python.exe run.py --db var/delivery.db prune --days 730 --dry-run
+
+# 自检
+.\.venv\Scripts\python.exe run.py --db var/delivery.db doctor
 ```
 
-本机打开 http://127.0.0.1:8010/ 。其他设备连接同一局域网后，打开主机 IPv4 地址的 8010 端口。外网访问时另外运行 `ngrok http 8010`，分享 ngrok 显示的 HTTPS 地址。电脑、Python 服务与 ngrok 必须保持运行，ngrok 不负责保存业务数据。
+## 配置
 
-## 初始账号
+配置读取优先级：进程环境变量 > `.env` 文件 > 代码默认值。完整变量表见 [`../环境清单.md`](../环境清单.md)。
 
-新交付库只创建一个系统管理员：**Y0001 / 12345678**，免首次强制改密。重复启动不会重置已修改的密码，也不会删除后来创建的账号。
+生产环境至少需要：
 
-管理员在账号管理中创建用户，所有新账号初始密码统一为 **12345678**，界面不再允许另填初始密码。学生、教师、自习室管理员首次登录必须修改密码，系统管理员免首次强制改密。非管理员改密完成前不能访问业务接口。密码重置同样使用 12345678，并按角色决定是否必须改密。
+```dotenv
+SEAT_ENV=production
+SEAT_COOKIE_SECURE=true
+SEAT_DB_PATH=var/delivery.db
+SEAT_PUBLIC_BASE_URL=https://seat.example.edu
+```
 
-## 从演示版切换
+`SEAT_PUBLIC_BASE_URL` 决定座位桌贴二维码里的地址。经反向代理或 ngrok 访问时如果不设置，二维码会写入内网地址，手机扫码打不开。
 
-停止原服务，改用上面的 `var/delivery.db` 启动命令。旧 `var/web.db` 不删除、不覆盖，保留历史演示记录；不要再用它作为交付库。新库不复制演示账号、预约或座位，管理员需自行创建真实账号与资源。不再提供网页演示初始化入口和演示账号查询接口。
-
-数据库路径也可通过 `SEAT_DB_PATH` 设置；显式 `--db` 优先。交付默认库为 `var/delivery.db`。若已有 `.env` 指向旧库，请更新配置或使用上面的显式命令。
-
-## 多人使用
-
-不同账号可同时登录。预约和座位状态来自同一个后端数据库；两人抢同一座位同一时段，只能有一份预约成功。其他用户刷新或重新查询后看到座位不可用，目前不提供实时推送。浏览器不能直接读写 SQLite 文件。
-
-## 验证
+## 测试
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q
-node --test tests/*.test.cjs
+.\.venv\Scripts\python.exe -m pytest -q     # 510 passed, 1 skipped
+node --test tests/*.test.cjs                 # 39 passed
 ```
 
-历史课程评审与发布记录保留供追溯，账号与密码策略以本说明为准。
+跳过项是未安装 Playwright 的浏览器端到端用例。并发用例依赖 SQLite 的 WAL 文件锁；数据库放在云同步目录、网络盘或被安全软件实时扫描时，可能出现 `attempt to write a readonly database`，把库移到本地普通目录即可。
 
-## 恢复旧库座位
+## 数据库迁移
 
-如果交付库尚无座位，在项目目录执行：
+迁移定义在 `src/seat_reservation/storage/migrations.py`，当前版本 **5**：
 
-```powershell
-.\.venv\Scripts\python.exe scripts/restore_resources.py --source var/web.db --target var/delivery.db
-```
+| 版本 | 内容 |
+|---|---|
+| v1 | 初始表结构、索引、审计触发器 |
+| v2 | `seats.maintenance_by_block`，封禁生命周期 |
+| v4 | `resource_constraints`，slot 父预约一致性与候补范围 |
+| v5 | `app_secrets`，二维码签名密钥 |
 
-脚本先用 SQLite 在线备份创建 `var/backups/` 下的交付库备份，再以事务导入缺失的自习室和座位；同编号资源不覆盖，账号与预约不迁移，失败自动回滚。完成后刷新页面重新查询座位。旧库保留到验收完成；维护或停用状态会保留，可在资源管理中核查。
+v3 预留给共享层审计扩展，不跳号复用。`init-db` 与 `serve` 启动时都会执行迁移，重复执行安全。
 
-审计页面的动作、角色和对象类型采用中文展示，筛选仍使用原始动作编号，兼容历史审计记录。
+## 相关文档
+
+- [`docs/技术文档.md`](docs/技术文档.md)：部署、备份恢复、安全设计、验收对照
+- [`docs/局域网使用说明.md`](docs/局域网使用说明.md)：局域网访问与排查
+- [`../系统说明.md`](../系统说明.md)：业务规则与功能边界

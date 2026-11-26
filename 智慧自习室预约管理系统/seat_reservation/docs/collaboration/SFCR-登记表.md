@@ -1,6 +1,6 @@
 # SFCR 登记表（共享文件变更请求）
 
-> 文档口径（v2.0.3，2026-11-26）：当前发布版本 **v2.0.3**；`pytest` **499 passed / 1 skipped**，Node **43 passed**；用户启动方式统一为安装 `setup.exe`。本文历史章节中的旧版本/测试数字仅代表当时基线，最新口径以根目录 `README.md` 与 `CHANGELOG.md` 为准。
+> 文档阶段：v1.2–v2.0.3 过程记录（2026-11）。文中的版本号、测试数量、交付形态与启动方式均为当时基线；当前实现为 v3.1.0 / schema v5，采用浏览器访问的 Web 交付，口径见根目录 `README.md` 与 `CHANGELOG.md`。
 
 
 > 责任人：成员 B（共享文件唯一修改人）
@@ -65,5 +65,11 @@ B 处理人 / 应用提交 SHA：
 | SFCR 编号 | 日期 | 申请人 | 目标文件 | 锚点 | 关联测试 | B 处理人 | 应用 SHA | 发起人复核 | 状态 | 备注 |
 |---|---|---|---|---|---|---|---|---|---|---|
 | _（待登记）_ | | | | | | | | | | |
+
+> 登记表在开发期未逐条回填。现存申请的实际记录位置如下：
+>
+> - `SFCR-A-001`：账号与个人中心注册，见 `docs/collaboration/SFCR-A-001-注册请求.md`；账号部分已于 2026-11-25 直接接入，待团队复核。
+> - `SFCR-C-001`：`domain/ports.py` 增加续约协议方法，见 `docs/collaboration/SFCR-C-001-ports.md`，状态 `open`。
+> - `SFCR-D-002`：仅在 `docs/collaboration/设计-D-运营分析.md` 中引用，没有独立的申请文件，登记信息缺失。
 
 > 本表在 Phase 0 建立；本轮 B 自己改动共享文件（`app.py` 注册 `resource_routes`、`ports.py` 追加协议、`models.py` 加 `Seat.maintenance_by_block`、`migrations.py` 加 v2、`app.js` 共享注册表加 4 个动作）属于**所有权内的直接修改**，随 `feature/resource-module` PR 进入 `integration/v1.2`，不需要给自己开 SFCR，但 PR 说明中必须列出这 5 处共享文件改动，供 A/C/D 复核。
