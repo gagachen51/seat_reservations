@@ -1958,3 +1958,252 @@ body {
   margin: 10px 0 0;
   line-height: 1.55;
 }
+
+/* ==========================================================================
+   登录页 · 图书馆海报
+   深墨蓝 + 暖纸色 + 黄铜点缀，用座位网格作图形，不改变内页视觉。
+   ========================================================================== */
+
+.auth {
+  display: grid;
+  grid-template-columns: minmax(0, 1.06fr) minmax(420px, 0.94fr);
+  min-height: 100dvh;
+  background: #f6f2ea;
+  color: #1b1b1d;
+}
+
+.auth-art {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 42px 46px 30px;
+  color: #f4efe6;
+  background: linear-gradient(158deg, #123049 0%, #0e2433 56%, #0b1d2a 100%);
+}
+
+.auth-brand { display: flex; align-items: center; gap: 11px; }
+
+.auth-mark {
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 3px;
+  display: grid;
+  place-items: center;
+  color: #f4efe6;
+}
+.auth-mark svg { width: 17px; height: 17px; }
+
+.auth-brand-text strong { display: block; font-size: 13.5px; font-weight: 500; letter-spacing: 0.14em; }
+.auth-brand-text small { display: block; margin-top: 2px; font-size: 9.5px; letter-spacing: 0.22em; color: rgba(255, 255, 255, 0.42); }
+
+.auth-copy { margin-top: clamp(58px, 15vh, 132px); max-width: 440px; }
+
+.auth-kicker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 9.5px;
+  letter-spacing: 0.34em;
+  color: rgba(255, 255, 255, 0.42);
+}
+.auth-kicker::before { content: ""; width: 26px; height: 1px; background: #c8a15a; }
+.auth-kicker.dark { color: #a58a55; }
+.auth-kicker.dark::before { background: #a58a55; }
+
+.auth-copy h2 {
+  margin-top: 22px;
+  font-size: clamp(34px, 3.4vw, 46px);
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: 0.05em;
+  color: #f4efe6;
+}
+.auth-copy h2 span { color: #c8a15a; }
+
+.auth-lede {
+  margin-top: 22px;
+  font-size: 12.5px;
+  line-height: 2;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.auth-seatmap {
+  position: absolute;
+  right: -26px;
+  bottom: 52px;
+  width: min(46%, 380px);
+  height: auto;
+  pointer-events: none;
+  opacity: 0.95;
+}
+.auth-seatmap circle { animation: auth-pulse 6s ease-in-out infinite; }
+@keyframes auth-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.8; }
+}
+
+.auth-art-foot {
+  margin-top: auto;
+  display: flex;
+  gap: 28px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: rgba(255, 255, 255, 0.32);
+}
+
+.auth-side {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 48px 56px;
+  background: #f6f2ea;
+}
+
+.auth-form {
+  width: 100%;
+  max-width: 384px;
+  margin: 0 auto;
+  padding: 40px 38px 34px;
+  background: #fffdf8;
+  border: 1px solid #e8e0d1;
+  border-radius: 28px;
+  box-shadow:
+    0 30px 60px -34px rgba(14, 36, 51, 0.38),
+    0 2px 6px rgba(14, 36, 51, 0.04);
+  animation: auth-card-in 0.55s cubic-bezier(0.22, 1.25, 0.36, 1) both;
+}
+
+@keyframes auth-card-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+.auth-form h1 {
+  margin: 10px 0 6px;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: #1b1b1d;
+}
+.auth-sub { margin-bottom: 28px; font-size: 12.5px; color: #7d776a; letter-spacing: 0.02em; }
+
+.auth-field { display: block; margin-bottom: 16px; }
+.auth-field > span {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: #7f7869;
+}
+.auth-field input {
+  width: 100%;
+  height: 46px;
+  border: 1px solid #e3dbcb;
+  border-radius: 14px;
+  background: #faf7f0;
+  padding: 0 15px;
+  font-size: 15px;
+  color: #1b1b1d;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+.auth-field input:focus {
+  outline: none;
+  border-color: #0e2433;
+  background: #fff;
+  box-shadow: 0 0 0 4px rgba(200, 161, 90, 0.16);
+}
+
+.auth-submit {
+  width: 100%;
+  height: 50px;
+  margin-top: 12px;
+  border: 0;
+  border-radius: 999px;
+  background: #0e2433;
+  color: #f6f2ea;
+  font-size: 13px;
+  letter-spacing: 0.2em;
+  cursor: pointer;
+  box-shadow:
+    0 14px 24px -14px rgba(14, 36, 51, 0.65),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  transition:
+    transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background 0.18s ease,
+    box-shadow 0.2s ease;
+}
+.auth-submit:hover {
+  background: #17364f;
+  transform: translateY(-1px) scale(1.01);
+}
+.auth-submit:active {
+  transform: scale(0.97);
+  box-shadow:
+    0 6px 14px -10px rgba(14, 36, 51, 0.55),
+    inset 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+.auth-submit:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 4px rgba(200, 161, 90, 0.28),
+    0 14px 24px -14px rgba(14, 36, 51, 0.65);
+}
+
+.auth .form-error {
+  margin-top: 14px;
+  border-radius: 12px;
+  background: rgba(179, 38, 30, 0.08);
+  color: #b3261e;
+  font-size: 12px;
+  padding: 9px 12px;
+}
+
+.auth-help {
+  margin-top: 22px;
+  padding-top: 14px;
+  border-top: 1px dashed #e4ddce;
+  font-size: 11px;
+  line-height: 1.8;
+  color: #8d8678;
+}
+
+.auth-copyright {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 24px;
+  text-align: center;
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  color: #a9a091;
+}
+
+@media (max-width: 900px) {
+  .auth { display: block; }
+
+  .auth-art { min-height: 310px; padding: 26px 24px 24px; }
+  .auth-copy { margin-top: 34px; }
+  .auth-copy h2 { margin-top: 14px; font-size: 30px; line-height: 1.4; }
+  .auth-lede { display: none; }
+  .auth-seatmap { width: 232px; right: -48px; bottom: -18px; opacity: 0.5; }
+  .auth-art-foot { display: none; }
+
+  .auth-side { padding: 26px 18px 56px; justify-content: flex-start; }
+  .auth-form { max-width: 460px; padding: 30px 24px 26px; border-radius: 24px; }
+  .auth-sub { margin-bottom: 24px; }
+  .auth-copyright { position: static; margin-top: 46px; text-align: left; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-seatmap circle { animation: none; }
+  .auth-form { animation: none; }
+  .auth-submit,
+  .auth-submit:hover,
+  .auth-submit:active { transform: none; }
+}
