@@ -112,6 +112,7 @@
     seatsAdmin: [],
     seatBlocks: [],
     page: 1,
+    qrToken: null,
     accountDirectory: [],
     sheet: null,
     sheetTimer: null,
@@ -490,6 +491,22 @@
     const initial = location.hash.replace(/^#\//, '') || homeView();
     go(initial);
     refreshBadge();
+    if (state.qrToken) consumeQrCheckIn();
+  }
+
+  // 扫桌贴进入（/q/<token>）：登录后自动提交一次签到，然后回到「我的预约」。
+  async function consumeQrCheckIn() {
+    const token = state.qrToken;
+    if (!token) return;
+    state.qrToken = null;
+    try {
+      const reservation = await api('/check-in/qr', { method: 'POST', body: { token } });
+      const seat = (reservation && reservation.seat_id) || '';
+      toast('签到成功' + (seat ? '：' + seat : ''));
+    } catch (error) {
+      toast((error && error.message) || '扫码签到失败', { error: true, rule: error && error.rule });
+    }
+    if (allowedViews().includes('reservations')) go('reservations');
   }
 
   function renderUser() {
@@ -2731,7 +2748,7 @@
     }
 
     const db = health?.db || {};
-    const schemaVersion = db?.schema_version ?? health?.schema_version ?? 4;
+    const schemaVersion = db?.schema_version ?? health?.schema_version ?? 5;
     const sizeBytes = Number(db?.size_bytes);
     const sizeText = Number.isFinite(sizeBytes) ? (sizeBytes / 1024).toFixed(1) + ' KB' : '—';
     const uptimeSeconds = Number(health?.uptime_seconds);
@@ -2866,6 +2883,7 @@
           '<span class="pill ' + (activeBlocks ? 'orange' : 'gray') + ' plain">生效封禁 ' + activeBlocks + '</span>' +
           '<select class="select-compact" data-action-select="resource-room">' + roomOptions + '</select>' +
           '<button class="btn btn-secondary btn-sm" type="button" data-action="seat-blocks">封禁记录</button>' +
+          '<button class="btn btn-secondary btn-sm" type="button" data-action="print-seats"' + (state.resourceRoom ? '' : ' disabled title="先选择具体自习室"') + '>打印桌贴</button>' +
           '<button class="btn btn-secondary btn-sm" type="button" data-action="bulk-seat">批量新增</button>' +
           '<button class="btn btn-primary btn-sm" type="button" data-action="new-seat">新增座位</button>' +
         '</div></div>' +
@@ -3085,6 +3103,10 @@
       if (seat) seatSheet(seat);
     },
     'resource-room': (el) => { state.resourceRoom = el.value; renderView(); },
+    'print-seats': () => {
+      if (!state.resourceRoom) { toast('请先选择具体自习室', { error: true }); return; }
+      window.open('/api/admin/rooms/' + encodeURIComponent(state.resourceRoom) + '/qr-sheet', '_blank', 'noopener');
+    },
     'audit-detail': (el) => openAuditDetail(el.dataset.id).catch(handleError),
     'do-search': () => {
       const input = $('#searchKeyword');
@@ -3385,9 +3407,17 @@
       await restoreSession();
     } catch (error) {
       showLogin();
+      if (state.qrToken) toast('请先登录，登录后将自动完成扫码签到');
     } finally {
       $('#boot').hidden = true;
     }
+  }
+
+  // 桌贴地址 /q/<token>：先取出令牌并还原到根路径，登录后再提交签到。
+  const qrMatch = location.pathname.match(/^\/q\/([A-Za-z0-9._-]{8,200})$/);
+  if (qrMatch) {
+    state.qrToken = qrMatch[1];
+    history.replaceState(null, '', '/');
   }
 
   // 底部导航横向滚动时，滑到最右则取消右侧渐隐提示。

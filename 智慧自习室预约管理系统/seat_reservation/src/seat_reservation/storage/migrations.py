@@ -428,14 +428,28 @@ _V4 = (
 )
 
 
+# v5：运行期密钥表。座位二维码签名密钥首次启动生成，之后保持稳定，
+# 否则已经打印出去的桌贴会全部失效。
+_V5 = (
+    """
+    CREATE TABLE IF NOT EXISTS app_secrets (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )
+    """,
+)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial_schema", _V1),
     Migration(2, "seat_block_lifecycle", _V2),
     Migration(4, "resource_constraints", _V4),
+    Migration(5, "app_secrets", _V5),
 )
 
 # 公共底座预留版本号（只增不减，后续迁移直接使用，不得复用）。
-# v3：共享层审计表/审计字段扩展；v4：B 模块资源/预约约束迁移。
-LATEST_MIGRATION_VERSION = 4
+# v3：共享层审计表/审计字段扩展；v4：B 模块资源/预约约束迁移；v5：运行期密钥表。
+LATEST_MIGRATION_VERSION = 5
 AUDIT_MIGRATION_VERSION = 3
 RESOURCE_MIGRATION_VERSION = 4

@@ -133,6 +133,9 @@ class Settings:
     acs_token: str = ""
     demo_mode: bool = False
     max_page_size: int = 100
+    #: 打印座位桌贴时写入二维码的对外地址（如 https://seat.example.edu）。
+    #: 留空则使用当前请求的 base_url；经反向代理或 ngrok 时应显式设置。
+    public_base_url: str = ""
 
     @property
     def is_production(self) -> bool:
@@ -164,6 +167,7 @@ class Settings:
                 "SEAT_SCHEDULER_INTERVAL_SECONDS", 60, minimum=10, maximum=3600
             ),
             acs_token=_env_str("SEAT_ACS_TOKEN", ""),
+            public_base_url=_env_str("SEAT_PUBLIC_BASE_URL", "").strip().rstrip("/"),
         )
         settings.validate()
         return settings
@@ -180,6 +184,10 @@ class Settings:
         if self.is_production and self.acs_token == "":
             # 不是致命错误，但必须显式知情：ACS 端点关闭时只能扫码签到。
             pass
+        if self.public_base_url and not self.public_base_url.startswith(("http://", "https://")):
+            raise ConfigError(
+                f"SEAT_PUBLIC_BASE_URL 必须是 http(s) 地址，当前值 {self.public_base_url!r}"
+            )
 
     def public_summary(self) -> str:
         """可安全写入日志的配置摘要：不含令牌、密码与数据库完整路径。"""

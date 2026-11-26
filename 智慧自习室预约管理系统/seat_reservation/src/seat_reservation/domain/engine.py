@@ -24,6 +24,7 @@ from ..errors import (
     SlotConflict,
     ValidationFailed,
 )
+from ..security import QR_SECRET_KEY, build_seat_qr_token, seat_id_from_qr_token
 from .models import (
     OCCUPYING_STATUSES,
     QUOTA_STATUSES,
@@ -1031,6 +1032,59 @@ class DomainEngine:
         reservation = self._own_reservation(actor, reservation_id)
         return self._check_in_core(reservation, now, method=method, provided_code=code)
 
+    @implements("BR-04", "BR-06", "BR-13", "ST-01", "ST-02", "ST-12", "PR-03")
+    def check_in_by_seat_qr(self, actor: Actor, token: str, now: datetime) -> Result:
+        """桌贴二维码签到：令牌证明“哪个座位”，服务端再核对本人预约与签到窗口。"""
+        secret = self.repo.get_secret(QR_SECRET_KEY)
+        if not secret:
+            raise RuleViolation("座位二维码未启用，请联系管理员", rule="BR-13")
+        seat_id = seat_id_from_qr_token(token, secret)
+        if not seat_id:
+            raise RuleViolation("二维码无效或已损坏", rule="BR-13")
+        if self.repo.get_seat(seat_id) is None:
+            raise NotFound(f"座位 {seat_id} 不存在")
+        candidates = self.repo.find_user_pending_reservations_for_seat(
+            actor.id, seat_id, now.date()
+        )
+        if not candidates:
+            raise RuleViolation("这个座位当前没有你的待签到预约", rule="BR-13")
+        chosen: Reservation | None = None
+        early: Reservation | None = None
+        for reservation in candidates:
+            policy = ParamSet.from_snapshot(reservation.policy)
+            phase = checkin_phase(
+                now,
+                reservation.start_at,
+                policy.int("checkin.before_minutes"),
+                policy.int("checkin.after_minutes"),
+            )
+            if phase == "inside":
+                chosen = reservation
+                break
+            if phase == "early" and early is None:
+                early = reservation
+        if chosen is None:
+            if early is not None:
+                policy = ParamSet.from_snapshot(early.policy)
+                opens, _ = checkin_window(
+                    early.start_at,
+                    policy.int("checkin.before_minutes"),
+                    policy.int("checkin.after_minutes"),
+                )
+                raise RuleViolation(
+                    f"未到签到时间，窗口自 {fmt_datetime(opens)} 开始", rule="BR-04"
+                )
+            # 全部已过窗口：交给核心逻辑按违约处理（与网页签到保持一致）。
+            chosen = candidates[0]
+        return self._check_in_core(chosen, now, method="qr_seat", provided_code=None)
+
+    def seat_qr_token(self, seat_id: str) -> str:
+        """生成桌贴令牌，供管理端打印二维码使用。"""
+        secret = self.repo.get_secret(QR_SECRET_KEY)
+        if not secret:
+            raise RuleViolation("座位二维码未启用，请联系管理员", rule="BR-13")
+        return build_seat_qr_token(seat_id, secret)
+
     def check_in_by_credential(self, code: str, now: datetime, *, method: str = "acs") -> Result:
         """ACS/闸机通道：以一次性凭证定位预约；凭证即身份，不依赖登录会话。"""
         reservation = self.repo.find_reservation_by_credential(code)
@@ -1075,7 +1129,8 @@ class DomainEngine:
         ):
             raise RuleViolation("座位当前处于维护/封禁，无法签到", rule="BR-09")
         policy = ParamSet.from_snapshot(reservation.policy)
-        if method != "gate":
+        # gate 由闸机侧凭证核验；qr_seat 由已校验的座位桌贴令牌证明来源。
+        if method not in ("gate", "qr_seat"):
             valid, message = credential_valid(
                 reservation.credential_issued_at,
                 reservation.credential_used,

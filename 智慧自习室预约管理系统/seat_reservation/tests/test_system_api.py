@@ -87,7 +87,7 @@ def test_system_status_on_empty_database_returns_schema_v4(tmp_path: Path) -> No
     data = response.json()["data"]
     assert data["status"] == "ok"
     assert data["version"]
-    assert data["db"]["schema_version"] == 4
+    assert data["db"]["schema_version"] == 5
     assert data["db"]["size_bytes"] > 0
     assert data["db"]["users"] == 1
     assert data["demo_data"] is False
@@ -103,7 +103,7 @@ def test_system_status_reports_demo_data_after_seed(tmp_path: Path) -> None:
         data = client.get("/api/admin/system", headers=headers).json()["data"]
     assert data["demo_data"] is True
     assert data["db"]["users"] == 9
-    assert data["db"]["schema_version"] == 4
+    assert data["db"]["schema_version"] == 5
 
 
 def test_public_health_still_hides_internal_fields(client) -> None:  # noqa: ANN001

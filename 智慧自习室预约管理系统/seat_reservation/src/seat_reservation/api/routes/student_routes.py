@@ -26,6 +26,7 @@ from ..schemas import (
     AcsCheckInIn,
     AppealIn,
     CheckInIn,
+    QrCheckInIn,
     ComplaintIn,
     ComplaintRateIn,
     ReservationIn,
@@ -146,6 +147,15 @@ def check_in(
     engine: DomainEngine = Depends(write_engine),
 ) -> JSONResponse:
     return render(engine.check_in(actor, reservation_id, payload.code, datetime.now()))
+
+
+@router.post("/check-in/qr", summary="扫码签到（座位桌贴）")
+def check_in_qr(
+    payload: QrCheckInIn,
+    actor: Actor = Depends(get_actor),
+    engine: DomainEngine = Depends(write_engine),
+) -> JSONResponse:
+    return render(engine.check_in_by_seat_qr(actor, payload.token, datetime.now()))
 
 
 @router.post("/reservations/{reservation_id}/check-out", summary="签退")

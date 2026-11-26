@@ -700,6 +700,38 @@ class SqliteRepository:
         ).fetchone()
         return self._reservation(row) if row else None
 
+    def find_user_pending_reservations_for_seat(
+        self, user_id: str, seat_id: str, day: date
+    ) -> list[Reservation]:
+        """某用户在某座位、某天的待签到预约（扫码签到时用于定位预约）。"""
+        start = f"{day.isoformat()} 00:00:00"
+        end = f"{(day + timedelta(days=1)).isoformat()} 00:00:00"
+        rows = self.conn.execute(
+            """
+            SELECT * FROM reservations
+            WHERE user_id = ? AND seat_id = ? AND status = 'pending'
+              AND start_at >= ? AND start_at < ?
+            ORDER BY start_at
+            """,
+            (user_id, seat_id, start, end),
+        ).fetchall()
+        return [self._reservation(row) for row in rows]
+
+    # ------------------------------------------------------------------
+    # 运行期密钥（座位二维码签名等）
+    # ------------------------------------------------------------------
+    def get_secret(self, key: str) -> str | None:
+        row = self.conn.execute(
+            "SELECT value FROM app_secrets WHERE key = ?", (key,)
+        ).fetchone()
+        return row["value"] if row else None
+
+    def put_secret(self, key: str, value: str, now: datetime) -> None:
+        self.conn.execute(
+            "INSERT OR IGNORE INTO app_secrets(key, value, created_at) VALUES (?, ?, ?)",
+            (key, value, fmt_datetime(now)),
+        )
+
     def find_user_active_reservation(
         self, user_id: str, exclude: str | None = None
     ) -> Reservation | None:

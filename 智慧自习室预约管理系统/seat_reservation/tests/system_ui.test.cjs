@@ -9,19 +9,19 @@ const SYSTEM_PAYLOAD = {
   env: 'development',
   demo_mode: false,
   demo_data: false,
-  db: { schema_version: 4, size_bytes: 204_800, users: 9 },
+  db: { schema_version: 5, size_bytes: 204_800, users: 9 },
   uptime_seconds: 125,
   scheduler: { enabled: true, running: true, interval_seconds: 60 },
 };
 
-test('system view renders schema v4, runtime state, scheduler and export panel', async () => {
+test('system view renders schema v5, runtime state, scheduler and export panel', async () => {
   const h = harness();
   h.respond((url) => (url === '/admin/system'
     ? SYSTEM_PAYLOAD
     : { enabled: true, running: true, interval_seconds: 60, last_run_at: '2026-11-26 12:00:00', last_summary: { no_show: 1 } }));
   const html = await h.a.systemView();
   assert.match(html, /数据库版本/);
-  assert.match(html, /v4/);
+  assert.match(html, /v5/);
   assert.match(html, /运行状态/);
   assert.match(html, /正常/);
   assert.match(html, /运行中/);
@@ -39,8 +39,8 @@ test('system view survives missing db/scheduler fields instead of throwing', asy
     throw new Error('scheduler unavailable');
   });
   const html = await h.a.systemView();
-  // 空库/旧后端/字段缺失时仍要完整渲染，数据库版本兜底为 v4。
-  assert.match(html, /v4/);
+  // 空库/旧后端/字段缺失时仍要完整渲染，数据库版本兜底为 v5。
+  assert.match(html, /v5/);
   assert.match(html, /已禁用/);
   assert.match(html, /数据导出/);
   assert.ok(!html.includes('undefined'));
@@ -52,7 +52,7 @@ test('system view shows a banner when the status endpoint fails entirely', async
   h.respond(() => { throw new Error('boom'); });
   const html = await h.a.systemView();
   assert.match(html, /运行状态暂时无法获取/);
-  assert.match(html, /v4/);
+  assert.match(html, /v5/);
   assert.match(html, /数据导出/);
 });
 
