@@ -161,6 +161,7 @@ def update_room(
     actor: Actor = Depends(get_actor),
     engine: DomainEngine = Depends(write_engine),
 ) -> JSONResponse:
+    """修改自习室；关闭时由引擎在同一写事务内取消仍有效的预约（M-04）。"""
     return render(
         engine.update_room(
             actor,
@@ -172,6 +173,7 @@ def update_room(
             close_time=payload.close_time,
             now=datetime.now(),
             ip=client_ip(request),
+            cascade_release=payload.status == "closed",
         )
     )
 
@@ -215,6 +217,7 @@ def update_seat(
     actor: Actor = Depends(get_actor),
     engine: DomainEngine = Depends(write_engine),
 ) -> JSONResponse:
+    """修改座位；改为停用/维护时由引擎在同一写事务内取消仍有效的预约（M-04）。"""
     return render(
         engine.update_seat(
             actor,
@@ -228,6 +231,7 @@ def update_seat(
             note=payload.note,
             now=datetime.now(),
             ip=client_ip(request),
+            cascade_release=payload.admin_status in {"disabled", "maintenance"},
         )
     )
 
