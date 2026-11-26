@@ -686,7 +686,7 @@
           '<button class="chip' + (filters.window ? ' active' : '') + '" type="button" data-action="toggle-filter" data-key="window">' + icon('window') + '靠窗</button>' +
         '</div>' +
         '<div class="toolbar-row">' +
-          '<div class="legend"><span><i style="background:#34C759"></i>空闲</span><span><i style="background:#FF9500"></i>已预约 / 暂离</span><span><i style="background:#007AFF"></i>使用中</span><span class="tertiary" style="margin-left:auto">点击座位选择</span></div>' +
+          '<div class="legend"><span><i style="background:#3f7a4f"></i>空闲</span><span><i style="background:#c8a15a"></i>已预约 / 暂离</span><span><i style="background:#0e2433"></i>使用中</span><span class="tertiary" style="margin-left:auto">点击座位选择</span></div>' +
         '</div>' +
       '</div>';
 
@@ -1044,7 +1044,7 @@
     const radius = 38;
     const circumference = 2 * Math.PI * radius;
     const pct = Math.max(0, Math.min(100, value)) / 100;
-    const color = value >= 80 ? '#34C759' : value >= 60 ? '#FF9500' : '#FF3B30';
+    const color = value >= 80 ? '#3f7a4f' : value >= 60 ? '#c8a15a' : '#a94438';
     return '<svg class="ring" viewBox="0 0 92 92" role="img" aria-label="信用分 ' + value + '">' +
       '<circle cx="46" cy="46" r="' + radius + '" fill="none" stroke="#EDEDF2" stroke-width="8"/>' +
       '<circle cx="46" cy="46" r="' + radius + '" fill="none" stroke="' + color + '" stroke-width="8" stroke-linecap="round" stroke-dasharray="' + circumference + '" stroke-dashoffset="' + (circumference * (1 - pct)) + '" transform="rotate(-90 46 46)"/>' +
@@ -1252,7 +1252,7 @@
       : '';
 
     const trend = '<div class="card chart-card" style="margin-top:12px"><div class="chart-head"><h3>近 7 日预约与签到</h3>' +
-      '<div class="legend"><span><i style="background:#007AFF"></i>预约</span><span><i style="background:#FF9500"></i>签到</span></div></div>' +
+      '<div class="legend"><span><i style="background:#0e2433"></i>预约</span><span><i style="background:#c8a15a"></i>签到</span></div></div>' +
       '<div class="chart">' + trendChart(stats.trend || []) + '</div></div>';
 
     const hourly = '<div class="card chart-card" style="margin-top:12px"><div class="chart-head"><h3>今日时段分布</h3><span class="tiny tertiary">按开始时间统计</span></div>' +
@@ -1303,9 +1303,9 @@
       const checkins = Number(item.checkins || 0);
       const h1 = (reservations / max) * innerH;
       const h2 = (checkins / max) * innerH;
-      content += '<rect x="' + (x - (withCheckins ? barW + 2 : barW / 2)) + '" y="' + (top + innerH - h1) + '" width="' + barW + '" height="' + Math.max(1, h1) + '" rx="3" fill="#007AFF"/>';
+      content += '<rect x="' + (x - (withCheckins ? barW + 2 : barW / 2)) + '" y="' + (top + innerH - h1) + '" width="' + barW + '" height="' + Math.max(1, h1) + '" rx="3" fill="#0e2433"/>';
       if (withCheckins) {
-        content += '<rect x="' + (x + 2) + '" y="' + (top + innerH - h2) + '" width="' + barW + '" height="' + Math.max(1, h2) + '" rx="3" fill="#34C759" opacity="0.9"/>';
+        content += '<rect x="' + (x + 2) + '" y="' + (top + innerH - h2) + '" width="' + barW + '" height="' + Math.max(1, h2) + '" rx="3" fill="#3f7a4f" opacity="0.9"/>';
       }
       content += '<text x="' + x + '" y="' + (H - 8) + '" text-anchor="middle" font-size="' + (compact ? 10 : 10.5) + '" fill="#8E8E93">' + esc(item.label) + '</text>';
     });
@@ -1326,7 +1326,7 @@
       const x = left + index * step + step / 2;
       const count = Number(item.count || 0);
       const h = (count / max) * innerH;
-      content += '<rect x="' + (x - barW / 2) + '" y="' + (top + innerH - h) + '" width="' + barW + '" height="' + Math.max(2, h) + '" rx="4" fill="#007AFF" opacity="' + (0.35 + 0.65 * (count / max)) + '"/>';
+      content += '<rect x="' + (x - barW / 2) + '" y="' + (top + innerH - h) + '" width="' + barW + '" height="' + Math.max(2, h) + '" rx="4" fill="#0e2433" opacity="' + (0.35 + 0.65 * (count / max)) + '"/>';
       content += '<text x="' + x + '" y="' + (H - 7) + '" text-anchor="middle" font-size="' + (compact ? 9.5 : 10) + '" fill="#8E8E93">' + esc(item.hour) + '</text>';
     });
     return '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="今日时段分布">' + content + '</svg>';
@@ -1476,8 +1476,8 @@
       '</div>';
 
     const trend = '<div class="card chart-card"><div class="chart-head"><h3>每日预约与签到</h3>' +
-      '<div class="legend"><span><i style="background:#007AFF"></i>预约</span>' +
-      '<span><i style="background:#34C759"></i>签到</span></div></div>' +
+      '<div class="legend"><span><i style="background:#0e2433"></i>预约</span>' +
+      '<span><i style="background:#3f7a4f"></i>签到</span></div></div>' +
       '<div class="chart">' + (daily.length ? trendChart(daily) :
         '<div class="chart-empty">当前区间没有预约数据</div>') + '</div></div>';
 
@@ -1637,7 +1637,7 @@
       (isToday && start !== fromMinutes(Math.floor(toMinutes(nowHHMM()) / 30) * 30) ? '（非当前时段）' : '') +
       '。点击座位可查看占用详情、登记违约或强制释放；点击空闲座位可封禁。</div></div>';
 
-    const legend = '<div class="legend" style="margin:0 2px 12px"><span><i style="background:#34C759"></i>空闲</span><span><i style="background:#FF9500"></i>已预约</span><span><i style="background:#007AFF"></i>使用中</span><span><i style="background:#C77D00"></i>暂离</span><span><i style="background:#8E8E93"></i>维护</span><span><i style="background:#B0B0B5"></i>停用</span></div>';
+    const legend = '<div class="legend" style="margin:0 2px 12px"><span><i style="background:#3f7a4f"></i>空闲</span><span><i style="background:#c8a15a"></i>已预约</span><span><i style="background:#0e2433"></i>使用中</span><span><i style="background:#C77D00"></i>暂离</span><span><i style="background:#8E8E93"></i>维护</span><span><i style="background:#B0B0B5"></i>停用</span></div>';
 
     const board = groups.map(({ room, seats: roomSeats }) =>
       '<section class="seat-room"><div class="seat-room-head"><div><h3>' + esc(room.name) + '</h3><p>' + esc(room.location || '') + '</p></div>' +
@@ -2350,7 +2350,7 @@
         '<div class="kpi"><div class="kpi-label">本月完成</div><div class="kpi-value">' + kpi.month_completed + '<small>次</small></div><div class="kpi-foot">近 30 日出勤率 ' + (kpi.attendance_rate == null ? '—' : kpi.attendance_rate + '%') + '</div></div>' +
         '<div class="kpi"><div class="kpi-label">30 日违规</div><div class="kpi-value">' + kpi.violations_30 + '<small>条</small></div><div class="kpi-foot">仅统计数量</div></div>' +
       '</div>' +
-      '<div class="card chart-card" style="margin-top:12px"><div class="chart-head"><h3>近 7 日班级预约</h3><div class="legend"><span><i style="background:#007AFF"></i>预约</span></div></div>' +
+      '<div class="card chart-card" style="margin-top:12px"><div class="chart-head"><h3>近 7 日班级预约</h3><div class="legend"><span><i style="background:#0e2433"></i>预约</span></div></div>' +
       '<div class="chart">' + trendChart(trend, { withCheckins: false }) + '</div></div>';
   }
 
