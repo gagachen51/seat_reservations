@@ -274,6 +274,9 @@
 
   const reduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+  // 页面翻起默认关闭：把 pageTurn 改成 true 即可启用（2.5° / 7px / 260ms）。
+  const MOTION = { pageTurn: false };
+
   let stampCount = 0;
 
   function stamp(label, detail) {
@@ -344,6 +347,8 @@
 
   function animateView(root) {
     if (!root) return;
+    const entered = state.lastAnimatedView !== state.view;
+    state.lastAnimatedView = state.view;
     if (state.seatPulse) {
       const pulsed = root.querySelector('.seat[data-id="' + state.seatPulse + '"]');
       if (pulsed) {
@@ -393,6 +398,23 @@
         fill: 'backwards',
       });
     });
+
+    // 表格错峰只在进入视图时播一次；筛选、翻页、刷新都不重放。
+    if (entered) {
+      root.querySelectorAll('table.data tbody').forEach((body) => {
+        const rows = [...body.rows].slice(0, 12);
+        if (rows.length < 2) return;
+        rows.forEach((row, index) => row.style.setProperty('--i', index));
+        body.classList.add('is-staggered');
+      });
+    }
+
+    if (MOTION.pageTurn && entered) {
+      root.animate([
+        { transform: 'perspective(900px) rotateX(2.5deg) translateY(7px)', opacity: 0.65 },
+        { transform: 'perspective(900px) rotateX(0deg) translateY(0)', opacity: 1 },
+      ], { duration: 260, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' });
+    }
   }
 
   function handleError(error) {
@@ -521,6 +543,39 @@
     state.seatsAdmin = [];
     state.seatBlocks = [];
     state.lastSnapshot = null;
+  }
+
+  function initLoginMotion() {
+    const map = document.querySelector('.auth-seatmap');
+    const art = document.querySelector('.auth-art');
+    if (!map) return;
+
+    // 三格错峰呼吸：避开已点亮的那一格装饰，形成不规则节奏。
+    const rects = [...map.querySelectorAll('rect')];
+    [11, 30, 53].forEach((index, order) => {
+      const rect = rects[index];
+      if (!rect) return;
+      rect.setAttribute('fill', '#c8a15a');
+      rect.style.setProperty('--d', (order * 1.4).toFixed(1) + 's');
+      rect.classList.add('seat-breathe');
+    });
+
+    if (!art || reduceMotion()) return;
+    if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+
+    let frame = 0;
+    art.addEventListener('mousemove', (event) => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (window.innerWidth < 900) return;
+        const box = art.getBoundingClientRect();
+        const dx = (event.clientX - box.left) / box.width - 0.5;
+        const dy = (event.clientY - box.top) / box.height - 0.5;
+        map.style.transform = 'translate3d(' + (dx * 12).toFixed(2) + 'px,' + (dy * 10).toFixed(2) + 'px,0)';
+      });
+    });
+    art.addEventListener('mouseleave', () => { map.style.transform = ''; });
   }
 
   function showLogin(message) {
@@ -3525,6 +3580,7 @@
     }
   });
 
+  initLoginMotion();
   $('#loginForm').addEventListener('submit', submitLogin);
   $('#bellBtn').addEventListener('click', () => {
     if (state.view === 'messages') return;

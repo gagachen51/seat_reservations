@@ -2774,3 +2774,44 @@ table.data td:last-child .btn + .btn { margin-left: 6px; }
   .stamp strong { font-size: 17px; }
   .kpi.is-fresh { animation-duration: 260ms; }
 }
+
+/* ==========================================================================
+   动效层 v2 · 表格错峰 / 登录页呼吸与视差 / 页面翻起
+   ========================================================================== */
+
+/* ---------- 表格行错峰（仅进入页面时播放一次） ---------- */
+tbody.is-staggered tr {
+  animation: row-enter 340ms var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 18ms);
+}
+
+@keyframes row-enter {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- 登录页：座位呼吸与指针视差 ---------- */
+.auth-seatmap {
+  transition: transform 220ms var(--ease-out);
+  will-change: transform;
+}
+
+.auth-seatmap rect.seat-breathe {
+  animation: seat-glow 5.4s ease-in-out infinite;
+  animation-delay: var(--d, 0s);
+  /* 延迟期间用起始透明度，否则先以实心黄铜出现 */
+  animation-fill-mode: backwards;
+}
+
+@keyframes seat-glow {
+  0%, 100% { opacity: 0.16; }
+  50% { opacity: 0.72; }
+}
+
+/* ---------- 页面翻起：默认关闭，开关在 app.js 的 MOTION.pageTurn ---------- */
+#view { transform-origin: top center; }
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-seatmap { transition: none; will-change: auto; }
+  .auth-seatmap rect.seat-breathe { animation: none; opacity: 0.3; }
+}
