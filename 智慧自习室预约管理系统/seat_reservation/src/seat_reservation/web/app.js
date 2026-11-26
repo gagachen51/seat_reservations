@@ -275,7 +275,7 @@
   const reduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // 页面翻起默认关闭：把 pageTurn 改成 true 即可启用（2.5° / 7px / 260ms）。
-  const MOTION = { pageTurn: true };
+  const MOTION = { pageTurn: false };
 
   // 测试桩没有 classList，这里做存在性判断，浏览器中正常生效。
   if (MOTION.pageTurn && document.body && document.body.classList) {
@@ -354,17 +354,6 @@
     if (!root) return;
     const entered = state.lastAnimatedView !== state.view;
     state.lastAnimatedView = state.view;
-    if (state.seatPulse) {
-      const pulsed = root.querySelector('.seat[data-id="' + state.seatPulse + '"]');
-      if (pulsed) {
-        pulsed.classList.add('is-seating');
-        const ping = document.createElement('span');
-        ping.className = 'seat-ping';
-        ping.addEventListener('animationend', () => ping.remove(), { once: true });
-        pulsed.appendChild(ping);
-      }
-      state.seatPulse = null;
-    }
     if (reduceMotion()) return;
 
     root.querySelectorAll('.kpi-value').forEach((el, index) => {
@@ -548,6 +537,7 @@
     state.seatsAdmin = [];
     state.seatBlocks = [];
     state.lastSnapshot = null;
+    state.renderedView = null;
   }
 
   function initLoginMotion() {
@@ -588,6 +578,8 @@
     state.refreshTimer = null;
     resetClientState();
     clearLoginSecrets();
+    const viewRoot = $('#view');
+    if (viewRoot) viewRoot.innerHTML = '';
     $('#app').hidden = true;
     $('#login').hidden = false;
     $('#boot').hidden = true;
@@ -746,11 +738,15 @@
   async function renderView() {
     const view = state.view;
     const root = $('#view');
-    root.innerHTML = skeletonView();
+    // 同一视图内重渲染（筛选、切页签、刷新）沿用旧内容，等数据到位再整体替换，
+    // 避免每次操作都先铺一遍骨架屏闪一下。
+    const sameView = state.renderedView === view && root.childElementCount > 0;
+    if (!sameView) root.innerHTML = skeletonView();
     try {
       const html = await VIEWS[view]();
       if (state.view !== view) return;
       root.innerHTML = html;
+      state.renderedView = view;
       animateView(root);
       if (AFTER[view]) AFTER[view]();
     } catch (error) {
@@ -889,18 +885,48 @@
       }).join('');
     }
 
-    const selected = state.selectedSeat;
-    const selectedRoom = selected ? roomMap[selected.room_id] : null;
-    const actionBar =
-      '<div class="action-bar' + (selected ? '' : ' is-empty') + '">' +
-        '<div>' + (selected
-          ? '<strong>' + esc(selected.id) + '</strong><small><span class="bar-room">' + esc(selectedRoom ? selectedRoom.name : '') + ' · </span>' + fmtDay(filters.date) + ' ' + filters.start + '–' + endTime() + '</small>'
-          : '<strong>选择一个座位</strong><small>' + fmtDay(filters.date) + ' ' + filters.start + '–' + endTime() + '</small>') +
-        '</div>' +
-        '<button class="btn btn-primary" type="button" data-action="book"' + (selected ? '' : ' disabled') + '>预约</button>' +
-      '</div>';
+    return toolbar + body + seatActionBar();
+  }
 
-    return toolbar + body + actionBar;
+  function seatActionBar() {
+    const filters = state.seatFilters;
+    const selected = state.selectedSeat;
+    const room = selected ? (state.meta.rooms || []).find((item) => item.id === selected.room_id) : null;
+    return '<div class="action-bar' + (selected ? '' : ' is-empty') + '">' +
+      '<div>' + (selected
+        ? '<strong>' + esc(selected.id) + '</strong><small><span class="bar-room">' + esc(room ? room.name : '') + ' · </span>' + fmtDay(filters.date) + ' ' + filters.start + '–' + endTime() + '</small>'
+        : '<strong>选择一个座位</strong><small>' + fmtDay(filters.date) + ' ' + filters.start + '–' + endTime() + '</small>') +
+      '</div>' +
+      '<button class="btn btn-primary" type="button" data-action="book"' + (selected ? '' : ' disabled') + '>预约</button>' +
+    '</div>';
+  }
+
+  // 选座只改本地状态：不请求接口、不重建整页，因此不会闪骨架屏。
+  function paintSeatSelection() {
+    const root = $('#view');
+    if (!root) return;
+    const selectedId = state.selectedSeat ? state.selectedSeat.id : null;
+    root.querySelectorAll('.seat').forEach((el) => {
+      el.classList.toggle('selected', el.dataset.id === selectedId);
+    });
+    const bar = root.querySelector('.action-bar');
+    if (bar) {
+      const holder = document.createElement('div');
+      holder.innerHTML = seatActionBar();
+      const next = holder.firstElementChild;
+      if (next) bar.replaceWith(next);
+    }
+  }
+
+  function pulseSeat(seatId) {
+    const root = $('#view');
+    const seat = root && root.querySelector('.seat[data-id="' + seatId + '"]');
+    if (!seat) return;
+    seat.classList.add('is-seating');
+    const ping = document.createElement('span');
+    ping.className = 'seat-ping';
+    ping.addEventListener('animationend', () => ping.remove(), { once: true });
+    seat.appendChild(ping);
   }
 
   function seatCard(seat, options = {}) {
@@ -3330,8 +3356,8 @@
     if (seat.available) {
       const next = state.selectedSeat && state.selectedSeat.id === seatId ? null : seat;
       state.selectedSeat = next;
-      if (next) state.seatPulse = seatId;
-      renderView();
+      paintSeatSelection();
+      if (next) pulseSeat(next.id);
       return;
     }
     // 学生视角：不可预约的座位提示候补
