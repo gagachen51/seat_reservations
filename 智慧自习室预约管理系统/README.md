@@ -74,34 +74,42 @@ python run.py --db var/web.db serve --port 8010 --demo
 cd seat_reservation
 python -m pip install -r requirements.txt
 
-:: 建库并写入演示数据（会输出演示密码）
+:: 建库并写入演示数据（随机演示密码只在本次输出中显示一次）
 python run.py --db var/web.db init-db --demo
 
 :: 启动网页版
 python run.py --db var/web.db serve --port 8010 --demo
 ```
 
-启动后浏览器访问 <http://127.0.0.1:8010/>，登录页会列出四个演示账号，点一下自动填入。
+启动后浏览器访问 <http://127.0.0.1:8010/>，登录页会列出四个演示账号；
+点选只填入账号，密码需手动输入（见下方初始化说明）。
 
 桌面窗口模式（不使用浏览器地址栏），两种方式任选：
 
 ```bat
-:: 方式一：双击这个文件，自动检查依赖并启动
+:: 方式一：双击这个文件，自动检查依赖并启动（正式模式）
 启动.bat
 
+:: 演示数据模式
+启动-演示.bat
+
 :: 方式二：命令行
-python desktop_launcher.py
+python desktop_launcher.py            :: 正式模式：只创建随机密码的系统管理员
+python desktop_launcher.py --demo     :: 演示模式：写入演示数据
 ```
 
 > 直接双击 `desktop_launcher.py` 若报 `No module named 'fastapi'`，是因为系统 Python 还没装依赖，
 > 用 `启动.bat` 或先执行 `python -m pip install -r requirements.txt` 即可。
 
-首次启动会自动建库并写入演示数据（四种角色账号 + 自习室/座位/预约），
-初始密码统一 `Seat-Demo-2026`，**需要手动输入**，账号清单写在程序目录的「初始账号与密码.txt」。
+首次启动时的初始化规则：
 
-演示模式不强制改密，登录后可在右上角「修改密码」。
-命令行路径（`user create` / `user passwd` 不指定 `--password`）会由系统生成随机密码，
-该账号首次登录时前端直接弹出改密弹窗，改完需重新登录。
+- **正式模式（默认）**：库为空时只创建一个系统管理员 `Y0001`，初始密码由系统随机生成，
+  在启动提示窗口中**只显示一次**；首次登录后必须修改密码。不会写入任何明文账号文件。
+- **演示模式**（`--demo` / `SEAT_DEMO_MODE=true`）：写入四种角色账号与演示数据，演示密码同样随机生成、
+  只显示一次；也可在初始化前设置 `SEAT_DEMO_PASSWORD` 预先指定。演示库默认使用
+  `var/seat_demo.db`，与正式库 `var/seat_reservation.db` 分离。
+- 命令行路径（`user create` / `user passwd` 不指定 `--password`）同样由系统生成随机密码，
+  该账号首次登录时前端直接弹出改密弹窗，改完需重新登录。
 
 生产环境不要带 `--demo`：
 
@@ -111,7 +119,7 @@ SEAT_ENV=production SEAT_COOKIE_SECURE=true python run.py serve --host 0.0.0.0 -
 
 ## 5. 演示账号
 
-演示模式下登录页直接列出，点选即填。
+演示模式下登录页列出账号，点选只填入账号；密码为初始化时一次性显示的随机值。
 
 | 角色 | 账号 | 姓名 | 可看内容 |
 |---|---|---|---|
@@ -140,21 +148,33 @@ python run.py --help
 
 ## 7. 配置
 
-全部通过环境变量注入，启动时校验，非法值直接拒绝启动。
+配置读取优先级：**进程环境变量 > `.env` 文件 > 代码默认值**。
+`.env` 从项目根目录读取（可用 `SEAT_ENV_FILE` 指定其他路径），已存在的进程环境变量不会被覆盖；
+`.env` 已被 `.gitignore` 忽略。启动时校验，非法值直接拒绝启动。
+
+`SEAT_ENV` 只接受 `development` / `dev` / `test` / `production` / `prod`（自动去空白、转小写），
+未知值会直接启动失败，不会静默回退为开发环境。
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `SEAT_ENV` | `development` | `production` 时强制要求 HTTPS Cookie |
-| `SEAT_DB_PATH` | `var/seat_reservation.db` | 数据库文件路径 |
+| `SEAT_ENV` | `development` | 未知值启动失败；`production` 强制 Secure Cookie 且禁止 Demo |
+| `SEAT_DB_PATH` | `var/seat_reservation.db` | 数据库文件路径；演示模式未显式指定时用 `var/seat_demo.db` |
 | `SEAT_HOST` / `SEAT_PORT` | `127.0.0.1` / `8010` | 监听地址与端口 |
 | `SEAT_LOG_LEVEL` | `INFO` | 日志级别 |
 | `SEAT_LOG_JSON` | `false` | 结构化日志，便于日志系统采集 |
 | `SEAT_SESSION_IDLE_MINUTES` | `30` | 空闲超时（5～720） |
 | `SEAT_SESSION_ABSOLUTE_HOURS` | `8` | 会话绝对有效期（1～72） |
-| `SEAT_COOKIE_SECURE` | `false` | 生产环境必须为 `true` |
+| `SEAT_COOKIE_SECURE` | `false` | 生产环境必须为 `true`，否则启动失败 |
+| `SEAT_DEMO_MODE` | `false` | 演示模式，仅 `development`/`test` 可用；生产环境开启会启动失败 |
+| `SEAT_DEMO_PASSWORD` | 空 | 演示密码，仅在初始化前可选指定；留空则随机生成并只显示一次 |
+| `SEAT_TRUST_PROXY` | `false` | 仅在可信反向代理后开启（读取 `X-Forwarded-For`） |
+| `SEAT_ENV_FILE` | 项目根 `.env` | 指定 `.env` 路径 |
 | `SEAT_SCHEDULER_ENABLED` | `true` | 是否启用内部定时扫描 |
 | `SEAT_SCHEDULER_INTERVAL_SECONDS` | `60` | 扫描间隔（10～3600） |
 | `SEAT_ACS_TOKEN` | 空 | 闸机令牌，留空则关闭 ACS 端点 |
+
+生产环境额外行为：`/docs` 与 `/openapi.json` 关闭；启动日志只输出脱敏配置摘要
+（不含令牌、密码与数据库完整路径）。
 
 ## 8. 测试
 
@@ -162,7 +182,8 @@ python run.py --help
 python -m pytest -q
 ```
 
-预期：**115 passed, 1 skipped**（未安装 playwright 的口径；装上后为 115 通过 / 3 跳过）。端到端浏览器测试需 `SEAT_E2E=1` 才会执行。
+除需要浏览器驱动的 `tests/test_e2e.py`（设置 `SEAT_E2E=1` 且安装 playwright 后才执行）外，其余用例应全部通过。
+未安装 playwright 时会跳过 1 个端到端用例，属预期行为。
 
 | 测试文件 | 覆盖 |
 |---|---|

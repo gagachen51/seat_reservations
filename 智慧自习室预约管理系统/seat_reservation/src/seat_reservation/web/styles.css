@@ -281,6 +281,7 @@ svg { display: block; }
 .demo-btn:hover { background: #fff; border-color: var(--separator-strong); }
 .demo-btn strong { display: block; font-size: 13.5px; font-weight: 600; }
 .demo-btn small { display: block; color: var(--tertiary); font-size: 11.5px; margin-top: 1px; }
+.demo-hint { margin: 8px 2px 0; color: var(--tertiary); font-size: 11.5px; line-height: 1.5; }
 
 .login-foot {
   text-align: center;

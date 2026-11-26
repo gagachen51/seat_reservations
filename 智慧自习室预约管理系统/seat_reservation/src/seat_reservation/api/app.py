@@ -96,16 +96,23 @@ class RequestMiddleware(BaseHTTPMiddleware):
         return not constant_time_equals(cookie, header)
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, *, context: AppContext | None = None) -> FastAPI:
+    """应用工厂。
+
+    ``context`` 允许调用方（桌面启动器）复用已初始化的上下文，
+    避免同一进程内重复创建数据库连接池与重复执行初始化。
+    """
     settings = settings or Settings.from_env()
+    # 防止调用方用 Settings(...) 绕过 from_env 的校验（生产 Cookie / Demo 互斥等）。
+    settings.validate()
     configure_logging(settings.log_level, settings.log_json)
-    context = AppContext(settings)
+    context = context or AppContext(settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
         context.initialize(demo=settings.demo_mode)
         context.start_background_jobs()
-        logger.info("service started env=%s db=%s", settings.env, settings.db_path)
+        logger.info("service started %s", settings.public_summary())
         try:
             yield
         finally:

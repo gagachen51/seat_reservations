@@ -349,8 +349,9 @@
       if (!Array.isArray(accounts) || !accounts.length) { box.hidden = true; return; }
       box.hidden = false;
       box.innerHTML = '<h3>演示账号</h3><div class="demo-grid">' + accounts.map((account) =>
-        '<button class="demo-btn" type="button" data-demo-user="' + esc(account.username) + '" data-demo-pass="' + esc(account.password) + '">' +
-        '<strong>' + esc(account.name) + '</strong><small>' + esc(ROLE_TEXT[account.role] || account.role) + ' · ' + esc(account.username) + '</small></button>').join('') + '</div>';
+        '<button class="demo-btn" type="button" data-demo-user="' + esc(account.username) + '">' +
+        '<strong>' + esc(account.name) + '</strong><small>' + esc(ROLE_TEXT[account.role] || account.role) + ' · ' + esc(account.username) + '</small></button>').join('') + '</div>' +
+        '<p class="demo-hint">点击选择账号后手动输入演示密码（由部署者在初始化时生成，不通过接口下发）。</p>';
     } catch (error) {
       box.hidden = true;
     }
@@ -3029,8 +3030,8 @@
     const demo = event.target.closest('[data-demo-user]');
     if (demo) {
       $('#username').value = demo.dataset.demoUser;
-      $('#password').value = demo.dataset.demoPass;
-      $('#loginBtn').focus();
+      $('#password').value = '';
+      $('#password').focus();
       return;
     }
     const actionEl = event.target.closest('[data-action]');
