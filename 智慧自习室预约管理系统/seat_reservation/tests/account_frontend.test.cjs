@@ -39,7 +39,7 @@ test('create form sends trimmed fields and requests generated password only when
   h.field('#accountId', ' S9 '); h.field('#accountName', ' 新姓名 ');
   h.field('#accountRole', 'student'); h.field('#accountDepartment', ' 院系 ');
   h.field('#accountClass', ' 班级 '); h.field('#accountPassword', '');
-  await h.a.accountSheet();
+  await h.a.ACTIONS['account-create']();
   assert.match(h.panels[0].body, /院系（选填，可直接输入）/);
   assert.match(h.panels[0].body, /初始密码（留空则使用临时密码 12345678）/);
   assert.match(h.panels[0].body, /例如：计算机科学与技术学院/);
@@ -59,7 +59,7 @@ test('invalid create form never sends a request', async () => {
   const h = harness();
   h.respond(() => { throw new Error('should not call'); });
   h.field('#accountForm', '', false);
-  await h.a.accountSheet();
+  await h.a.ACTIONS['account-create']();
   await h.panels[0].actions[1].onClick();
   assert.ok(!h.calls.some((call) => call.options.method === 'POST'));
 });
@@ -68,7 +68,7 @@ test('status change requires a reason and targets only the selected account', as
   const h = harness();
   h.respond(() => ({}));
   h.field('#accountStatusForm', '', true); h.field('#accountReason', ' 暂停使用 ');
-  h.a.accountStatusSheet({ id: 'S@9', name: '同学', status: 'active' });
+  await h.a.ACTIONS['account-status']({ dataset: { id: 'S@9', name: '同学', status: 'active' } });
   await h.panels[0].actions[1].onClick();
   assert.deepEqual(h.calls[0], { url: '/admin/users/S%409/status',
     options: { method: 'PUT', body: { status: 'disabled', reason: '暂停使用' } } });
@@ -77,7 +77,7 @@ test('status change requires a reason and targets only the selected account', as
 test('password reset calls the correct endpoint and shows the 12345678 temp password', async () => {
   const h = harness();
   h.respond(() => ({ initial_password: '12345678' }));
-  h.a.accountResetSheet({ id: 'S1', name: '同学' });
+  await h.a.ACTIONS['account-reset']({ dataset: { id: 'S1', name: '同学' } });
   assert.match(h.panels[0].body, /重置后临时密码固定为 12345678/);
   await h.panels[0].actions[1].onClick();
   assert.equal(h.calls[0].url, '/admin/users/S1/reset-password');
@@ -301,4 +301,14 @@ test('normal login and session restore still load /meta and enter the app', asyn
   assert.deepEqual(h.calls.map(c => c.url), ['/auth/login', '/meta', '/auth/me', '/meta']);
   assert.equal(entered, 2);
   assert.equal(h.panels.length, 0);
+});
+
+
+test('account device button dispatches a request for the selected user', async () => {
+  const h = harness();
+  h.respond(() => ({ items: [] }));
+  await h.a.ACTIONS['account-sessions']({ dataset: { id: 'S@9', name: '同学' } });
+  assert.equal(h.calls[0].url, '/admin/users/S%409/sessions');
+  assert.equal(h.panels[0].title, '账号登录设备');
+  assert.match(h.panels[0].body, /暂无有效登录设备/);
 });

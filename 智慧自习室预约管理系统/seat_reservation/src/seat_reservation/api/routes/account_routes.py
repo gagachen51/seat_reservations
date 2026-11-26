@@ -1,4 +1,4 @@
-"""A 模块：账号生命周期与个人中心。请求模型局部定义，注册由 B 集成。"""
+"""A 模块：账号生命周期与个人中心，请求模型局部定义，由应用工厂统一注册。"""
 from __future__ import annotations
 
 from datetime import datetime
