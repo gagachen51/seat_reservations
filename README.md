@@ -136,7 +136,7 @@ node --test tests/*.test.cjs
 当前基线：
 
 - `pytest`：**510 passed, 1 skipped**（跳过项为未安装 Playwright 的 `tests/test_e2e.py`，属预期）。
-- 并发用例依赖 SQLite 的 WAL 文件锁；仓库放在 OneDrive 等同步目录、或被安全软件实时扫描时，6 条并发用例可能报 `attempt to write a readonly database`，把测试库移到本地非同步目录后重跑即可。
+- 测试库默认创建在系统临时目录，pytest 退出时自动删除，不会在仓库内累积；需要保留现场时设置 `SEAT_TEST_DB_DIR` 指向自定义目录。
 - Node：**39 passed / 0 failed**。
 - 自检：`python run.py doctor` 输出运行环境、数据库路径与可写性、Schema 版本及账号/预约规模。
 
