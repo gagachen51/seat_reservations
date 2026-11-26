@@ -2808,8 +2808,15 @@ tbody.is-staggered tr {
   50% { opacity: 0.72; }
 }
 
-/* ---------- 页面翻起：默认关闭，开关在 app.js 的 MOTION.pageTurn ---------- */
+/* ---------- 页面翻起：开关在 app.js 的 MOTION.pageTurn ---------- */
+/* 3D 旋转会把内容在视觉上撑宽几像素，导致页面挤出横向滚动条。
+   只在翻页开启时用 clip 收住；它不建立滚动容器，不影响内部 sticky。 */
+body.page-turn { overflow-x: clip; }
+
 #view { transform-origin: top center; }
+
+/* 翻页开启时停用子节点的 view-rise，避免两段透明度动画叠加 */
+body.page-turn .view > * { animation: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .auth-seatmap { transition: none; will-change: auto; }
