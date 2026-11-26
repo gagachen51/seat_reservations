@@ -12,7 +12,7 @@
 | 协作人 | C（预约状态/扫描契约）、A（账号停用）、D（统计/导出）、共享层（审计） |
 | 分支 | `feature/resource-b-remediation`（基于 `integration/v1.2` `483fb78`，已推送到 GitHub） |
 | 基线 commit | `483fb78`（`integration/v1.2` head）。任务书写的 `D:\seat_clean_baseline` 在本机不存在，本地以集成分支为基线 |
-| 整改 commit | 分支 head `874bdd6`（含：`9b11eec` 规则、`7ada8e3` 引擎、`9124251` 仓储、`0bbfe3f` 迁移、`b78cf21` 路由、`9604f8c` 前端、`8650f04` 测试、`4545f75`/`874bdd6` 报告与模板） |
+| 整改 commit | 分支 head 见 GitHub（关键提交：`9b11eec` 规则、`7ada8e3` 引擎、`9124251` 仓储、`0bbfe3f` 迁移、`b78cf21` 路由、`9604f8c` 前端、`8650f04` 测试、`4545f75`/`874bdd6` 报告与模板；§7.1 待定项留档为后续补充提交） |
 | 报告日期 | 2026-11-26 |
 
 ## 2. 问题完成清单
@@ -132,6 +132,42 @@ python -m pytest -q -p no:cacheprovider
 | engine 直调资源变更不级联 | 脚本/CLI 直接调 `engine.update_room/update_seat` 时不会自动取消预约 | 文档要求调用方显式调用 helper（C 已如此） | 若要强制级联，需同步修改 C 的 `C-SEC-023` 契约 |
 | v4 迁移重建 `waitlist`/`complaints` | 大库上需要额外磁盘与时间 | 迁移前备份 `.db` + `-wal`，在维护窗口执行 | 后续可评估“在线重建 + 双写”方案 |
 | 35 个 `tmp_path` 用例在本机报错 | 本机无法给出“全绿”全量记录 | 已记录原因并单列 | 换无沙箱限制的环境复跑（预期 396 passed, 1 skipped） |
+
+### 7.1 三个待定项的当前决策（**保持现状，暂不改动**）
+
+> 本节为便于后续改动而补写：逐项记录“现状 / 决策 / 理由 / 触发改动条件 / 影响范围”。
+> 三项均**未做任何代码或流程变更**，仅在此留档，供负责人复核后决定是否调整。
+
+#### 7.1.1 L-07「房间内座位序号唯一」——**不实现（保持现状）**
+
+| 项 | 内容 |
+|---|---|
+| 现状 | 未新增 `UNIQUE(room_id, seat_number)` 或等价唯一约束；重复编号由 `seats.id` 主键在插入时拒绝（B-SEC-022 覆盖）。迁移 v4 只做 slot 一致性触发器、`waitlist` 时段 CHECK、`complaints` 外键 |
+| 决策 | 保持现状，本期不实现“房间内序号唯一” |
+| 理由 | ① `seats.id` 是全局主键，重复编号本就无法写入；② 既有业务允许**座位跨自习室移动**（`update_seat(room_id=...)`），若按“房间内序号”唯一，把 `R1-001` 移入已有 `R2-001` 的房间会直接撞唯一约束——本次实现期间已用表达式唯一索引实测复现该失败，故回退；③ 现有编号是“房间前缀-序号”的字符串约定，并未单独存列为 `seat_number`，用表达式索引会与移动功能冲突 |
+| 触发改动条件 | 产品/负责人明确「房间内编号必须唯一，且座位不允许跨房间移动（或移动时自动改号）」 |
+| 若改动的影响范围 | `storage/migrations.py`（新增 `seat_number` 列 + 唯一约束，需数据回填）、`domain/engine.py::update_seat`（移动校验/自动改号）、`storage/repository.py::save_seat`、`domain/resource_rules.py`（编号规则纯函数）、测试 `B-SEC-019`/`B-SEC-022` 与座位移动相关用例 |
+
+#### 7.1.2 `cascade_release` 默认 `False`——**保持现状（由路由层显式传 `True`）**
+
+| 项 | 内容 |
+|---|---|
+| 现状 | `engine.update_room` / `engine.update_seat` 新增关键字参数 `cascade_release`，**默认 `False`**；`api/routes/admin_routes.py` 的资源 mutation 传 `cascade_release=True`，级联取消仍发生在引擎内、同一写事务 |
+| 决策 | 保持现状（默认 `False`，路由传 `True`），**不要求 C 修改用例** |
+| 理由 | C 的 `tests/test_security_remediation_c.py::test_c_sec_023_c_b_resource_linkage` 依赖“engine 直调 `update_seat` 不级联、由调用方显式调用 `release_affected_reservations`”；若把默认值改为 `True`，该用例会失败并改变 C 的既有契约。HTTP 入口已保证真实业务路径（`PUT /admin/rooms|seats`）一定级联，且与引擎同处一个 `write_engine` 事务，原子性/回滚/幂等与“默认级联”等价 |
+| 触发改动条件 | C 同意调整 `C-SEC-023`（例如去掉手动 helper 调用、改为断言引擎自动级联）后，可把默认值改为 `True` 并删除路由层的显式传参 |
+| 若改动的影响范围 | `domain/engine.py`（两个方法的默认值）、`api/routes/admin_routes.py`（去掉显式传参）、C 的 `test_security_remediation_c.py`、B 的 `B-SEC-011`/`B-SEC-012`（当前依赖“默认 False + 显式 helper”） |
+
+#### 7.1.3 共享文件 SFCR 登记——**不补登记（保持现状）**
+
+| 项 | 内容 |
+|---|---|
+| 现状 | `engine.py`、`repository.py`、`migrations.py`、`admin_routes.py`、`web/app.js` 按任务书 §2.1“允许 B 直接修改的白名单”由 B 直接修改；未开 SFCR，PR 描述中以第 3 节表格列明“共享文件 + 无 SFCR 的原因” |
+| 决策 | 保持现状，不补 SFCR 登记 |
+| 理由 | 任务书 §2.1 已把这 5 个文件（或其中的具体函数段/代码块）列入 B 的白名单，属于“所有权内直接修改”；SFCR 流程是为**白名单外**的共享文件准备的。第 3 节逐文件标注了“是否共享文件 / SFCR 编号与状态”，可追溯 |
+| 触发改动条件 | 共享层或负责人要求留痕时，按 `SR/docs/collaboration/SFCR-登记表.md` 的模板补一条 `SFCR-B-001`，内容可直接取本报告第 3 节表格 |
+| 若改动的影响范围 | 仅流程与文档（SFCR 登记表 + PR 描述），不涉及代码与迁移 |
+
 
 ## 8. 分支与集成
 
