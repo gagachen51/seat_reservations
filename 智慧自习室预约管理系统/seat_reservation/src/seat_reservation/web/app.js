@@ -417,12 +417,7 @@
       const data = await api('/auth/login', { method: 'POST', body: { username, password } });
       state.csrf = data.csrf_token;
       state.user = data.user;
-      state.meta = await api('/meta');
-      enterApp();
-      // 需求 §7.4：带 must_change_password 标记的账号（CLI 新建 / 重置过密码）登录后必须先改密
-      if (data.user && data.user.must_change_password) {
-        setTimeout(() => changePasswordSheet(true), 150);
-      }
+      await enterAuthenticatedApp(data.user);
     } catch (error) {
       // 登录失败不保留任何可能来自上一次会话的账号上下文。
       state.user = null;
@@ -3030,6 +3025,38 @@
     });
   }
 
+  // 需求 §7.4：首次登录/密码重置后必须先改密。此状态下后端只放行
+  // /auth/me、/auth/change-password、/auth/logout，/meta 会返回 403
+  // PASSWORD_CHANGE_REQUIRED；因此进入应用前先判断标记，避免把 403
+  // 当成登录失败而清空会话，陷入“密码正确却进不去”的死锁。
+  function passwordChangeRequired(user) {
+    return Boolean(user && user.must_change_password);
+  }
+
+  function promptForcedPasswordChange() {
+    $('#app').hidden = true;
+    $('#login').hidden = false;
+    $('#boot').hidden = true;
+    changePasswordSheet(true);
+  }
+
+  async function enterAuthenticatedApp(user) {
+    if (passwordChangeRequired(user)) {
+      promptForcedPasswordChange();
+      return false;
+    }
+    state.meta = await api('/meta');
+    enterApp();
+    return true;
+  }
+
+  async function restoreSession() {
+    const me = await api('/auth/me');
+    state.csrf = me.csrf_token;
+    state.user = me.user;
+    return enterAuthenticatedApp(me.user);
+  }
+
   async function openNotifications() {
     const data = await api('/notifications', { params: { page_size: 30 } });
     const items = data.items || [];
@@ -3141,11 +3168,7 @@
   // ---------------------------------------------------------------------------
   async function boot() {
     try {
-      const me = await api('/auth/me');
-      state.csrf = me.csrf_token;
-      state.user = me.user;
-      state.meta = await api('/meta');
-      enterApp();
+      await restoreSession();
     } catch (error) {
       showLogin();
     } finally {

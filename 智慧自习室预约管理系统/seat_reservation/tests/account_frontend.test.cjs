@@ -34,8 +34,9 @@ function harness() {
     globalThis.account = {
       state, usersView, accountSheet, accountStatusSheet, accountResetSheet,
       sessionSheet, profileSheet, waitlistView, accountConfirmWaitlist, accountCancelWaitlist,
-      showLogin, submitLogin, logout, changePasswordSheet,
-      setApi(fn) { api = fn; }, setPanel(fn) { openSheet = fn; }
+      showLogin, submitLogin, logout, changePasswordSheet, restoreSession,
+      setApi(fn) { api = fn; }, setPanel(fn) { openSheet = fn; },
+      setEnterApp(fn) { enterApp = fn; }
     };
     renderView = () => {}; renderUser = () => {}; refreshBadge = () => {};
     enterApp = () => {};
@@ -46,7 +47,7 @@ function harness() {
   a.setPanel(config => panels.push(config));
   return {
     a, panels, calls, elements,
-    field(id, value, valid = true) { elements[id] = { value, reportValidity: () => valid }; },
+    field(id, value, valid = true) { elements[id] = { value, reportValidity: () => valid, focus() {} }; },
     respond(fn) { a.setApi(async (url, options = {}) => {
       calls.push(JSON.parse(JSON.stringify({ url, options })));
       return fn(url, options);
@@ -236,4 +237,100 @@ test('change-password form never pre-fills a previous password', () => {
   assert.ok(!body.includes('value="'));
   assert.match(body, /id="oldPassword"/);
   assert.match(body, /id="newPassword"/);
+});
+
+test('first login with must_change_password skips /meta and opens forced change sheet', async () => {
+  const h = harness();
+  let entered = 0;
+  h.a.setEnterApp(() => { entered += 1; });
+  h.respond(url => {
+    if (url === '/auth/login') {
+      return { csrf_token: 'csrf-1', user: { id: 'Y0001', name: '管理员', role: 'sys_admin', must_change_password: true } };
+    }
+    throw new Error('unexpected request ' + url);
+  });
+  h.field('#username', 'Y0001');
+  h.field('#password', 'Init-Pass-123');
+  await h.a.submitLogin({ preventDefault() {} });
+  // /meta 在强制改密期间会被后端 403，必须完全跳过，否则 catch 会清空登录态。
+  assert.deepEqual(h.calls.map(c => c.url), ['/auth/login']);
+  assert.equal(h.a.state.user.id, 'Y0001');
+  assert.equal(h.a.state.csrf, 'csrf-1');
+  assert.equal(h.a.state.meta, null);
+  assert.equal(entered, 0);
+  assert.equal(h.panels.length, 1);
+  assert.match(h.panels[0].title, /首次登录需修改密码/);
+  assert.equal(h.elements['#loginError'].hidden, true);
+  assert.equal(h.elements['#password'].value, '');
+  assert.ok(!JSON.stringify(h.a.state).includes('Init-Pass-123'));
+});
+
+test('forced password change completes and returns to login with new-password hint', async () => {
+  const h = harness();
+  h.respond(url => {
+    if (url === '/auth/login') {
+      return { csrf_token: 'csrf-1', user: { id: 'Y0001', name: '管理员', role: 'sys_admin', must_change_password: true } };
+    }
+    if (url === '/auth/change-password') return null;
+    return {};
+  });
+  h.field('#username', 'Y0001');
+  h.field('#password', 'Init-Pass-123');
+  await h.a.submitLogin({ preventDefault() {} });
+  h.field('#oldPassword', 'Init-Pass-123');
+  h.field('#newPassword', 'Changed-Pass-123');
+  await h.panels[0].actions[0].onClick();
+  assert.deepEqual(h.calls[1], {
+    url: '/auth/change-password',
+    options: { method: 'POST', body: { old_password: 'Init-Pass-123', new_password: 'Changed-Pass-123' } },
+  });
+  // 改密成功后回到登录页，提示用新密码重新登录，客户端不保留密码。
+  assert.equal(h.a.state.user, null);
+  assert.match(h.elements['#loginError'].textContent, /密码已修改，请重新登录/);
+  assert.ok(!JSON.stringify(h.a.state).includes('Changed-Pass-123'));
+});
+
+test('session restore with must_change_password keeps session and opens forced sheet without /meta', async () => {
+  const h = harness();
+  let entered = 0;
+  h.a.setEnterApp(() => { entered += 1; });
+  h.respond(url => {
+    if (url === '/auth/me') {
+      return { csrf_token: 'csrf-2', user: { id: 'Y0001', name: '管理员', role: 'sys_admin', must_change_password: true } };
+    }
+    throw new Error('unexpected request ' + url);
+  });
+  await h.a.restoreSession();
+  assert.deepEqual(h.calls.map(c => c.url), ['/auth/me']);
+  assert.equal(h.a.state.user.id, 'Y0001');
+  assert.equal(h.a.state.csrf, 'csrf-2');
+  assert.equal(h.a.state.meta, null);
+  assert.equal(entered, 0);
+  assert.equal(h.panels.length, 1);
+  assert.match(h.panels[0].title, /首次登录需修改密码/);
+});
+
+test('normal login and session restore still load /meta and enter the app', async () => {
+  const h = harness();
+  let entered = 0;
+  h.a.setEnterApp(() => { entered += 1; });
+  h.respond(url => {
+    if (url === '/auth/login') {
+      return { csrf_token: 'csrf-3', user: { id: 'S9', name: '学生', role: 'student', must_change_password: false } };
+    }
+    if (url === '/auth/me') {
+      return { csrf_token: 'csrf-4', user: { id: 'S9', name: '学生', role: 'student', must_change_password: false } };
+    }
+    return { server_time: '2026-11-26 12:00:00' };
+  });
+  h.field('#username', 'S9');
+  h.field('#password', 'Normal-Pass-123');
+  await h.a.submitLogin({ preventDefault() {} });
+  assert.deepEqual(h.calls.map(c => c.url), ['/auth/login', '/meta']);
+  assert.equal(entered, 1);
+  assert.equal(h.panels.length, 0);
+  await h.a.restoreSession();
+  assert.deepEqual(h.calls.map(c => c.url), ['/auth/login', '/meta', '/auth/me', '/meta']);
+  assert.equal(entered, 2);
+  assert.equal(h.panels.length, 0);
 });
