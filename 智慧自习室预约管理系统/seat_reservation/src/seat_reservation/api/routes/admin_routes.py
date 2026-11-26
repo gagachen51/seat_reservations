@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, Response
 
 from ...domain.engine import DomainEngine
-from ...domain.models import Actor, Role
+from ...domain.models import Actor, Page, Role
 from ...errors import AppError, Forbidden
 from ...service.container import AppContext
 from ..deps import (
@@ -348,9 +348,22 @@ def list_users(
     actor: Actor = Depends(get_actor),
     engine: DomainEngine = Depends(read_engine),
 ) -> JSONResponse:
-    return render_page(
-        engine.list_users(actor, role=role, keyword=keyword, page=page, page_size=page_size)
+    result = engine.list_users(
+        actor, role=role, keyword=keyword, page=page, page_size=page_size
     )
+    if actor.role == Role.ROOM_ADMIN:
+        # L-01：room_admin 只返回学生账号的管理必需字段，不暴露密码/会话/
+        # 强制改密等账号安全状态；完整账号管理仍由 sys_admin 使用。
+        visible = (
+            "id", "name", "role", "role_label",
+            "department", "class_name", "status",
+        )
+        items = [
+            {key: value for key, value in item.as_dict().items() if key in visible}
+            for item in result.items
+        ]
+        result = Page(items, result.total, result.page, result.page_size)
+    return render_page(result)
 
 
 @router.put("/admin/users/{user_id}/role", summary="调整账号角色")

@@ -9,11 +9,24 @@ function harness() {
   const source = fs.readFileSync(path.join(__dirname, '../src/seat_reservation/web/app.js'), 'utf8');
   const end = source.indexOf('  // 事件绑定');
   assert.ok(end > 0);
-  const elements = {};
+  const elements = {
+    '#app': { hidden: false },
+    '#login': { hidden: true },
+    '#boot': { hidden: false },
+    '#loginBtn': { disabled: false, textContent: '登录' },
+    '#loginError': { hidden: true, textContent: '' },
+    '#username': { value: '', focus() {} },
+    '#password': { value: '', focus() {} },
+    '#demoBox': { hidden: true, innerHTML: '' },
+  };
   const panels = [];
   const calls = [];
   const context = vm.createContext({
-    document: { querySelector: (selector) => elements[selector] },
+    document: {
+      querySelector: (selector) => elements[selector],
+      querySelectorAll: () => [],
+      body: { dataset: {} },
+    },
     setTimeout: (fn) => fn(), clearTimeout() {}, setInterval() {}, clearInterval() {},
     console, URL, Date,
   });
@@ -21,16 +34,18 @@ function harness() {
     globalThis.account = {
       state, usersView, accountSheet, accountStatusSheet, accountResetSheet,
       sessionSheet, profileSheet, waitlistView, accountConfirmWaitlist, accountCancelWaitlist,
+      showLogin, submitLogin, logout, changePasswordSheet,
       setApi(fn) { api = fn; }, setPanel(fn) { openSheet = fn; }
     };
     renderView = () => {}; renderUser = () => {}; refreshBadge = () => {};
+    enterApp = () => {};
     toast = () => {}; closeSheet = () => { state.sheet = null; };
   })();`, context);
   const a = context.account;
   a.state.user = { id: 'Y1', name: '管理员', role: 'sys_admin', department: '计算机' };
   a.setPanel(config => panels.push(config));
   return {
-    a, panels, calls,
+    a, panels, calls, elements,
     field(id, value, valid = true) { elements[id] = { value, reportValidity: () => valid }; },
     respond(fn) { a.setApi(async (url, options = {}) => {
       calls.push(JSON.parse(JSON.stringify({ url, options })));
@@ -167,4 +182,58 @@ test('waitlist cancellation uses C endpoint only after confirmation', async () =
   assert.equal(h.calls.length, 0);
   await h.panels[0].actions[1].onClick();
   assert.deepEqual(h.calls[0], { url: '/waitlist/Q%401/cancel', options: { method: 'POST', body: {} } });
+});
+
+test('login success clears password input and never stores password in client state', async () => {
+  const h = harness();
+  h.respond(url => url === '/auth/login'
+    ? { csrf_token: 'csrf-1', user: { id: 'S9', name: '学生', role: 'student' } }
+    : {});
+  h.field('#username', 'S9');
+  h.field('#password', 'Secret-Login-123');
+  await h.a.submitLogin({ preventDefault() {} });
+  assert.equal(h.a.state.user.id, 'S9');
+  assert.equal(h.elements['#password'].value, '');
+  assert.ok(!('lastLoginPassword' in h.a.state));
+  assert.ok(!JSON.stringify(h.a.state).includes('Secret-Login-123'));
+});
+
+test('login failure clears password input and stale account context', async () => {
+  const h = harness();
+  h.respond(() => { throw new Error('账号或密码不正确'); });
+  h.field('#username', 'S9');
+  h.field('#password', 'Wrong-Password-123');
+  await h.a.submitLogin({ preventDefault() {} });
+  assert.equal(h.elements['#password'].value, '');
+  assert.equal(h.a.state.user, null);
+  assert.equal(h.a.state.meta, null);
+  assert.equal(h.a.state.csrf, null);
+  assert.ok(!JSON.stringify(h.a.state).includes('Wrong-Password-123'));
+});
+
+test('logout/showLogin clears password, view and cached account data', async () => {
+  const h = harness();
+  h.respond(() => ({}));
+  h.elements['#password'].value = 'Previous-Password-123';
+  h.a.state.view = 'users';
+  h.a.state.page = 3;
+  h.a.state.seatCache = [{ id: 'R1-001' }];
+  h.a.state.roomsAdmin = [{ id: 'R1' }];
+  await h.a.logout();
+  assert.equal(h.elements['#password'].value, '');
+  assert.equal(h.a.state.user, null);
+  assert.equal(h.a.state.view, null);
+  assert.equal(h.a.state.page, 1);
+  assert.equal(h.a.state.seatCache.length, 0);
+  assert.equal(h.a.state.roomsAdmin.length, 0);
+  assert.ok(!('lastLoginPassword' in h.a.state));
+});
+
+test('change-password form never pre-fills a previous password', () => {
+  const h = harness();
+  h.a.changePasswordSheet(true);
+  const body = h.panels[0].body;
+  assert.ok(!body.includes('value="'));
+  assert.match(body, /id="oldPassword"/);
+  assert.match(body, /id="newPassword"/);
 });

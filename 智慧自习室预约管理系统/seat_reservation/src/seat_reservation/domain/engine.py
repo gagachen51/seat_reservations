@@ -3306,6 +3306,13 @@ class DomainEngine:
         page_size: int = 20,
     ) -> Page:
         self._require(actor, {Role.ROOM_ADMIN, Role.SYS_ADMIN}, "PR-18")
+        if actor.role == Role.ROOM_ADMIN:
+            requested = role.strip() if role else None
+            if requested and requested != Role.STUDENT.value:
+                raise Forbidden(
+                    "自习室管理员只能查询学生账号", rule="PR-18"
+                )
+            role = Role.STUDENT.value
         return self.repo.list_users(
             role=role, class_name=class_name, keyword=keyword, page=page, page_size=page_size
         )

@@ -102,7 +102,6 @@
     sheetTimer: null,
     refreshTimer: null,
     lastSnapshot: null,
-    lastLoginPassword: '',
   };
 
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -357,9 +356,36 @@
     }
   }
 
+  function clearLoginSecrets() {
+    const loginPassword = $('#password');
+    if (loginPassword) loginPassword.value = '';
+    if (typeof document.querySelectorAll === 'function') {
+      document.querySelectorAll('input[type="password"]').forEach((input) => {
+        input.value = '';
+      });
+    }
+  }
+
+  function resetClientState() {
+    state.user = null;
+    state.meta = null;
+    state.csrf = null;
+    state.sheet = null;
+    state.view = null;
+    state.page = 1;
+    state.selectedSeat = null;
+    state.seatCache = [];
+    state.roomsAdmin = [];
+    state.seatsAdmin = [];
+    state.seatBlocks = [];
+    state.lastSnapshot = null;
+  }
+
   function showLogin(message) {
     clearInterval(state.refreshTimer);
-    state.user = null; state.meta = null; state.csrf = null; state.sheet = null;
+    state.refreshTimer = null;
+    resetClientState();
+    clearLoginSecrets();
     $('#app').hidden = true;
     $('#login').hidden = false;
     $('#boot').hidden = true;
@@ -377,7 +403,8 @@
     const button = $('#loginBtn');
     const errorBox = $('#loginError');
     const username = $('#username').value.trim();
-    const password = $('#password').value;
+    const passwordField = $('#password');
+    const password = passwordField.value;
     if (!username || !password) {
       errorBox.hidden = false;
       errorBox.textContent = '请输入账号与密码';
@@ -390,8 +417,6 @@
       const data = await api('/auth/login', { method: 'POST', body: { username, password } });
       state.csrf = data.csrf_token;
       state.user = data.user;
-      // 记在内存里，改密码时预填原密码；登出即清空，不落盘
-      state.lastLoginPassword = password;
       state.meta = await api('/meta');
       enterApp();
       // 需求 §7.4：带 must_change_password 标记的账号（CLI 新建 / 重置过密码）登录后必须先改密
@@ -399,16 +424,21 @@
         setTimeout(() => changePasswordSheet(true), 150);
       }
     } catch (error) {
+      // 登录失败不保留任何可能来自上一次会话的账号上下文。
+      state.user = null;
+      state.meta = null;
+      state.csrf = null;
       errorBox.hidden = false;
       errorBox.textContent = error.message || '登录失败';
     } finally {
+      // 密码只在本次请求的局部变量中存在；请求结束立即清空 DOM。
+      if (passwordField) passwordField.value = '';
       button.disabled = false;
       button.textContent = '登录';
     }
   }
 
   async function logout() {
-    state.lastLoginPassword = '';
     try { await api('/auth/logout', { method: 'POST' }); } catch (error) { /* 会话已失效 */ }
     closeSheet();
     showLogin();
@@ -2386,7 +2416,6 @@
         { label: '取消', kind: 'secondary', onClick: closeSheet },
         { label: '确认重置', kind: 'danger', onClick: async () => {
           const data = await api('/admin/users/' + encodeURIComponent(config.id) + '/reset-password', { method: 'POST', body: {} });
-          if (config.id === state.user.id) state.lastLoginPassword = '';
           initialPasswordSheet(config.id, data.initial_password);
         } },
       ],
@@ -2971,21 +3000,16 @@
   }
 
   function changePasswordSheet(forced) {
-    // 原密码框预填本次登录用的密码：初始密码是系统生成的，
-    // 用户多半没记住，让他手输只会卡在这一步。
-    const known = state.lastLoginPassword || '';
     let hint = '';
     if (forced) {
       hint = '<p class="tiny tertiary" style="margin-bottom:12px">该账号要求首次登录修改密码，完成后需要用新密码重新登录。</p>';
-    } else if (known) {
-      hint = '<p class="tiny tertiary" style="margin-bottom:12px">已将本次登录的密码填入下方，直接设置新密码即可。</p>';
     }
 
     openSheet({
       title: forced ? '首次登录需修改密码' : '修改密码',
       body:
         hint +
-        '<label class="field"><span>原密码</span><input id="oldPassword" type="password" value="' + esc(known) + '" autocomplete="current-password"></label>' +
+        '<label class="field"><span>原密码</span><input id="oldPassword" type="password" autocomplete="current-password"></label>' +
         '<label class="field"><span>新密码（至少 8 位）</span><input id="newPassword" type="password" autocomplete="new-password"></label>' +
         '<p class="tiny tertiary">修改成功后所有设备都需要重新登录。</p>',
       actions: [
@@ -2998,7 +3022,6 @@
                 new_password: $('#newPassword').value,
               },
             });
-            state.lastLoginPassword = '';
             closeSheet();
             showLogin('密码已修改，请重新登录');
             toast('密码已修改');
