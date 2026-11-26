@@ -5,7 +5,7 @@
 * 生产 Cookie Secure、Demo 互斥、Docs/OpenAPI 关闭；
 * .env 加载与“进程环境优先”的优先级；
 * 配置日志摘要不含秘密与完整数据库路径；
-* 桌面启动器的环境设置不回归。
+* 服务启动时的环境设置不回归。
 """
 
 from __future__ import annotations
@@ -273,8 +273,3 @@ def test_startup_log_contains_no_secrets(tmp_path: Path) -> None:
     assert "ACS-TOPSECRET-TOKEN" not in text
     assert str(db_path) not in text
     assert "seat.db" in text
-
-
-# ---------------------------------------------------------------------------
-# 桌面启动器环境设置
-# ---------------------------------------------------------------------------

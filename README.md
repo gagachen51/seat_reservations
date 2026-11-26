@@ -1,6 +1,6 @@
-# 智慧自习室预约管理系统（网页版）
+# 智慧自习室预约管理系统
 
-本项目通过浏览器使用。主机运行一个 FastAPI/Uvicorn 服务，SQLite 保存在主机本地；其他设备通过局域网地址或 ngrok 的 HTTPS 地址访问同一服务。已取消桌面窗口、安装包和演示账号界面。
+本项目通过浏览器使用。主机运行一个 FastAPI/Uvicorn 服务，SQLite 保存在主机本地；其他设备通过局域网地址或 ngrok 的 HTTPS 地址访问同一服务。
 
 ## 启动
 
@@ -28,13 +28,13 @@ python -m venv .venv
 
 ## 多人使用
 
-不同账号可同时登录。预约和座位状态来自同一个后端数据库；两人抢同一座位同一时段，只能有一份预约成功。其他用户刷新或重新查询后看到座位不可用，目前不提供实时推送。客户端不能直接读写 SQLite 文件。
+不同账号可同时登录。预约和座位状态来自同一个后端数据库；两人抢同一座位同一时段，只能有一份预约成功。其他用户刷新或重新查询后看到座位不可用，目前不提供实时推送。浏览器不能直接读写 SQLite 文件。
 
 ## 验证
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
-node --test tests/account_frontend.test.cjs tests/web_ui.test.cjs tests/system_ui.test.cjs
+node --test tests/*.test.cjs
 ```
 
-历史课程评审与发布记录保留供追溯，其中桌面安装、演示账号和旧密码策略已由本说明替代。
+历史课程评审与发布记录保留供追溯，账号与密码策略以本说明为准。

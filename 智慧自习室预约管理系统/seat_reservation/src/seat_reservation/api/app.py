@@ -106,7 +106,7 @@ class RequestMiddleware(BaseHTTPMiddleware):
 def create_app(settings: Settings | None = None, *, context: AppContext | None = None) -> FastAPI:
     """应用工厂。
 
-    ``context`` 允许调用方（桌面启动器）复用已初始化的上下文，
+    ``context`` 允许调用方（测试或集成入口）复用已初始化的上下文，
     避免同一进程内重复创建数据库连接池与重复执行初始化。
     """
     settings = settings or Settings.from_env()

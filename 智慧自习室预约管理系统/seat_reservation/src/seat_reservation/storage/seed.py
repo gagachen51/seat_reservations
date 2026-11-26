@@ -52,7 +52,7 @@ from .repository import SqliteRepository
 def resolve_demo_password(explicit: str | None = None) -> str:
     """演示密码的解析顺序：调用方显式值 → ``SEAT_DEMO_PASSWORD`` → 随机生成。
 
-    返回值只能交给初始化渠道（命令行输出 / 桌面首次启动提示）展示一次，
+    返回值只能交给初始化渠道（命令行输出 / 首次启动提示）展示一次，
     不得写入日志、源码或长期明文文件，也不得通过 HTTP 接口返回。
     """
     if explicit:

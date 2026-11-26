@@ -1,10 +1,9 @@
-"""桌面端全流程走查发现的 7 项缺陷：后端接口与桌面桥接测试。
+"""网页端全流程走查发现的 7 项缺陷：后端接口回归测试。
 
 覆盖：
 * 自习室物理启用座位数 total_seats（分母）；
 * USER_TIME_CONFLICT / SEAT_OCCUPIED / SEAT_DISABLED / SEAT_UNAVAILABLE 区分；
-* 演示数据初始化保留现有系统管理员密码与个人状态；
-* 桌面版 pywebview 原生另存为桥接。
+* 演示数据初始化保留现有系统管理员密码与个人状态。
 """
 
 from __future__ import annotations

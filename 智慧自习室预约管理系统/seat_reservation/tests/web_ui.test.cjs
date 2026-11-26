@@ -1,4 +1,4 @@
-// 桌面端 7 项交互/逻辑缺陷的 Node 视图测试（无第三方依赖）。
+// 网页端 7 项交互/逻辑缺陷的 Node 视图测试（无第三方依赖）。
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { harness } = require('./support/frontend_harness.cjs');

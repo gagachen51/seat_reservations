@@ -87,7 +87,7 @@ class AppContext:
     def demo_data_loaded(self) -> bool:
         """当前库是否已写入标准演示数据。
 
-        不依赖 ``SEAT_DEMO_MODE``：桌面版默认以正式模式启动，用户可在「系统」
+        不依赖 ``SEAT_DEMO_MODE``：服务默认以正式模式启动，管理员可在「系统」
         页面一键初始化演示数据，此后 ``settings.demo_mode`` 仍为 False。
         """
         placeholders = ",".join("?" for _ in DEMO_USER_IDS)

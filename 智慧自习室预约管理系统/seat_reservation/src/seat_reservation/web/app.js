@@ -2789,7 +2789,6 @@
     // response.text() 可能吃掉 BOM；Excel 打开中文 CSV 需要 UTF-8 BOM。
     if (!content.startsWith('\ufeff')) content = '\ufeff' + content;
     const filename = exportFilename(kind);
-    // 网页版：标准 Blob 下载。
     const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -3382,58 +3381,5 @@
     }
   }
 
-  // 桌面壳：自绘标题栏（仅 ?shell=1 时启用，浏览器访问不受影响）
-  function initTitlebar() {
-    if (new URLSearchParams(location.search).get('shell') !== '1') return;
-    document.body.classList.add('shell');
-
-    const call = (method) => {
-      const api = window.pywebview && window.pywebview.api;
-      if (api && typeof api[method] === 'function') api[method]();
-    };
-
-    // 拖动标题栏：按下时让外壳记住窗口起点，移动时按鼠标位移平移窗口。
-    // 早期版本直接调 SendMessage(WM_NCLBUTTONDOWN)，跨线程下会静默失效。
-    const drag = $('#titlebarDrag');
-    if (drag) {
-      drag.addEventListener('mousedown', (event) => {
-        if (event.button !== 0) return;
-        const api = window.pywebview && window.pywebview.api;
-        if (!api || typeof api.drag_move !== 'function') return;
-
-        const startX = event.screenX;
-        const startY = event.screenY;
-        let last = 0;
-        api.begin_drag();
-
-        const onMove = (ev) => {
-          const now = performance.now();
-          if (now - last < 16) return;
-          last = now;
-          api.drag_move(ev.screenX - startX, ev.screenY - startY);
-        };
-        const onUp = () => {
-          document.removeEventListener('mousemove', onMove);
-          document.removeEventListener('mouseup', onUp);
-        };
-        document.addEventListener('mousemove', onMove);
-        document.addEventListener('mouseup', onUp);
-      });
-    }
-
-    const bar = $('#titlebar');
-    if (bar) bar.addEventListener('dblclick', () => call('toggle_max'));
-
-    document.querySelectorAll('[data-win]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const action = button.dataset.win;
-        if (action === 'min') call('minimize');
-        else if (action === 'max') call('toggle_max');
-        else call('close_window');
-      });
-    });
-  }
-
-  initTitlebar();
   boot();
 })();
