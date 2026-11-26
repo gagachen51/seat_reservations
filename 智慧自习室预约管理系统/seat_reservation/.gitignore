@@ -19,3 +19,7 @@ var/
 *.log
 .DS_Store
 Thumbs.db
+
+# 首次初始化一次性管理员凭据（含明文随机密码，运行期生成，绝不入库）
+initial_admin_credentials.txt
+data/

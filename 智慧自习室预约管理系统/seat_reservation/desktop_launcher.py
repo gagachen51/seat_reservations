@@ -113,7 +113,8 @@ def create_accounts(ctx, *, demo: bool) -> tuple[str | None, bool]:
     * 非 Demo：只创建一个系统管理员，密码随机生成，标记首次登录必须改密。
     * Demo：写入完整演示数据，密码同样随机（可用 ``SEAT_DEMO_PASSWORD`` 指定）。
 
-    两种模式都不会写入明文账号文件；密码只在首次启动时通过窗口提示展示一次。
+    正式模式首次初始化会在数据库同级数据目录写入一次性凭据文件；
+    Demo 模式不写文件，密码只在首次启动时通过窗口提示展示一次。
     已有数据的库不会被改动（``seed_if_empty`` / ``bootstrap_admin`` 都是幂等的）。
     """
     from seat_reservation.storage.seed import resolve_demo_password, seed_if_empty
@@ -126,8 +127,10 @@ def create_accounts(ctx, *, demo: bool) -> tuple[str | None, bool]:
     return (created_password, created_password is not None)
 
 
-def show_initial_credentials(password: str | None, *, demo: bool) -> None:
-    """首次初始化后一次性展示凭据（不落盘、不写日志）。"""
+def show_initial_credentials(
+    password: str | None, *, demo: bool, credentials_path: Path | None = None
+) -> None:
+    """首次初始化后展示凭据；正式模式同时提示本地凭据文件路径。"""
     if not password:
         return
     if demo:
@@ -141,11 +144,19 @@ def show_initial_credentials(password: str | None, *, demo: bool) -> None:
             "可设置环境变量 SEAT_DEMO_PASSWORD 后重建演示库。"
         )
     else:
+        location = (
+            "凭据文件已保存到：\n"
+            f"{credentials_path}\n\n"
+            "可直接打开该文件复制密码；首次改密成功后系统会自动删除该文件。\n\n"
+            if credentials_path
+            else ""
+        )
         body = (
             "已完成首次初始化。\n\n"
             "系统管理员账号：Y0001\n"
             f"初始密码：{password}\n\n"
-            "首次登录后必须先修改密码。该密码只显示这一次，请立即记录。"
+            f"{location}"
+            "首次登录后必须先修改密码。请妥善保管，勿提交到版本库或发送给无关人员。"
         )
     try:
         ctypes.windll.user32.MessageBoxW(None, body, APP_TITLE, 0x40)
@@ -432,7 +443,14 @@ def main() -> int:
         if not service.wait_ready():
             raise RuntimeError("服务启动超时，请查看日志")
         if created:
-            show_initial_credentials(password, demo=settings.demo_mode)
+            credentials_path = None
+            if not settings.demo_mode:
+                from seat_reservation.storage.seed import initial_admin_credentials_path
+
+                credentials_path = initial_admin_credentials_path(context.db)
+            show_initial_credentials(
+                password, demo=settings.demo_mode, credentials_path=credentials_path
+            )
         run_window(f"http://127.0.0.1:{port}", service)
         return 0
     except Exception as exc:  # noqa: BLE001 - 顶层兜底

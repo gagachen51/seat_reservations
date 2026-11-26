@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 from datetime import date, datetime, time, timedelta
+from pathlib import Path
 
 from ..domain.models import (
     AuditLog,
@@ -494,11 +495,63 @@ def seed_if_empty(db: Database, now: datetime, *, password: str | None = None) -
     return True
 
 
+INITIAL_CREDENTIALS_FILENAME = "initial_admin_credentials.txt"
+BOOTSTRAP_ADMIN_ID = "Y0001"
+
+
+def initial_admin_credentials_path(db: Database) -> Path:
+    """一次性初始凭据文件：与数据库同级的运行期数据目录，绝不进入 Git。"""
+    return db.path.parent / INITIAL_CREDENTIALS_FILENAME
+
+
+def write_initial_admin_credentials(
+    db: Database, *, user_id: str, name: str, password: str, created_at: datetime
+) -> Path:
+    """把首次初始化的管理员凭据写入本地数据目录，便于部署者复制随机密码。
+
+    文件包含明文密码，属于一次性运行期凭据：首次改密成功后由
+    ``AuthService.change_password`` 自动删除，调用方不得写入仓库或日志。
+    """
+    target = initial_admin_credentials_path(db)
+    body = "\n".join(
+        [
+            "智慧自习室预约管理系统 · 初始管理员凭据",
+            "=" * 40,
+            "",
+            f"账号 ID：{user_id}",
+            f"姓名：{name}",
+            f"初始密码：{password}",
+            f"生成时间：{created_at.strftime('%Y-%m-%d %H:%M:%S')}",
+            "",
+            "安全提示：",
+            "1. 首次登录后系统将强制要求修改密码。",
+            "2. 改密完成后请删除此文件以防凭据残留（系统会自动删除）。",
+            "3. 请勿将本文件提交到版本库或发送给无关人员。",
+            "",
+        ]
+    )
+    target.write_text(body, encoding="utf-8")
+    try:
+        os.chmod(target, 0o600)
+    except OSError:  # pragma: no cover - Windows 对权限位支持有限
+        pass
+    return target
+
+
+def remove_initial_admin_credentials(db: Database) -> bool:
+    """删除一次性初始凭据文件；文件不存在时返回 False。"""
+    try:
+        initial_admin_credentials_path(db).unlink()
+        return True
+    except FileNotFoundError:
+        return False
+
+
 def bootstrap_admin(
     db: Database,
     now: datetime,
     *,
-    user_id: str = "Y0001",
+    user_id: str = BOOTSTRAP_ADMIN_ID,
     name: str = "系统管理员",
     department: str = "信息化中心",
     password: str | None = None,
@@ -506,7 +559,10 @@ def bootstrap_admin(
     """正式库首次初始化：创建一个随机密码的系统管理员。
 
     * 只在 ``users`` 为空时执行；重复调用是幂等的（返回 ``None``）。
-    * 密码随机生成（或调用方显式传入），不在源码/日志/文件中留痕。
+    * 密码随机生成（或调用方显式传入），不在源码/日志中留痕。
+    * 首次创建时在数据库同级的运行期数据目录写入一次性凭据文件
+      （``initial_admin_credentials.txt``，已被 ``.gitignore`` 排除），
+      首次改密成功后自动删除。
     * ``must_change_password=True``：首次登录后必须先修改密码。
     * 建号、默认参数与审计记录在**同一个写事务**中，失败不会留下半初始化数据。
 
@@ -556,5 +612,12 @@ def bootstrap_admin(
                 created_at=now,
             )
         )
+    try:
+        write_initial_admin_credentials(
+            db, user_id=user_id, name=name, password=password, created_at=now
+        )
+    except OSError:
+        # 凭据文件写失败不阻断初始化：密码仍由启动器弹窗/命令行展示一次。
+        pass
     return password
 
