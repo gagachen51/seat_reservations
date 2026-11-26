@@ -2583,3 +2583,194 @@ table.data tbody tr:hover { background: #fbf7ee; }
 table.data th:last-child,
 table.data td:last-child { text-align: right; }
 table.data td:last-child .btn + .btn { margin-left: 6px; }
+
+/* ==========================================================================
+   动效层 v1 · 书签 / 落座 / 印章 / 数据出现 / 触感
+   只驱动 transform、opacity、clip-path，不逐帧改布局属性。
+   ========================================================================== */
+
+:root {
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-stamp: cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+
+/* ---------- 书签滑条 ---------- */
+@media (min-width: 861px) {
+  .nav { position: relative; }
+
+  .nav-indicator {
+    position: absolute;
+    left: 1px;
+    top: 0;
+    width: 3px;
+    height: 18px;
+    border-radius: 0 2px 2px 0;
+    background: #c8a15a;
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      transform 260ms var(--ease-out),
+      opacity 180ms linear;
+  }
+
+  .nav-indicator.is-on { opacity: 1; }
+}
+
+/* ---------- 落座 ---------- */
+.seat.is-seating {
+  animation: seat-settle 340ms var(--ease-spring);
+}
+
+@keyframes seat-settle {
+  0% { transform: scale(1); }
+  38% { transform: scale(1.055); }
+  72% { transform: scale(0.988); }
+  100% { transform: scale(1); }
+}
+
+/* 独立元素，不占用 .seat.selected::after（那是右上角的勾选徽标） */
+.seat-ping {
+  position: absolute;
+  inset: -1px;
+  border: 2px solid #c8a15a;
+  border-radius: inherit;
+  pointer-events: none;
+  animation: seat-ring 560ms var(--ease-out) forwards;
+}
+
+@keyframes seat-ring {
+  0% { opacity: 0; transform: scale(0.97); }
+  16% { opacity: 0.92; transform: scale(1.01); }
+  52% { opacity: 0.55; transform: scale(1.13); }
+  100% { opacity: 0; transform: scale(1.27); }
+}
+
+/* ---------- 印章 ---------- */
+.stamp {
+  position: fixed;
+  left: 50%;
+  top: 36%;
+  z-index: 200;
+  width: 132px;
+  height: 132px;
+  margin: -66px 0 0 -66px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  border: 2px solid #b07a2a;
+  border-radius: 50%;
+  background: rgba(246, 242, 234, 0.9);
+  box-shadow: inset 0 0 0 6px rgba(176, 122, 42, 0.16);
+  color: #8f611f;
+  pointer-events: none;
+}
+
+.stamp::before {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border: 1px solid rgba(176, 122, 42, 0.5);
+  border-radius: 50%;
+}
+
+.stamp strong {
+  display: block;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+.stamp small {
+  display: block;
+  margin-top: 5px;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  color: #b07a2a;
+}
+
+/* ---------- 数据出现 ---------- */
+.kpi { position: relative; overflow: hidden; }
+
+.kpi.is-fresh {
+  animation: kpi-rise 420ms var(--ease-out) both;
+}
+
+@keyframes kpi-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.kpi.is-fresh::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(200, 161, 90, 0.95), rgba(200, 161, 90, 0));
+  transform-origin: left center;
+  animation: kpi-sweep 620ms var(--ease-out) both;
+}
+
+@keyframes kpi-sweep {
+  from { transform: scaleX(0); opacity: 1; }
+  to { transform: scaleX(1); opacity: 0.55; }
+}
+
+/* ---------- 按钮墨点 ---------- */
+.btn {
+  position: relative;
+  overflow: hidden;
+  transition:
+    background 0.16s var(--ease-out),
+    border-color 0.16s var(--ease-out),
+    color 0.16s var(--ease-out),
+    transform 0.32s var(--ease-spring),
+    box-shadow 0.2s var(--ease-out);
+}
+
+.btn > .ink {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(200, 161, 90, 0.3);
+  transform: scale(0);
+  opacity: 0.9;
+  pointer-events: none;
+  animation: ink-spread 460ms var(--ease-out) forwards;
+}
+
+.btn-primary > .ink { background: rgba(232, 200, 140, 0.34); }
+.btn-danger > .ink { background: rgba(169, 68, 56, 0.24); }
+
+@keyframes ink-spread {
+  to { transform: scale(1); opacity: 0; }
+}
+
+/* ---------- 提示条 ---------- */
+.toast.show { animation: toast-in 320ms var(--ease-spring); }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, -14px) scale(0.96); }
+  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+
+.toast.error.show {
+  animation:
+    toast-in 320ms var(--ease-spring),
+    toast-shake 300ms 260ms ease-in-out;
+}
+
+@keyframes toast-shake {
+  0%, 100% { transform: translate(-50%, 0); }
+  22% { transform: translate(calc(-50% - 4px), 0); }
+  55% { transform: translate(calc(-50% + 4px), 0); }
+  80% { transform: translate(calc(-50% - 2px), 0); }
+}
+
+/* ---------- 移动端减半 ---------- */
+@media (max-width: 860px) {
+  .stamp { width: 108px; height: 108px; margin: -54px 0 0 -54px; }
+  .stamp strong { font-size: 17px; }
+  .kpi.is-fresh { animation-duration: 260ms; }
+}

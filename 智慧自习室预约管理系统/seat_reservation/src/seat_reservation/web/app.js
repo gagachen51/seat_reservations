@@ -270,6 +270,131 @@
     toastTimer = setTimeout(() => el.classList.remove('show'), options.duration || 3400);
   }
 
+  // ---------- 动效：书签 / 落座 / 印章 / 数据出现 / 墨点 ----------
+
+  const reduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  let stampCount = 0;
+
+  function stamp(label, detail) {
+    if (reduceMotion()) return;
+    const previous = document.querySelector('.stamp');
+    if (previous) previous.remove();
+    stampCount += 1;
+    // 首次是"仪式感"，之后同一次会话内自动收一档，避免重复操作被打断。
+    const quiet = stampCount > 1;
+    const scale = quiet ? 0.74 : 1;
+    const el = document.createElement('div');
+    el.className = 'stamp';
+    el.setAttribute('aria-hidden', 'true');
+    el.innerHTML = '<span><strong>' + esc(label) + '</strong>' +
+      (detail ? '<small>' + esc(detail) + '</small>' : '') + '</span>';
+    document.body.appendChild(el);
+    const anim = el.animate([
+      { transform: 'scale(' + (2.35 * scale) + ') rotate(-16deg)', opacity: 0 },
+      { transform: 'scale(' + (0.93 * scale) + ') rotate(-8deg)', opacity: 0.98, offset: 0.26 },
+      { transform: 'scale(' + (1.05 * scale) + ') rotate(-8deg)', opacity: 1, offset: 0.38 },
+      { transform: 'scale(' + scale + ') rotate(-8deg)', opacity: 1, offset: 0.5 },
+      { transform: 'scale(' + scale + ') rotate(-8deg)', opacity: 1, offset: 0.84 },
+      { transform: 'scale(' + (scale * 1.03) + ') rotate(-8deg)', opacity: 0 },
+    ], { duration: quiet ? 1300 : 1980, easing: 'ease-out', fill: 'forwards' });
+    anim.onfinish = () => el.remove();
+  }
+
+  function inkRipple(button, event) {
+    if (reduceMotion()) return;
+    const rect = button.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const size = Math.max(rect.width, rect.height) * 1.7;
+    const ink = document.createElement('span');
+    ink.className = 'ink';
+    ink.style.width = size + 'px';
+    ink.style.height = size + 'px';
+    ink.style.left = (event.clientX - rect.left - size / 2) + 'px';
+    ink.style.top = (event.clientY - rect.top - size / 2) + 'px';
+    button.appendChild(ink);
+    ink.addEventListener('animationend', () => ink.remove(), { once: true });
+  }
+
+  function syncNavIndicator() {
+    const nav = $('#nav');
+    if (!nav) return;
+    const active = nav.querySelector('.nav-item.active');
+    let marker = nav.querySelector('.nav-indicator');
+    if (!active || window.matchMedia('(max-width: 860px)').matches) {
+      if (marker) marker.classList.remove('is-on');
+      return;
+    }
+    if (!marker) {
+      marker = document.createElement('span');
+      marker.className = 'nav-indicator';
+      nav.appendChild(marker);
+    }
+    // 首次定位直接落位，之后换页才有滑动过程。
+    if (!marker.dataset.ready) {
+      marker.style.transition = 'none';
+      requestAnimationFrame(() => {
+        marker.style.transition = '';
+        marker.dataset.ready = '1';
+      });
+    }
+    marker.style.transform = 'translateY(' + (active.offsetTop + active.offsetHeight / 2 - 9) + 'px)';
+    marker.classList.add('is-on');
+  }
+
+  function animateView(root) {
+    if (!root) return;
+    if (state.seatPulse) {
+      const pulsed = root.querySelector('.seat[data-id="' + state.seatPulse + '"]');
+      if (pulsed) {
+        pulsed.classList.add('is-seating');
+        const ping = document.createElement('span');
+        ping.className = 'seat-ping';
+        ping.addEventListener('animationend', () => ping.remove(), { once: true });
+        pulsed.appendChild(ping);
+      }
+      state.seatPulse = null;
+    }
+    if (reduceMotion()) return;
+
+    root.querySelectorAll('.kpi-value').forEach((el, index) => {
+      const node = el.firstChild;
+      if (!node || node.nodeType !== 3) return;
+      const raw = node.nodeValue.trim();
+      const target = Number(raw);
+      if (raw === '' || !Number.isFinite(target)) return;
+      const decimals = (raw.split('.')[1] || '').length;
+      const card = el.closest('.kpi');
+      if (card) {
+        card.classList.add('is-fresh');
+        card.style.animationDelay = (index * 55) + 'ms';
+      }
+      // 先归零再起跑，避免首帧闪一下终值。
+      node.nodeValue = (0).toFixed(decimals);
+      const start = performance.now();
+      const tick = (now) => {
+        const progress = Math.min(1, (now - start) / 460);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        node.nodeValue = (target * eased).toFixed(decimals);
+        if (progress < 1) requestAnimationFrame(tick);
+        else node.nodeValue = raw;
+      };
+      requestAnimationFrame(tick);
+    });
+
+    root.querySelectorAll('.bar-fill').forEach((el, index) => {
+      el.animate([
+        { clipPath: 'inset(0 100% 0 0)' },
+        { clipPath: 'inset(0 0 0 0)' },
+      ], {
+        duration: 560,
+        delay: Math.min(620, 90 + index * 45),
+        easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+        fill: 'backwards',
+      });
+    });
+  }
+
   function handleError(error) {
     if (error && error.code === 'UNAUTHENTICATED') return;
     console.error(error);
@@ -527,6 +652,7 @@
       group.items.map(([id, label, iconName]) =>
         '<button class="nav-item' + (state.view === id ? ' active' : '') + '" type="button" data-action="nav" data-view="' + id + '">' +
         icon(iconName) + '<span>' + esc(label) + '</span></button>').join('') + '</div>').join('');
+    syncNavIndicator();
     // 移动端导航项多于屏宽时可横向滑动，把当前项滚到可见区域居中。
     const scrollable = nav.scrollWidth > nav.clientWidth + 2;
     nav.classList.toggle('is-scrollable', scrollable);
@@ -565,6 +691,7 @@
       const html = await VIEWS[view]();
       if (state.view !== view) return;
       root.innerHTML = html;
+      animateView(root);
       if (AFTER[view]) AFTER[view]();
     } catch (error) {
       if (state.view !== view) return;
@@ -819,6 +946,7 @@
     const credential = await api('/reservations/' + encodeURIComponent(id) + '/credential', { method: 'POST' });
     await api('/reservations/' + encodeURIComponent(id) + '/check-in', { method: 'POST', body: { code: credential.code } });
     closeSheet();
+    stamp('已签到', '请对号入座');
     toast('签到成功');
     refreshBadge();
     renderView();
@@ -3140,7 +3268,9 @@
       return;
     }
     if (seat.available) {
-      state.selectedSeat = state.selectedSeat && state.selectedSeat.id === seatId ? null : seat;
+      const next = state.selectedSeat && state.selectedSeat.id === seatId ? null : seat;
+      state.selectedSeat = next;
+      if (next) state.seatPulse = seatId;
       renderView();
       return;
     }
@@ -3184,6 +3314,7 @@
     const body = { seat_id: seat.id, date: filters.date, start: filters.start, end: endTime() };
     try {
       await api('/reservations', { method: 'POST', body });
+      stamp('已预约', seat.id + ' · ' + filters.start);
       toast('预约成功，请在开始前 15 分钟内签到');
       state.selectedSeat = null;
       go('reservations');
@@ -3339,6 +3470,18 @@
     } catch (error) {
       handleError(error);
     }
+  });
+
+  document.addEventListener('pointerdown', (event) => {
+    const button = event.target.closest('.btn');
+    if (!button || button.disabled) return;
+    inkRipple(button, event);
+  }, { passive: true });
+
+  let navResizeTimer = 0;
+  window.addEventListener('resize', () => {
+    clearTimeout(navResizeTimer);
+    navResizeTimer = setTimeout(syncNavIndicator, 140);
   });
 
   document.addEventListener('change', (event) => {
