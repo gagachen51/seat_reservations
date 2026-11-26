@@ -35,6 +35,14 @@ def verify_password(password: str, encoded: str) -> bool:
         return False
 
 
+def generate_initial_password(length: int = 16) -> str:
+    """生成随机初始密码（首次初始化、CLI 建号）。
+
+    只在初始化渠道展示一次，不写入源码、仓库或长期明文文件。
+    """
+    return secrets.token_urlsafe(max(8, length))
+
+
 def new_session_token() -> str:
     return secrets.token_urlsafe(32)
 

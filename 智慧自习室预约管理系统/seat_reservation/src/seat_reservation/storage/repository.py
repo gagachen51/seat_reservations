@@ -218,6 +218,16 @@ class SqliteRepository:
         row = self.conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
         return self._user(row) if row else None
 
+    def get_user_by_login(self, normalised_id: str) -> User | None:
+        """按“登录标识”查询：调用方已完成 strip/casefold/NFKC 规范化。
+
+        仅用于认证入口，避免改变 ``get_user`` 对内部 ID 的精确匹配语义。
+        """
+        row = self.conn.execute(
+            "SELECT * FROM users WHERE id = ? COLLATE NOCASE LIMIT 1", (normalised_id,)
+        ).fetchone()
+        return self._user(row) if row else None
+
     def save_user(self, user: User) -> None:
         now = fmt_datetime(user.updated_at or datetime.now())
         self.conn.execute(

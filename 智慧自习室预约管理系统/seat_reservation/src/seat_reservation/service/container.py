@@ -12,7 +12,7 @@ from ..domain.params import ParamSet
 from ..logging_setup import get_logger
 from ..storage.database import Database
 from ..storage.repository import SqliteRepository
-from ..storage.seed import seed_demo, seed_if_empty
+from ..storage.seed import bootstrap_admin, seed_demo, seed_if_empty
 from .auth import AuthService
 from .scheduler import Scheduler
 
@@ -30,15 +30,19 @@ class AppContext:
             self.scheduler = Scheduler(self, settings.scheduler_interval_seconds)
 
     # ------------------------------------------------------------------
-    def initialize(self, *, demo: bool = False) -> None:
+    def initialize(self, *, demo: bool = False, demo_password: str | None = None) -> None:
         applied = self.db.migrate()
         self.db.ensure_writable()
         if applied:
             logger.info("database migrated: %s", applied)
         if demo:
-            created = seed_if_empty(self.db, datetime.now())
+            created = seed_if_empty(self.db, datetime.now(), password=demo_password)
             if created:
                 logger.info("demo data seeded")
+
+    def bootstrap_admin(self, password: str | None = None) -> str | None:
+        """正式库首次初始化管理员；返回一次性初始密码（仅创建时）。"""
+        return bootstrap_admin(self.db, datetime.now(), password=password)
 
     @contextmanager
     def engine(self, *, write: bool = True) -> Iterator[DomainEngine]:
@@ -50,8 +54,8 @@ class AppContext:
         with self.db.read() as conn:
             return SqliteRepository(conn).load_params()
 
-    def seed_demo(self, now: datetime | None = None) -> dict[str, int]:
-        return seed_demo(self.db, now or datetime.now())
+    def seed_demo(self, now: datetime | None = None, *, password: str | None = None) -> dict[str, int]:
+        return seed_demo(self.db, now or datetime.now(), password=password)
 
     def start_background_jobs(self) -> None:
         if self.scheduler is not None:
