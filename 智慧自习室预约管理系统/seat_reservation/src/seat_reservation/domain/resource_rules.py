@@ -31,8 +31,18 @@ from .models import (
     Seat,
     SeatAdminStatus,
     SeatBlock,
+    Violation,
 )
-from .rules import implements
+from .rules import implements, seat_state_from_reservation
+
+#: 资源不可用导致取消预约时的统一 ``end_reason``（M-04 契约；与 engine 中的常量一致）
+RESOURCE_UNAVAILABLE_REASON = "resource_unavailable"
+
+#: 会把座位判为不可用的资源目标状态（房间关闭 / 座位停用 / 座位维护）
+RESOURCE_UNAVAILABLE_TARGETS = frozenset({"closed", "disabled", "maintenance"})
+
+#: 现场巡检违约（M-05）在判重时视为“仍然有效”的状态
+ACTIVE_VIOLATION_STATUSES = frozenset({"active", "appealing"})
 
 #: 座位管理状态取值（与 ``seats.admin_status`` 的 CHECK 约束一致）
 SEAT_ADMIN_STATUSES: tuple[str, ...] = (
@@ -172,3 +182,81 @@ def duplicate_ids(ids: Sequence[str]) -> list[str]:
             repeated.append(seat_id)
         seen.add(seat_id)
     return repeated
+
+
+# ---------------------------------------------------------------------------
+# 资源状态变更 → 预约处理策略（M-04）
+# ---------------------------------------------------------------------------
+@implements("BR-09", "FR-21", "PR-05")
+def should_cancel_for_resource(
+    reservation_status: str, target_status: str
+) -> str | None:
+    """资源变更为不可用时，该预约是否需要取消（M-04 纯策略）。
+
+    返回应写入的 ``end_reason``；``None`` 表示不动（已完成/已取消/已违约等）。
+
+    * 目标状态必须是 ``closed`` / ``disabled`` / ``maintenance`` 之一；
+    * 只有仍占用座位的 ``pending`` / ``in_use`` / ``away`` 需要处理；
+    * 取消原因统一为 ``resource_unavailable``，不产生 ``no_show``、不扣信用。
+    """
+    if target_status not in RESOURCE_UNAVAILABLE_TARGETS:
+        return None
+    if reservation_status in OCCUPYING_STATUSES:
+        return RESOURCE_UNAVAILABLE_REASON
+    return None
+
+
+@implements("SM-02", "FR-24", "L-08")
+def derived_seat_state(
+    room_status: str,
+    admin_status: str,
+    *,
+    blocked: bool = False,
+    reservation_status: str | None = None,
+) -> str:
+    """按房间/座位/封禁/占用派生某时段的座位展示状态（L-08）。
+
+    顺序即优先级：房间关闭 → 座位停用 → 维护/封禁 → 预约占用 → 空闲。
+    **房间关闭时绝不返回 ``available``**，避免学生看到可预约的假象。
+    """
+    if room_status != "open":
+        return SeatAdminStatus.DISABLED.value
+    if admin_status == SeatAdminStatus.DISABLED.value:
+        return SeatAdminStatus.DISABLED.value
+    if admin_status == SeatAdminStatus.MAINTENANCE.value or blocked:
+        return SeatAdminStatus.MAINTENANCE.value
+    if reservation_status:
+        return seat_state_from_reservation(reservation_status).value
+    return "available"
+
+
+@implements("PR-01", "L-08")
+def can_expose_holder(role: str) -> bool:
+    """是否允许向前端暴露“座位当前持有人”的预约 ID（L-08 最小化）。
+
+    学生只能看到自己的预约（走 ``/api/reservations``），座位视图里的
+    ``holder_reservation_id`` 一律不下发；管理员现场处置需要该字段。
+    """
+    return role in {"room_admin", "sys_admin"}
+
+
+# ---------------------------------------------------------------------------
+# 现场违约幂等（M-05）
+# ---------------------------------------------------------------------------
+@implements("BR-18", "PR-17")
+def is_duplicate_manual_violation(
+    violations: Iterable[Violation],
+    reservation_id: str,
+    violation_type: str = "manual_inspection",
+) -> bool:
+    """同一预约是否已存在仍生效的同类违约记录（M-05 判重）。
+
+    ``active`` / ``appealing`` 视为生效；``revoked`` 表示已撤销，允许重新登记。
+    """
+    return any(
+        item.reservation_id == reservation_id
+        and item.violation_type == violation_type
+        and item.status in ACTIVE_VIOLATION_STATUSES
+        for item in violations
+    )
+
