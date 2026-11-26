@@ -312,13 +312,130 @@ _V2 = (
 )
 
 
+# v4：B 模块资源/预约约束迁移（``RESOURCE_MIGRATION_VERSION = 4``；v3 保留给共享层审计）
+#
+# 目标（L-07）：
+#   1) ``reservation_slots`` 的 seat_id/user_id 必须与父预约一致（触发器兜底，SQLite 无法 ALTER ADD 组合外键）
+#   2) ``waitlist`` 的时段范围限制为 0..47 / 1..48 且 end_slot > start_slot（重建表加 CHECK）
+#   3) ``complaints`` 的 seat_id/reservation_id 改为可空外键（重建表）
+#   4) ``seats`` 房间内座位序号唯一（表达式唯一索引，序号取 id 中最后一个 '-' 之后的部分）
+#
+# 兼容策略：先清理历史不合规数据（不改预约业务语义、不删除预约），再建约束；
+# 重复执行安全（IF NOT EXISTS / 重建前先清理）。
+_V4 = (
+    # ---- 1. reservation_slots 与父预约一致性 ----
+    """
+    CREATE TRIGGER IF NOT EXISTS trg_slots_parent_insert
+    BEFORE INSERT ON reservation_slots
+    FOR EACH ROW
+    WHEN NOT EXISTS (
+        SELECT 1 FROM reservations r
+        WHERE r.id = NEW.reservation_id
+          AND r.seat_id = NEW.seat_id
+          AND r.user_id = NEW.user_id
+    )
+    BEGIN
+        SELECT RAISE(ABORT, 'reservation_slots 与预约记录的 seat_id/user_id 不一致');
+    END
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS trg_slots_parent_update
+    BEFORE UPDATE ON reservation_slots
+    FOR EACH ROW
+    WHEN NOT EXISTS (
+        SELECT 1 FROM reservations r
+        WHERE r.id = NEW.reservation_id
+          AND r.seat_id = NEW.seat_id
+          AND r.user_id = NEW.user_id
+    )
+    BEGIN
+        SELECT RAISE(ABORT, 'reservation_slots 与预约记录的 seat_id/user_id 不一致');
+    END
+    """,
+    # ---- 2. waitlist 时段范围（先清理，再重建加 CHECK）----
+    "UPDATE waitlist SET start_slot = MIN(MAX(start_slot, 0), 47) WHERE start_slot < 0 OR start_slot > 47",
+    "UPDATE waitlist SET end_slot = MIN(MAX(end_slot, 1), 48) WHERE end_slot < 1 OR end_slot > 48",
+    "UPDATE waitlist SET end_slot = start_slot + 1 WHERE end_slot <= start_slot AND start_slot < 47",
+    "UPDATE waitlist SET start_slot = 47, end_slot = 48 WHERE end_slot <= start_slot AND start_slot >= 47",
+    """
+    CREATE TABLE waitlist_v4 (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        seat_id TEXT NOT NULL REFERENCES seats(id) ON DELETE CASCADE,
+        date TEXT NOT NULL,
+        start_slot INTEGER NOT NULL CHECK (start_slot BETWEEN 0 AND 47),
+        end_slot INTEGER NOT NULL CHECK (end_slot BETWEEN 1 AND 48),
+        status TEXT NOT NULL
+            CHECK (status IN ('queued','notified','confirmed','expired','cancelled')),
+        seq INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        notified_at TEXT,
+        confirm_deadline TEXT,
+        defer_count INTEGER NOT NULL DEFAULT 0,
+        CHECK (end_slot > start_slot)
+    )
+    """,
+    """
+    INSERT INTO waitlist_v4(
+        id, user_id, seat_id, date, start_slot, end_slot, status, seq,
+        created_at, notified_at, confirm_deadline, defer_count
+    )
+    SELECT id, user_id, seat_id, date, start_slot, end_slot, status, seq,
+           created_at, notified_at, confirm_deadline, defer_count
+    FROM waitlist
+    """,
+    "DROP TABLE waitlist",
+    "ALTER TABLE waitlist_v4 RENAME TO waitlist",
+    "CREATE INDEX IF NOT EXISTS ix_waitlist_slot ON waitlist(seat_id, date, start_slot, end_slot, status)",
+    "CREATE INDEX IF NOT EXISTS ix_waitlist_user ON waitlist(user_id)",
+    # ---- 3. complaints 的 seat/reservation 可空外键（先清理孤儿，再重建）----
+    "UPDATE complaints SET seat_id = NULL WHERE seat_id IS NOT NULL AND seat_id NOT IN (SELECT id FROM seats)",
+    "UPDATE complaints SET reservation_id = NULL WHERE reservation_id IS NOT NULL AND reservation_id NOT IN (SELECT id FROM reservations)",
+    """
+    CREATE TABLE complaints_v4 (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        seat_id TEXT REFERENCES seats(id) ON DELETE SET NULL,
+        reservation_id TEXT REFERENCES reservations(id) ON DELETE SET NULL,
+        type TEXT NOT NULL CHECK (type IN ('occupied_seat','noise','facility','misjudged')),
+        content TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','resolved','rated')),
+        feedback TEXT,
+        resolved_by TEXT,
+        resolved_at TEXT,
+        rating INTEGER CHECK (rating IS NULL OR rating BETWEEN 1 AND 5),
+        rating_comment TEXT,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    INSERT INTO complaints_v4(
+        id, user_id, seat_id, reservation_id, type, content, status,
+        feedback, resolved_by, resolved_at, rating, rating_comment, created_at
+    )
+    SELECT id, user_id, seat_id, reservation_id, type, content, status,
+           feedback, resolved_by, resolved_at, rating, rating_comment, created_at
+    FROM complaints
+    """,
+    "DROP TABLE complaints",
+    "ALTER TABLE complaints_v4 RENAME TO complaints",
+    "CREATE INDEX IF NOT EXISTS ix_complaints_status ON complaints(status, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_complaints_user ON complaints(user_id)",
+    # ---- 4. 座位编号重复：由 seats.id 主键保证（无需额外约束）----
+    # 说明：`seats.id` 已是全局主键，重复编号在插入时即被拒绝；
+    # “房间内序号唯一”与既有业务“座位可跨自习室移动（update_seat）”冲突
+    # （移动后同房间可能出现两个同序号座位），故本期不新增该约束，见整改报告 L-07。
+)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial_schema", _V1),
     Migration(2, "seat_block_lifecycle", _V2),
+    Migration(4, "resource_constraints", _V4),
 )
 
 # 公共底座预留版本号（只增不减，后续迁移直接使用，不得复用）。
 # v3：共享层审计表/审计字段扩展；v4：B 模块资源/预约约束迁移。
-LATEST_MIGRATION_VERSION = 2
+LATEST_MIGRATION_VERSION = 4
 AUDIT_MIGRATION_VERSION = 3
 RESOURCE_MIGRATION_VERSION = 4

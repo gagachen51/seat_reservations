@@ -1518,7 +1518,7 @@
       (isToday && start !== fromMinutes(Math.floor(toMinutes(nowHHMM()) / 30) * 30) ? '（非当前时段）' : '') +
       '。点击座位可查看占用详情、登记违约或强制释放；点击空闲座位可封禁。</div></div>';
 
-    const legend = '<div class="legend" style="margin:0 2px 12px"><span><i style="background:#34C759"></i>空闲</span><span><i style="background:#FF9500"></i>已预约</span><span><i style="background:#007AFF"></i>使用中</span><span><i style="background:#C77D00"></i>暂离</span><span><i style="background:#8E8E93"></i>维护</span></div>';
+    const legend = '<div class="legend" style="margin:0 2px 12px"><span><i style="background:#34C759"></i>空闲</span><span><i style="background:#FF9500"></i>已预约</span><span><i style="background:#007AFF"></i>使用中</span><span><i style="background:#C77D00"></i>暂离</span><span><i style="background:#8E8E93"></i>维护</span><span><i style="background:#B0B0B5"></i>停用</span></div>';
 
     const board = groups.map(({ room, seats: roomSeats }) =>
       '<section class="seat-room"><div class="seat-room-head"><div><h3>' + esc(room.name) + '</h3><p>' + esc(room.location || '') + '</p></div>' +
@@ -2677,11 +2677,13 @@
               status: $('#roomStatus').value,
             };
             try {
-              if (editing) await api('/admin/rooms/' + encodeURIComponent(room.id), { method: 'PUT', body: payload });
+              let updated = null;
+              if (editing) updated = await api('/admin/rooms/' + encodeURIComponent(room.id), { method: 'PUT', body: payload });
               else await api('/admin/rooms', { method: 'POST', body: { id: $('#roomId').value.trim(), ...payload } });
               state.meta = await api('/meta');
               closeSheet();
-              toast(editing ? '自习室已更新' : '自习室已创建');
+              const released = (updated && updated.released_reservations) || [];
+              toast((editing ? '自习室已更新' : '自习室已创建') + (released.length ? '，已取消 ' + released.length + ' 条受影响预约' : ''));
               renderView();
             } catch (error) { handleError(error); }
           } },
@@ -2722,15 +2724,17 @@
               note: $('#seatNote').value.trim(),
             };
             try {
+              let updated = null;
               if (editing) {
                 payload.admin_status = $('#seatStatus').value;
-                await api('/admin/seats/' + encodeURIComponent(seat.id), { method: 'PUT', body: payload });
+                updated = await api('/admin/seats/' + encodeURIComponent(seat.id), { method: 'PUT', body: payload });
               } else {
                 await api('/admin/seats', { method: 'POST', body: { id: $('#seatId').value.trim(), ...payload } });
               }
               state.meta = await api('/meta');
               closeSheet();
-              toast(editing ? '座位已更新' : '座位已创建');
+              const released = (updated && updated.released_reservations) || [];
+              toast((editing ? '座位已更新' : '座位已创建') + (released.length ? '，已取消 ' + released.length + ' 条受影响预约' : ''));
               renderView();
             } catch (error) { handleError(error); }
           } },
