@@ -2,7 +2,7 @@
 
 > 需求基线：《需求规格说明书》v1.2（2026-10-15）
 > 实现形态：FastAPI + SQLite + 原生前端；桌面窗口与安装包共用同一套业务代码
-> 规模：9,300 行 Python，62 个接口，17 张业务表（另有 1 张迁移记录表），测试 115 通过 / 1 跳过
+> 规模：9,300 行 Python，62 个接口，17 张业务表（另有 1 张迁移记录表），测试 485 通过 / 1 跳过（另有 Node 前端测试 32 通过）
 
 ## 1. 交付物
 
@@ -14,22 +14,31 @@
 | **系统说明** | [`系统说明.md`](系统说明.md) |
 | **完整项目文件** | [`seat_reservation/`](seat_reservation/) |
 
-项目可直接运行，也可直接安装：
+项目可直接安装，也可从源码运行：
+
+```bat
+:: 推荐：双击本目录的 setup.exe 安装桌面版，安装完成后双击桌面「自习室预约」
+:: 首次启动自动创建系统管理员 Y0001，随机初始密码在启动提示中只显示一次
+```
+
+从源码运行（开发/验收）：
 
 ```bat
 cd seat_reservation
 python -m pip install -r requirements.txt
-python run.py --db var/web.db init-db --demo
-python run.py --db var/web.db serve --port 8010 --demo
+python run.py --db var/web.db serve --port 8010
 ```
 
-浏览器打开 <http://127.0.0.1:8010/>。已打包的安装包在 `seat_reservation/dist/setup.exe`。
+浏览器打开 <http://127.0.0.1:8010/>。安装包为 `智慧自习室预约管理系统/setup.exe`（唯一发布产物）。
+演示数据不再需要命令行参数：用系统管理员登录后进入「系统」页，点击「初始化演示数据」并二次确认即可。
 
 ## 2. 目录说明
 
 ```text
-熟悉业务系统/
+智慧自习室预约管理系统/
 ├── README.md            本文件：提交入口与运行步骤
+├── setup.exe            ★ 唯一发布产物：桌面版安装包
+├── 初始账号说明.txt      账号说明（不含任何明文密码）
 ├── 环境清单.md            操作系统、依赖版本、命令、存储位置、限制
 ├── 系统说明.md            架构、状态机、规则映射、验收覆盖
 └── seat_reservation/    ★ 完整可运行项目
@@ -49,13 +58,10 @@ python run.py --db var/web.db serve --port 8010 --demo
     ├── docs/技术文档.md          部署、备份恢复、安全、验收
     ├── scripts/                 运维脚本（在线备份）
     ├── assets/                  应用图标
-    ├── dist/                    ★ 打包产物
-    │   ├── setup.exe            安装包（32MB，双击安装）
-    │   └── 自习室预约/           绿色版（38MB，解压即用）
     └── var/                     运行期数据，自动创建，可随时删除
 ```
 
-`src/seat_reservation/` 两层同名是 Python 的 src 布局：测试运行时导入的是安装后的包，避免「本地能跑、换机器就崩」。`dist/自习室预约/_internal/` 是打包工具的产物结构，不要改动。
+`src/seat_reservation/` 两层同名是 Python 的 src 布局：测试运行时导入的是安装后的包，避免「本地能跑、换机器就崩」。
 
 ## 3. 环境要求
 
@@ -71,55 +77,34 @@ python run.py --db var/web.db serve --port 8010 --demo
 ## 4. 快速开始
 
 ```bat
+:: 推荐：安装桌面版
+setup.exe   :: 用户级安装，无需管理员权限；安装完成后双击桌面「自习室预约」
+```
+
+首次启动自动创建系统管理员 `Y0001`，随机初始密码在启动提示中**只显示一次**，
+并写入数据目录的 `initial_admin_credentials.txt`；首次登录必须改密，改密成功后该文件自动删除。
+
+演示数据已融入桌面版：登录后进入「系统」页，点击「初始化演示数据」并二次确认。
+系统会写入 3 个自习室、24 个座位与四个角色账号，统一演示密码只在成功提示中显示一次；
+初始化会清空业务数据（审计日志保留），并使当前会话失效。
+
+从源码运行（开发/验收）：
+
+```bat
 cd seat_reservation
 python -m pip install -r requirements.txt
-
-:: 建库并写入演示数据（随机演示密码只在本次输出中显示一次）
-python run.py --db var/web.db init-db --demo
-
-:: 启动网页版
-python run.py --db var/web.db serve --port 8010 --demo
+python run.py --db var/web.db serve --port 8010
 ```
 
-启动后浏览器访问 <http://127.0.0.1:8010/>，登录页会列出四个演示账号；
-点选只填入账号，密码需手动输入（见下方初始化说明）。
+浏览器访问 <http://127.0.0.1:8010/>。直接双击 `desktop_launcher.py` 若报缺少依赖，
+用 `启动.bat` 或先执行 `python -m pip install -r requirements.txt`。
 
-桌面窗口模式（不使用浏览器地址栏），两种方式任选：
-
-```bat
-:: 方式一：双击这个文件，自动检查依赖并启动（正式模式）
-启动.bat
-
-:: 演示数据模式
-启动-演示.bat
-
-:: 方式二：命令行
-python desktop_launcher.py            :: 正式模式：只创建随机密码的系统管理员
-python desktop_launcher.py --demo     :: 演示模式：写入演示数据
-```
-
-> 直接双击 `desktop_launcher.py` 若报 `No module named 'fastapi'`，是因为系统 Python 还没装依赖，
-> 用 `启动.bat` 或先执行 `python -m pip install -r requirements.txt` 即可。
-
-首次启动时的初始化规则：
-
-- **正式模式（默认）**：库为空时只创建一个系统管理员 `Y0001`，初始密码由系统随机生成，
-  在启动提示窗口中**只显示一次**；首次登录后必须修改密码。不会写入任何明文账号文件。
-- **演示模式**（`--demo` / `SEAT_DEMO_MODE=true`）：写入四种角色账号与演示数据，演示密码同样随机生成、
-  只显示一次；也可在初始化前设置 `SEAT_DEMO_PASSWORD` 预先指定。演示库默认使用
-  `var/seat_demo.db`，与正式库 `var/seat_reservation.db` 分离。
-- 命令行路径（`user create` / `user passwd` 不指定 `--password`）同样由系统生成随机密码，
-  该账号首次登录时前端直接弹出改密弹窗，改完需重新登录。
-
-生产环境不要带 `--demo`：
-
-```bat
-SEAT_ENV=production SEAT_COOKIE_SECURE=true python run.py serve --host 0.0.0.0 --port 8010
-```
+> `--demo` / `SEAT_DEMO_MODE=true` 仅保留给自动化测试与命令行验收；日常使用不再需要。
 
 ## 5. 演示账号
 
-演示模式下登录页列出账号，点选只填入账号；密码为初始化时一次性显示的随机值。
+在「系统」页初始化演示数据后，登录页会列出四个账号，点选只填入账号；
+密码为初始化成功提示中**一次性显示**的统一演示密码。
 
 | 角色 | 账号 | 姓名 | 可看内容 |
 |---|---|---|---|
@@ -185,6 +170,14 @@ python -m pytest -q
 除需要浏览器驱动的 `tests/test_e2e.py`（设置 `SEAT_E2E=1` 且安装 playwright 后才执行）外，其余用例应全部通过。
 未安装 playwright 时会跳过 1 个端到端用例，属预期行为。
 
+当前结果：`485 passed, 1 skipped`。前端视图测试不依赖第三方包：
+
+```bat
+node --test tests/account_frontend.test.cjs tests/system_demo_ui.test.cjs
+```
+
+结果：`32 pass / 0 fail`。
+
 | 测试文件 | 覆盖 |
 |---|---|
 | `test_acceptance.py` | AC 验收标准逐条覆盖 |
@@ -198,6 +191,7 @@ python -m pytest -q
 | `test_resource_api.py` | 自习室/座位接口、PR-05 权限、审计 IP |
 | `test_jobs.py` | 调度器、超时扫描、候补顺延 |
 | `test_concurrency.py` | 并发预约不超卖 |
+| `test_system_demo_api.py` | 系统状态接口、演示数据初始化与审计只增不删 |
 | `test_e2e.py` | 真实浏览器端到端（默认跳过） |
 
 ## 9. 文档

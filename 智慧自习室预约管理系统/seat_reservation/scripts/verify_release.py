@@ -224,9 +224,23 @@ def check_no_plaintext_credentials() -> bool:
     sys.path.insert(0, str(SRC))
     from seat_reservation.storage import seed as seed_module
 
-    cards = [ROOT / "初始账号与密码.txt", ROOT.parent / "初始账号与密码.txt"]
-    found = [str(path) for path in cards if path.exists()]
-    ok = record("程序目录不落盘明文账号密码文件", not found, "、".join(found))
+    # 账号说明文件允许存在，但不得出现明文密码；旧文件名仅用于兼容检查。
+    cards = [
+        ROOT.parent / "初始账号说明.txt",
+        ROOT.parent / "初始账号与密码.txt",
+        ROOT / "初始账号说明.txt",
+        ROOT / "初始账号与密码.txt",
+    ]
+    found = [path for path in cards if path.exists()]
+    ok = record("初始账号说明文件存在", bool(found), "、".join(str(p) for p in found))
+    import re
+
+    leaked = []
+    for path in found:
+        text = path.read_text(encoding="utf-8-sig")
+        if "Seat-Demo-2026" in text or re.search(r"密码[:：]\s*\S+", text):
+            leaked.append(str(path))
+    ok &= record("说明文件不含明文密码", not leaked, "、".join(leaked))
     ok &= record("代码中不内置固定演示密码", not hasattr(seed_module, "DEMO_PASSWORD"))
     return ok
 

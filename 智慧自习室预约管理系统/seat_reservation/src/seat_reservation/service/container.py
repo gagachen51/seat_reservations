@@ -12,7 +12,12 @@ from ..domain.params import ParamSet
 from ..logging_setup import get_logger
 from ..storage.database import Database
 from ..storage.repository import SqliteRepository
-from ..storage.seed import bootstrap_admin, seed_demo, seed_if_empty
+from ..storage.seed import (
+    DEMO_USER_IDS,
+    bootstrap_admin,
+    seed_demo,
+    seed_if_empty,
+)
 from .auth import AuthService
 from .scheduler import Scheduler
 
@@ -77,4 +82,53 @@ class AppContext:
             },
             "uptime_seconds": int((datetime.now() - self.started_at).total_seconds()),
             "scheduler": self.scheduler.status() if self.scheduler else {"running": False},
+        }
+
+    def demo_data_loaded(self) -> bool:
+        """当前库是否已写入标准演示数据。
+
+        不依赖 ``SEAT_DEMO_MODE``：桌面版默认以正式模式启动，用户可在「系统」
+        页面一键初始化演示数据，此后 ``settings.demo_mode`` 仍为 False。
+        """
+        placeholders = ",".join("?" for _ in DEMO_USER_IDS)
+        with self.db.read() as conn:
+            row = conn.execute(
+                f"SELECT COUNT(*) AS c FROM users WHERE id IN ({placeholders})",
+                DEMO_USER_IDS,
+            ).fetchone()
+        return int(row["c"]) == len(DEMO_USER_IDS)
+
+    def system_status(self) -> dict[str, object]:
+        """系统管理页所需的完整运行状态。
+
+        ``/api/health`` 按 L-02 只暴露可用性；管理员需要版本、Schema、库大小与
+        调度器详情，因此单独提供带权限校验的聚合视图。
+        """
+        health = self.health()
+        scheduler = (
+            {**self.scheduler.status(), "enabled": True}
+            if self.scheduler is not None
+            else {
+                "enabled": False,
+                "running": False,
+                "interval_seconds": 0,
+                "runs": 0,
+                "last_run_at": None,
+                "last_summary": {},
+                "last_error": None,
+            }
+        )
+        db = health["db"]
+        assert isinstance(db, dict)
+        with self.db.read() as conn:
+            user_count = int(conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"])
+        return {
+            "status": health["status"],
+            "version": health["version"],
+            "env": health["env"],
+            "demo_mode": health["demo"],
+            "demo_data": self.demo_data_loaded(),
+            "db": {**db, "users": user_count},
+            "uptime_seconds": health["uptime_seconds"],
+            "scheduler": scheduler,
         }

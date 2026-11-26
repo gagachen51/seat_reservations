@@ -205,8 +205,10 @@ def test_demo_mode_uses_separate_default_database(monkeypatch: pytest.MonkeyPatc
 def test_repo_credential_files_have_no_plaintext_password() -> None:
     project_root = Path(__file__).resolve().parents[1]
     candidates = [
-        project_root / "初始账号与密码.txt",
+        project_root.parent / "初始账号说明.txt",
         project_root.parent / "初始账号与密码.txt",
+        project_root / "初始账号说明.txt",
+        project_root / "初始账号与密码.txt",
     ]
     existing = [path for path in candidates if path.exists()]
     assert existing, "初始账号说明文件应保留（只允许移除其中的明文密码）"

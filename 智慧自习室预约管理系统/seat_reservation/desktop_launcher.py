@@ -156,7 +156,9 @@ def show_initial_credentials(
             "系统管理员账号：Y0001\n"
             f"初始密码：{password}\n\n"
             f"{location}"
-            "首次登录后必须先修改密码。请妥善保管，勿提交到版本库或发送给无关人员。"
+            "首次登录后必须先修改密码。请妥善保管，勿提交到版本库或发送给无关人员。\n\n"
+            "需要课程演示数据时，登录后进入「系统」页，点击"
+            "「初始化演示数据」即可，无需使用命令行参数。"
         )
     try:
         ctypes.windll.user32.MessageBoxW(None, body, APP_TITLE, 0x40)
@@ -402,9 +404,8 @@ def main() -> int:
             "  2. 在本目录执行：\n"
             "     python -m pip install -r requirements.txt\n"
             "     python desktop_launcher.py\n\n"
-            "如果只装了网页版依赖，也可以用浏览器访问：\n"
-            "     python run.py --db var/web.db init-db --demo\n"
-            "     python run.py --db var/web.db serve --port 8010 --demo"
+            "桌面版安装包（setup.exe）已完成安装时，双击桌面快捷方式即可；"
+            "演示数据可在登录后的「系统」页一键初始化。"
         )
         try:
             ctypes.windll.user32.MessageBoxW(None, message, APP_TITLE, 0x10)
