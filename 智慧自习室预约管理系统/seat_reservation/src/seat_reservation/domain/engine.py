@@ -64,12 +64,16 @@ from .params import PARAM_INDEX, ParamSet, check_consistency, validate_value
 from .ports import Repository
 from . import resource_rules
 from .reservation_rules import (
+    checkin_account_error,
     extended_end_slot,
+    extension_account_error,
     extension_bounds_error,
     extension_minutes_error,
     extension_quota_error,
     extension_state_error,
     waitlist_cancel_state_error,
+    waitlist_confirm_state_error,
+    waitlist_target_error,
 )
 from .rules import (
     blacklist_threshold_reached,
@@ -568,6 +572,35 @@ class DomainEngine:
                 now,
             )
 
+    def _resource_unavailable_error(
+        self, reservation: Reservation
+    ) -> tuple[str, str] | None:
+        """判定预约目标资源当前是否已不可用（M-04，只读，不写库）。
+
+        资源停用的**入口**归 B（``update_room`` / ``update_seat``）；C 只在
+        预约状态/扫描侧读取最新状态：房间关闭、座位停用/维护、或预约时段
+        落在未释放封禁内，均视为不可履约，不能按用户未签到处理。
+        """
+        seat = self.repo.get_seat(reservation.seat_id)
+        if seat is None:
+            return ("BR-09", f"座位 {reservation.seat_id} 已不存在")
+        room = self.repo.get_room(seat.room_id)
+        if room is None:
+            return ("FR-21", f"自习室 {seat.room_id} 已不存在")
+        if room.status != "open":
+            return ("FR-21", f"自习室 {room.name or room.id} 已停用")
+        if seat.admin_status == "disabled":
+            return ("BR-09", f"座位 {seat.id} 已停用")
+        if seat.admin_status == "maintenance" and not seat.maintenance_by_block:
+            # 手工维护没有明确结束时间，按长期不可用处理；封禁管理的维护
+            # 只在其封禁时间窗与预约时段重叠时才取消（见下方 block 判定）。
+            return ("BR-09", f"座位 {seat.id} 当前维护中")
+        if self.repo.seat_block_overlaps(
+            seat.id, reservation.start_at, reservation.end_at
+        ):
+            return ("BR-09", f"座位 {seat.id} 在该时段处于维护封禁")
+        return None
+
     def _cancel_resource_unavailable(
         self,
         reservation: Reservation,
@@ -630,7 +663,8 @@ class DomainEngine:
 
         契约（M-04）：受影响预约统一 ``cancelled``、
         ``end_reason="resource_unavailable"``；不记 no_show、不扣信用；写通知
-        与审计；重复调用幂等（第二次已无占用中的预约）。
+        与审计；重复调用幂等（第二次已无占用中的预约）。B 的 ``update_room`` /
+        ``update_seat`` 在状态变更后调用本方法；C 不在资源入口重复实现。
         """
         if not room_id and not seat_id:
             return []
@@ -877,23 +911,61 @@ class DomainEngine:
             raise RuleViolation("只有待签到的预约可以签发凭证", rule="ST-12")
         policy = ParamSet.from_snapshot(reservation.policy)
         ttl = policy.int("checkin.credential_ttl_seconds")
+
+        # L-07：同一预约的未使用凭证在 TTL 内复用，避免并发请求互相覆盖，
+        # 导致先返回的 code 在数据库中已失效。
+        if (
+            reservation.credential_code
+            and not reservation.credential_used
+            and reservation.credential_issued_at is not None
+            and now <= reservation.credential_issued_at + timedelta(seconds=ttl)
+        ):
+            return Result.success(
+                self._credential_payload(
+                    reservation, reservation.credential_issued_at, ttl
+                ),
+                "凭证已签发",
+            )
+
         code = _new_credential()
+        expected_version = reservation.version
         reservation.credential_code = code
         reservation.credential_issued_at = now
         reservation.credential_used = False
         reservation.updated_at = now
-        reservation.version += 1
-        self.repo.update_reservation(reservation)
+        if not self.repo.update_credential(reservation, code, now, expected_version):
+            # 另一请求已抢先签发：返回其已落库的凭证，而不是覆盖成已失效的 code。
+            latest = self.repo.get_reservation(reservation.id)
+            if (
+                latest is not None
+                and latest.status == ReservationStatus.PENDING.value
+                and latest.credential_code
+                and not latest.credential_used
+            ):
+                return Result.success(
+                    self._credential_payload(
+                        latest, latest.credential_issued_at or now, ttl
+                    ),
+                    "凭证已由其他请求签发",
+                )
+            raise Conflict("凭证已被其他操作更新，请刷新后重试", rule="BR-13")
+        reservation.version = expected_version + 1
         return Result.success(
-            {
-                "reservation_id": reservation.id,
-                "code": code,
-                "issued_at": fmt_datetime(now),
-                "expires_at": fmt_datetime(add_minutes(now, ttl // 60) if ttl >= 60 else now + timedelta(seconds=ttl)),
-                "ttl_seconds": ttl,
-            },
+            self._credential_payload(reservation, now, ttl),
             "凭证已签发",
         )
+
+    @staticmethod
+    def _credential_payload(
+        reservation: Reservation, issued_at: datetime, ttl: int
+    ) -> dict[str, Any]:
+        return {
+            "reservation_id": reservation.id,
+            "code": reservation.credential_code,
+            "issued_at": fmt_datetime(issued_at),
+            "expires_at": fmt_datetime(issued_at + timedelta(seconds=ttl)),
+            "ttl_seconds": ttl,
+        }
 
     @implements("BR-04", "BR-06", "BR-13", "ST-01", "ST-02", "ST-12", "PR-03")
     def check_in(
@@ -927,6 +999,18 @@ class DomainEngine:
             raise RuleViolation(
                 f"当前状态为 {reservation.status}，不能签到", rule="ST-12"
             )
+        # M-06：普通签到、扫码签到、ACS 凭证签到共用同一账号复核。
+        # ACS 不依赖登录会话，因此不能只校验凭证 TTL，必须在这里复核账号状态
+        # 与 _booking_limit（黑名单/信用/连续违约）。
+        user = self.repo.get_user(reservation.user_id)
+        if user is None:
+            raise NotFound("账号不存在")
+        account_error = checkin_account_error(
+            user.is_active, self._booking_limit(user, now)
+        )
+        if account_error:
+            rule, message = account_error
+            raise Forbidden(message, rule=rule)
         seat = self.repo.get_seat(reservation.seat_id)
         if seat is None:
             raise NotFound(f"座位 {reservation.seat_id} 不存在")
@@ -965,10 +1049,6 @@ class DomainEngine:
                 policy.int("checkin.after_minutes"),
             )
             raise RuleViolation(f"未到签到时间，窗口自 {fmt_datetime(opens)} 开始", rule="BR-04")
-
-        user = self.repo.get_user(reservation.user_id)
-        if user is None:
-            raise NotFound("账号不存在")
 
         if phase == "late":
             violation = self._record_violation(
@@ -1158,6 +1238,15 @@ class DomainEngine:
         if minutes_error:
             raise ValidationFailed(minutes_error)
 
+        # M-06：续约同样要复核账号状态与限制，不能只看预约状态/时段。
+        user = self._user(actor)
+        account_error = extension_account_error(
+            user.is_active, self._booking_limit(user, now)
+        )
+        if account_error:
+            rule, message = account_error
+            raise Forbidden(message, rule=rule)
+
         seat = self.repo.get_seat(reservation.seat_id)
         if seat is None:
             raise NotFound(f"座位 {reservation.seat_id} 不存在")
@@ -1274,7 +1363,10 @@ class DomainEngine:
             raise RuleViolation(message, rule=rule)
         if not in_booking_window(day, now.date(), self.params.int("booking.window_days")):
             raise RuleViolation("目标日期超出可预约窗口", rule="BR-03")
-        start_slot, end_slot = slot_of_time(start), slot_of_time(end)
+        try:
+            start_slot, end_slot = slot_of_time(start), slot_of_time(end)
+        except ValueError as exc:
+            raise ValidationFailed(str(exc)) from exc
         ok, message = validate_slot_range(
             start_slot,
             end_slot,
@@ -1283,10 +1375,41 @@ class DomainEngine:
         )
         if not ok:
             raise RuleViolation(message, rule="BR-01")
-        if self.repo.get_seat(seat_id) is None:
+        seat = self.repo.get_seat(seat_id)
+        if seat is None:
             raise NotFound(f"座位 {seat_id} 不存在")
+        room = self.repo.get_room(seat.room_id)
+        if room is None:
+            raise NotFound(f"自习室 {seat.room_id} 不存在")
+        start_at, end_at = datetime_at(day, start_slot), datetime_at(day, end_slot)
+        target_error = waitlist_target_error(
+            room.status,
+            seat.admin_status,
+            self.repo.seat_block_overlaps(seat.id, start_at, end_at),
+            start_slot,
+            end_slot,
+            room.open_slot,
+            room.close_slot,
+            start_at,
+            now,
+        )
+        if target_error:
+            rule, target_message = target_error
+            raise RuleViolation(target_message, rule=rule)
         if self.repo.find_seat_conflict(seat_id, day, start_slot, end_slot) is None:
             raise RuleViolation("该时段座位仍可预约，无需候补", rule="BR-08")
+        if self.repo.find_user_conflict(user.id, day, start_slot, end_slot):
+            raise Conflict("本人该时段已有其他有效预约，不能重复候补", rule="BR-11")
+        count, used_minutes = self.repo.daily_usage(user.id, day)
+        quota_error = quota_exceeded(
+            count,
+            used_minutes,
+            minutes_of_slots(start_slot, end_slot),
+            self.params.int("booking.daily_max_count"),
+            self.params.int("booking.daily_max_minutes"),
+        )
+        if quota_error:
+            raise RuleViolation(quota_error, rule="BR-02")
         existing = self.repo.find_waitlist(user.id, seat_id, day, start_slot, end_slot)
         if existing is not None and existing.status in {
             WaitlistStatus.QUEUED.value,
@@ -1316,8 +1439,10 @@ class DomainEngine:
             raise NotFound("候补记录不存在")
         if entry.user_id != actor.id:
             raise Forbidden("只能确认本人的候补", rule="PR-04")
-        if entry.status != WaitlistStatus.NOTIFIED.value:
-            raise RuleViolation("该候补当前不可确认", rule="ST-12")
+        state_error = waitlist_confirm_state_error(entry.status)
+        if state_error:
+            rule, message = state_error
+            raise RuleViolation(message, rule=rule)
         if entry.confirm_deadline is not None and now > entry.confirm_deadline:
             entry.defer_count += 1
             self._expire_waitlist(entry, now)
@@ -1333,12 +1458,27 @@ class DomainEngine:
             self._expire_waitlist(entry, now, offer_next=False)
             return Result.failure("BR-08", "座位不存在，候补已失效", rule="BR-08")
         room = self.repo.get_room(seat.room_id)
-        if room is None or room.status != "open" or seat.admin_status != "available":
+        if room is None:
             self._expire_waitlist(entry, now, offer_next=False)
-            return Result.failure("BR-09", "座位或自习室当前不可用，候补已失效", rule="BR-09")
-        if self.repo.seat_block_overlaps(seat.id, start_at, end_at):
+            return Result.failure("FR-21", "自习室不存在，候补已失效", rule="FR-21")
+        # M-07：确认前重新读取最新房间/座位/封禁/开放时间，配置变更后不能
+        # 生成越界预约；失败时先置 expired 再返回 Result.failure，保证
+        # 状态与 reservation/slot 的回滚口径一致。
+        target_error = waitlist_target_error(
+            room.status,
+            seat.admin_status,
+            self.repo.seat_block_overlaps(seat.id, start_at, end_at),
+            entry.start_slot,
+            entry.end_slot,
+            room.open_slot,
+            room.close_slot,
+            start_at,
+            now,
+        )
+        if target_error:
+            rule, message = target_error
             self._expire_waitlist(entry, now, offer_next=False)
-            return Result.failure("BR-09", "座位在该时段处于维护封禁，候补已失效", rule="BR-09")
+            return Result.failure(rule, f"{message}，候补已失效", rule=rule)
 
         user = self._user(actor)
         limit = self._booking_limit(user, now)
@@ -1398,7 +1538,12 @@ class DomainEngine:
             self.repo.insert_reservation(reservation)
             self.repo.occupy(reservation)
         except SlotConflict as exc:
-            self._expire_waitlist(entry, now)
+            # L-07：reservation 行已插入而 slot 占用失败，不能带着半截数据
+            # 返回 failure（外层写事务会正常提交）。显式清理本次插入的行，
+            # 再把候补置为 expired 并在同一事务内提交。
+            self.repo.delete_reservation(reservation.id)
+            entry.defer_count += 1
+            self._expire_waitlist(entry, now, offer_next=False)
             return Result.failure("BR-11", str(exc), rule="BR-11")
 
         entry.status = WaitlistStatus.CONFIRMED.value
@@ -1449,8 +1594,25 @@ class DomainEngine:
             "resource_unavailable": 0,
             "reminders": 0,
         }
+        # M-04：先处理“资源已不可用”的预约，再判 no_show。房间关闭/座位停用
+        # 后用户即使想签到也无法履约，不能按未签到扣信用；统一 cancelled +
+        # resource_unavailable，重复扫描不再处理。
+        for reservation in self.repo.list_active_reservations():
+            if reservation.status not in OCCUPYING_STATUSES:
+                continue
+            resource_error = self._resource_unavailable_error(reservation)
+            if resource_error is None:
+                continue
+            if self._cancel_resource_unavailable(
+                reservation, resource_error[1], now
+            ):
+                summary["resource_unavailable"] += 1
+
         for reservation in self.repo.list_due_pending(now):
             if reservation.status != ReservationStatus.PENDING.value:
+                continue
+            # 防御性复核：同一事务内资源状态被并发改写时，仍不得误判 no_show。
+            if self._resource_unavailable_error(reservation) is not None:
                 continue
             self._record_violation(
                 reservation,

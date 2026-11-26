@@ -19,6 +19,7 @@ from datetime import datetime
 from typing import Any
 
 from .models import ReservationStatus, WaitlistStatus
+from .rules import within_open_hours
 from .timeutil import SLOT_MINUTES, hhmm, minutes_of_slots
 
 #: 续约步长：与全局时段粒度一致（30 分钟）。
@@ -33,6 +34,9 @@ EXTENDABLE_STATUSES = frozenset(
 WAITLIST_CANCELLABLE_STATUSES = frozenset(
     {WaitlistStatus.QUEUED.value, WaitlistStatus.NOTIFIED.value}
 )
+
+#: 允许确认的候补状态：只有已经收到补位通知的候补才能确认。
+WAITLIST_CONFIRMABLE_STATUSES = frozenset({WaitlistStatus.NOTIFIED.value})
 
 
 # ---------------------------------------------------------------------------
@@ -132,3 +136,65 @@ def waitlist_cancel_state_error(status: str) -> tuple[str, str] | None:
     if status not in WAITLIST_CANCELLABLE_STATUSES:
         return ("ST-12", "该候补当前不可取消")
     return None
+
+
+def waitlist_confirm_state_error(status: str) -> tuple[str, str] | None:
+    """校验候补是否可确认；只有 ``notified`` 可以确认。"""
+    if status not in WAITLIST_CONFIRMABLE_STATUSES:
+        return ("ST-12", f"当前状态为 {status}，只有已通知的候补可以确认")
+    return None
+
+
+def waitlist_target_error(
+    room_status: str,
+    seat_status: str,
+    blocked: bool,
+    start_slot: int,
+    end_slot: int,
+    open_slot: int,
+    close_slot: int,
+    start_at: datetime,
+    now: datetime,
+) -> tuple[str, str] | None:
+    """候补加入/确认的资源与时间校验（M-07 的纯规则入口）。
+
+    调用方必须传入**当前最新**的房间/座位/封禁状态；函数本身不读库，便于单测。
+    返回 ``(规则编号, 提示)``，通过则 ``None``。
+    """
+    if room_status != "open":
+        return ("FR-21", "自习室已停用，不能加入或确认候补")
+    if seat_status != "available":
+        label = "维护中" if seat_status == "maintenance" else "已停用"
+        return ("BR-09", f"座位当前{label}，不能加入或确认候补")
+    if blocked:
+        return ("BR-09", "座位在该时段处于维护封禁，不能加入或确认候补")
+    if not within_open_hours(start_slot, end_slot, open_slot, close_slot):
+        return ("BR-03", "候补时段须在自习室开放时间内")
+    if start_at <= now:
+        return ("BR-08", "目标时段已开始，不能加入或确认候补")
+    return None
+
+
+# ---------------------------------------------------------------------------
+# 账号限制复核（M-06）
+# ---------------------------------------------------------------------------
+def checkin_account_error(
+    is_active: bool, limit: tuple[str, str] | None
+) -> tuple[str, str] | None:
+    """签到/ACS 通道的账号复核。
+
+    ``limit`` 由引擎的 ``_booking_limit`` 统一计算（黑名单/信用/连续违约），
+    这里只额外保证“停用账号即使持有未过期凭证也不能签到”。
+    """
+    if not is_active:
+        return ("PR-02", "账号已停用，无法签到")
+    return limit
+
+
+def extension_account_error(
+    is_active: bool, limit: tuple[str, str] | None
+) -> tuple[str, str] | None:
+    """续约前的账号复核：停用/黑名单/信用/连续违约一律拒绝。"""
+    if not is_active:
+        return ("PR-02", "账号已停用，无法延长时段")
+    return limit
