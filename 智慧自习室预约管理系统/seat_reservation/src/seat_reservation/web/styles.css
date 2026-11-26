@@ -1180,11 +1180,31 @@ table.data tbody tr.clickable { cursor: pointer; }
     z-index: 40;
   }
   .brand, .sidebar-footer { display: none; }
-  .nav { flex-direction: row; gap: 0; overflow: visible; }
+  .nav {
+    flex-direction: row;
+    gap: 2px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    padding: 0 2px;
+  }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav.is-scrollable {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+  }
+  .nav.is-scrollable.is-at-end {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
   .nav-group { display: contents; }
   .nav-group-title { display: none; }
   .nav-item {
-    flex: 1;
+    flex: 1 0 64px;
+    min-width: 64px;
     flex-direction: column;
     justify-content: center;
     gap: 3px;
@@ -1194,7 +1214,9 @@ table.data tbody tr.clickable { cursor: pointer; }
     font-weight: 500;
     border-radius: 10px;
     text-align: center;
+    scroll-snap-align: center;
   }
+  .nav-item > span { white-space: nowrap; }
   .nav-item svg { width: 21px; height: 21px; }
   .nav-item.active { background: transparent; color: var(--blue); }
   .main { padding-bottom: 68px; }
@@ -1658,9 +1680,6 @@ body {
   -webkit-backdrop-filter: none;
 }
 
-/* 侧栏收窄，把宽度让给内容 */
-.sidebar { width: 212px; }
-
 /* 内容密度：内边距与行高收紧 */
 .card-pad { padding: 15px; }
 .list-row { padding: 12px 15px; }
@@ -1684,10 +1703,13 @@ body {
   -webkit-backdrop-filter: blur(24px) saturate(180%);
 }
 
-/* 侧栏宽度需同时改 flex-basis，否则 flex 布局会忽略 width */
-.sidebar {
-  width: 212px;
-  flex: 0 0 212px;
+/* 侧栏宽度需同时改 flex-basis，否则 flex 布局会忽略 width。
+   仅桌面生效；移动端侧栏是底部导航栏，宽度由 860px 断点接管。 */
+@media (min-width: 861px) {
+  .sidebar {
+    width: 212px;
+    flex: 0 0 212px;
+  }
 }
 
 /* ==========================================================================

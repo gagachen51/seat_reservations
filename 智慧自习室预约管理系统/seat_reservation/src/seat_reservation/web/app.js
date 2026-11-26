@@ -504,11 +504,20 @@
 
   function renderNav() {
     const groups = NAV[roleOf()] || [];
-    $('#nav').innerHTML = groups.map((group) =>
+    const nav = $('#nav');
+    nav.innerHTML = groups.map((group) =>
       '<div class="nav-group"><div class="nav-group-title">' + esc(group.title) + '</div>' +
       group.items.map(([id, label, iconName]) =>
         '<button class="nav-item' + (state.view === id ? ' active' : '') + '" type="button" data-action="nav" data-view="' + id + '">' +
         icon(iconName) + '<span>' + esc(label) + '</span></button>').join('') + '</div>').join('');
+    // 移动端导航项多于屏宽时可横向滑动，把当前项滚到可见区域居中。
+    const scrollable = nav.scrollWidth > nav.clientWidth + 2;
+    nav.classList.toggle('is-scrollable', scrollable);
+    if (!scrollable) nav.classList.remove('is-at-end');
+    if (scrollable) {
+      const active = nav.querySelector('.nav-item.active');
+      if (active) active.scrollIntoView({ inline: 'center', block: 'nearest' });
+    }
   }
 
   function go(view) {
@@ -3379,6 +3388,14 @@
     } finally {
       $('#boot').hidden = true;
     }
+  }
+
+  // 底部导航横向滚动时，滑到最右则取消右侧渐隐提示。
+  const navEl = $('#nav');
+  if (navEl) {
+    navEl.addEventListener('scroll', () => {
+      navEl.classList.toggle('is-at-end', navEl.scrollLeft + navEl.clientWidth >= navEl.scrollWidth - 2);
+    }, { passive: true });
   }
 
   boot();
