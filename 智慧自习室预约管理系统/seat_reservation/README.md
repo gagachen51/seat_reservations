@@ -81,7 +81,7 @@ SEAT_PUBLIC_BASE_URL=https://seat.example.edu
 node --test tests/*.test.cjs                 # 39 passed
 ```
 
-跳过项是未安装 Playwright 的浏览器端到端用例。并发用例依赖 SQLite 的 WAL 文件锁；数据库放在云同步目录、网络盘或被安全软件实时扫描时，可能出现 `attempt to write a readonly database`，把库移到本地普通目录即可。
+跳过项是未安装 Playwright 的浏览器端到端用例。测试库默认创建在系统临时目录并在进程退出时删除；需要保留现场时设置 `SEAT_TEST_DB_DIR`。生产库仍应放在本地磁盘，不要放在云同步目录或网络盘。
 
 ## 数据库迁移
 

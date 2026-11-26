@@ -22,6 +22,8 @@
 ### 测试
 
 - 新增 `tests/test_qr_checkin.py` 10 条：令牌签名与篡改、他人座位、无预约、提前签到、API 签到、打印页权限、入口页。
+- 测试库改到系统临时目录并在 pytest 退出时清理，不再在 `var/` 下累计测试数据库；保留现场可设置 `SEAT_TEST_DB_DIR`。
+- WAL 改为初始化时设置一次；连接层遇到瞬时 `readonly` / `locked` 时重开连接重试，消除 Windows 并发用例的误报。
 - `pytest`：**510 passed / 1 skipped**；Node：**39 passed**。跳过项为未安装 Playwright 的浏览器端到端用例。
 
 ### 文档

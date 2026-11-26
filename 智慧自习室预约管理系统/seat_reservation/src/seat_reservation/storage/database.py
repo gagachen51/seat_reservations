@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Sequence
@@ -24,7 +25,9 @@ logger = logging.getLogger(__name__)
 def _configure(conn: sqlite3.Connection) -> None:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
+    # journal_mode 是持久化属性，由 migrate() 在初始化时设置一次。
+    # 每个连接都执行 ``journal_mode = WAL`` 会在并发写事务期间重复申请
+    # 日志模式切换锁，文件锁受限的环境会误报 readonly。
     conn.execute("PRAGMA synchronous = NORMAL")
     conn.execute("PRAGMA busy_timeout = 5000")
     conn.execute("PRAGMA temp_store = MEMORY")
@@ -49,7 +52,21 @@ class Database:
     def transaction(self, *, write: bool = True) -> Iterator[sqlite3.Connection]:
         conn = self.connect()
         try:
-            conn.execute("BEGIN IMMEDIATE" if write else "BEGIN")
+            # 少数 Windows 环境会在并发建连的瞬间把新库判成只读（杀毒软件/
+            # 云同步持有文件句柄）。只读状态绑定在连接的 WAL 索引上，重试同一
+            # 连接无效，必须关掉重开；真正的只读文件仍会在重试耗尽后抛出。
+            for attempt in range(5):
+                try:
+                    conn.execute("BEGIN IMMEDIATE" if write else "BEGIN")
+                    break
+                except sqlite3.OperationalError as exc:
+                    message = str(exc).lower()
+                    transient = "readonly" in message or "locked" in message
+                    if attempt == 4 or not transient:
+                        raise
+                    conn.close()
+                    time.sleep(0.02 * (attempt + 1))
+                    conn = self.connect()
             yield conn
             conn.execute("COMMIT")
         except Exception:
@@ -67,6 +84,15 @@ class Database:
             yield conn
 
     def migrate(self) -> list[int]:
+        # WAL 只需在库上设置一次；之后所有连接自动沿用。
+        conn = self.connect()
+        try:
+            mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+            if str(mode).lower() != "wal":
+                conn.execute("PRAGMA journal_mode = WAL")
+        finally:
+            conn.close()
+
         applied: list[int] = []
         with self.transaction() as conn:
             conn.execute(
