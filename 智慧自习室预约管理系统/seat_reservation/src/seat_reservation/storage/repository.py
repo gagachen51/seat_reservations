@@ -772,6 +772,46 @@ class SqliteRepository:
             ),
         )
 
+    def delete_reservation(self, reservation_id: str) -> None:
+        """删除预约及其全部时段占用（仅用于同事务内的失败清理）。
+
+        典型场景：候补确认先 ``insert_reservation`` 再 ``occupy``，后者抛出
+        ``SlotConflict`` 时必须显式清除已插入的预约，避免留下无 slot 的孤儿行。
+        """
+        self.conn.execute(
+            "DELETE FROM reservation_slots WHERE reservation_id = ?", (reservation_id,)
+        )
+        self.conn.execute("DELETE FROM reservations WHERE id = ?", (reservation_id,))
+
+    def update_credential(
+        self,
+        reservation: Reservation,
+        code: str,
+        issued_at: datetime,
+        expected_version: int,
+    ) -> bool:
+        """按版本号条件更新凭证；并发下只有一个写者能成功。
+
+        ``WHERE status='pending'`` 保证预约已进入使用/取消后不会再被写凭证；
+        ``version`` 条件保证后写者不会覆盖先写者已返回的凭证。
+        """
+        cursor = self.conn.execute(
+            """
+            UPDATE reservations
+            SET credential_code = ?, credential_issued_at = ?, credential_used = 0,
+                updated_at = ?, version = version + 1
+            WHERE id = ? AND version = ? AND status = 'pending'
+            """,
+            (
+                code,
+                fmt_datetime(issued_at),
+                fmt_datetime(reservation.updated_at),
+                reservation.id,
+                expected_version,
+            ),
+        )
+        return cursor.rowcount == 1
+
     def extend_reservation(
         self,
         reservation: Reservation,
@@ -971,6 +1011,31 @@ class SqliteRepository:
             """,
             (seat_id, *sorted(OCCUPYING_STATUSES), fmt_datetime(end), fmt_datetime(start)),
         ).fetchall()
+        return [self._reservation(row) for row in rows]
+
+    def list_active_reservations(
+        self, *, room_id: str | None = None, seat_id: str | None = None
+    ) -> list[Reservation]:
+        """列出所有仍占用座位的预约（pending/in_use/away）。
+
+        供 C 的超时扫描与 B 的资源变更 helper 复用：房间关闭/座位停用后，
+        必须能一次性找到该资源下所有仍有效的预约，而不是只处理某个时间点
+        恰好到期的预约。
+        """
+        sql = f"""
+            SELECT r.* FROM reservations r
+            JOIN seats s ON s.id = r.seat_id
+            WHERE r.status IN ({_placeholders(len(OCCUPYING_STATUSES))})
+        """
+        params: list[Any] = [*sorted(OCCUPYING_STATUSES)]
+        if room_id:
+            sql += " AND s.room_id = ?"
+            params.append(room_id)
+        if seat_id:
+            sql += " AND r.seat_id = ?"
+            params.append(seat_id)
+        sql += " ORDER BY r.start_at, r.id"
+        rows = self.conn.execute(sql, params).fetchall()
         return [self._reservation(row) for row in rows]
 
     def list_due_pending(self, now: datetime) -> list[Reservation]:
