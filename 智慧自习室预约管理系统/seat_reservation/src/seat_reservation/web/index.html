@@ -3,64 +3,86 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#F5F6F8">
+  <meta name="theme-color" content="#F2F2F7">
   <meta name="color-scheme" content="light">
   <title>自习室 · 座位预约</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/styles.css?v=20261127k">
+  <link rel="stylesheet" href="/static/styles.css?v=20261127c">
 </head>
 <body>
   <div id="boot" class="boot" aria-hidden="true"><span class="spinner"></span></div>
 
   <section id="login" class="login" hidden>
-    <header class="login-header">
-      <div class="login-brand">
-        <span class="login-logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <aside class="login-aside">
+      <div class="login-aside-inner">
+        <div class="brand-lg">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 10V7.5A2.5 2.5 0 0 1 7.5 5h9A2.5 2.5 0 0 1 19 7.5V10"/>
+              <path d="M4 12.5A1.5 1.5 0 0 1 5.5 11h13A1.5 1.5 0 0 1 20 12.5V16H4z"/>
+              <path d="M6 16v3M18 16v3"/>
+            </svg>
+          </span>
+          <div>
+            <h1>自习室</h1>
+            <p>智慧座位预约</p>
+          </div>
+        </div>
+        <div class="login-copy">
+          <h2>把座位留给<br>真正来的人。</h2>
+          <p>预约、签到、暂离、现场处置与信用档案，在同一套规则下运转，每一步都有记录。</p>
+          <ul class="login-points">
+            <li>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15" rx="2.5"/><path d="M8 3v4M16 3v4M4 10h16"/></svg>
+              <span>预约、候补与超时自动释放</span>
+            </li>
+            <li>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L19 7"/></svg>
+              <span>扫码签到、暂离与签退闭环</span>
+            </li>
+            <li>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="m9 12 2 2 4-4"/></svg>
+              <span>现场巡检、信用限制与操作审计</span>
+            </li>
+          </ul>
+        </div>
+        <p class="login-aside-foot">校内私有部署 · 数据不出校</p>
+      </div>
+    </aside>
+    <div class="login-main">
+    <div class="login-wrap">
+      <div class="brand-lg login-brand-mobile">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
             <path d="M5 10V7.5A2.5 2.5 0 0 1 7.5 5h9A2.5 2.5 0 0 1 19 7.5V10"/>
             <path d="M4 12.5A1.5 1.5 0 0 1 5.5 11h13A1.5 1.5 0 0 1 20 12.5V16H4z"/>
             <path d="M6 16v3M18 16v3"/>
-          </svg></span>
-        <div class="login-brand-text">
-          <strong>智慧自习室预约管理系统</strong>
-          <small>图书馆 · 座位预约</small>
+          </svg>
+        </span>
+        <div>
+          <h1>自习室</h1>
+          <p>智慧座位预约</p>
         </div>
       </div>
-      <span class="login-scope">校内系统</span>
-    </header>
 
-    <div class="login-stage">
-      <div class="login-stage-inner">
-      <div class="login-panel">
+      <form id="loginForm" class="login-card" novalidate>
         <h2>登录</h2>
-        <p class="login-sub">使用学号 / 工号与密码进入系统</p>
-        <form id="loginForm" class="login-form" novalidate>
-          <label class="field">
-            <span>学号 / 工号</span>
-            <input id="username" name="username" autocomplete="username" spellcheck="false" required>
-          </label>
-          <label class="field">
-            <span>密码</span>
-            <input id="password" name="password" type="password" autocomplete="current-password" required>
-          </label>
-          <button class="btn btn-primary btn-block" id="loginBtn" type="submit">登录</button>
-          <p class="form-error" id="loginError" hidden></p>
-        </form>
-        <p class="login-help">首次登录需修改初始密码；忘记密码请联系管理员。</p>
-      </div>
+        <p class="login-sub">使用校园账号进入预约系统</p>
+        <label class="field">
+          <span>学号 / 工号</span>
+          <input id="username" name="username" autocomplete="username" spellcheck="false" required>
+        </label>
+        <label class="field">
+          <span>密码</span>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <button class="btn btn-primary btn-block" id="loginBtn" type="submit">登录</button>
+        <p class="form-error" id="loginError" hidden></p>
+      </form>
 
-      <aside class="login-notice">
-        <h3>使用须知</h3>
-        <ul>
-          <li>使用学号 / 工号与密码登录。</li>
-          <li>首次登录需修改初始密码。</li>
-          <li>预约、签到与违约规则以系统公告为准。</li>
-        </ul>
-        <p>仅面向本校师生开放，账号由管理员创建。</p>
-      </aside>
-      </div>
+      <p class="login-foot">智慧自习室预约管理系统</p>
     </div>
-
-    <footer class="login-footer">智慧自习室预约管理系统 · 校内私有部署</footer>
+    </div>
   </section>
 
   <div id="app" class="app" hidden>

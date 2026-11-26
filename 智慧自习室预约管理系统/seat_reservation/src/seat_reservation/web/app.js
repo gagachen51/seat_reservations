@@ -686,7 +686,7 @@
           '<button class="chip' + (filters.window ? ' active' : '') + '" type="button" data-action="toggle-filter" data-key="window">' + icon('window') + '靠窗</button>' +
         '</div>' +
         '<div class="toolbar-row">' +
-          '<div class="legend"><span><i style="background:#1f7a3d"></i>空闲</span><span><i style="background:#b26a00"></i>已预约 / 暂离</span><span><i style="background:#1a5fb4"></i>使用中</span><span class="tertiary" style="margin-left:auto">点击座位选择</span></div>' +
+          '<div class="legend"><span><i style="background:#34C759"></i>空闲</span><span><i style="background:#FF9500"></i>已预约 / 暂离</span><span><i style="background:#007AFF"></i>使用中</span><span class="tertiary" style="margin-left:auto">点击座位选择</span></div>' +
         '</div>' +
       '</div>';
 
@@ -1044,7 +1044,7 @@
     const radius = 38;
     const circumference = 2 * Math.PI * radius;
     const pct = Math.max(0, Math.min(100, value)) / 100;
-    const color = value >= 80 ? '#1f7a3d' : value >= 60 ? '#b26a00' : '#b3261e';
+    const color = value >= 80 ? '#34C759' : value >= 60 ? '#FF9500' : '#FF3B30';
     return '<svg class="ring" viewBox="0 0 92 92" role="img" aria-label="信用分 ' + value + '">' +
       '<circle cx="46" cy="46" r="' + radius + '" fill="none" stroke="#EDEDF2" stroke-width="8"/>' +
       '<circle cx="46" cy="46" r="' + radius + '" fill="none" stroke="' + color + '" stroke-width="8" stroke-linecap="round" stroke-dasharray="' + circumference + '" stroke-dashoffset="' + (circumference * (1 - pct)) + '" transform="rotate(-90 46 46)"/>' +
@@ -1252,7 +1252,7 @@
       : '';
 
     const trend = '<div class="card chart-card" style="margin-top:12px"><div class="chart-head"><h3>近 7 日预约与签到</h3>' +
-      '<div class="legend"><span><i style="background:#1a5fb4"></i>预约</span><span><i style="background:#b26a00"></i>签到</span></div></div>' +
+      '<div class="legend"><span><i style="background:#007AFF"></i>预约</span><span><i style="background:#FF9500"></i>签到</span></div></div>' +
       '<div class="chart">' + trendChart(stats.trend || []) + '</div></div>';
 
     const hourly = '<div class="card chart-card" style="margin-top:12px"><div class="chart-head"><h3>今日时段分布</h3><span class="tiny tertiary">按开始时间统计</span></div>' +
@@ -1303,9 +1303,9 @@
       const checkins = Number(item.checkins || 0);
       const h1 = (reservations / max) * innerH;
       const h2 = (checkins / max) * innerH;
-      content += '<rect x="' + (x - (withCheckins ? barW + 2 : barW / 2)) + '" y="' + (top + innerH - h1) + '" width="' + barW + '" height="' + Math.max(1, h1) + '" rx="3" fill="#1a5fb4"/>';
+      content += '<rect x="' + (x - (withCheckins ? barW + 2 : barW / 2)) + '" y="' + (top + innerH - h1) + '" width="' + barW + '" height="' + Math.max(1, h1) + '" rx="3" fill="#007AFF"/>';
       if (withCheckins) {
-        content += '<rect x="' + (x + 2) + '" y="' + (top + innerH - h2) + '" width="' + barW + '" height="' + Math.max(1, h2) + '" rx="3" fill="#1f7a3d" opacity="0.9"/>';
+        content += '<rect x="' + (x + 2) + '" y="' + (top + innerH - h2) + '" width="' + barW + '" height="' + Math.max(1, h2) + '" rx="3" fill="#34C759" opacity="0.9"/>';
       }
       content += '<text x="' + x + '" y="' + (H - 8) + '" text-anchor="middle" font-size="' + (compact ? 10 : 10.5) + '" fill="#8E8E93">' + esc(item.label) + '</text>';
     });
@@ -1326,7 +1326,7 @@
       const x = left + index * step + step / 2;
       const count = Number(item.count || 0);
       const h = (count / max) * innerH;
-      content += '<rect x="' + (x - barW / 2) + '" y="' + (top + innerH - h) + '" width="' + barW + '" height="' + Math.max(2, h) + '" rx="4" fill="#1a5fb4" opacity="' + (0.35 + 0.65 * (count / max)) + '"/>';
+      content += '<rect x="' + (x - barW / 2) + '" y="' + (top + innerH - h) + '" width="' + barW + '" height="' + Math.max(2, h) + '" rx="4" fill="#007AFF" opacity="' + (0.35 + 0.65 * (count / max)) + '"/>';
       content += '<text x="' + x + '" y="' + (H - 7) + '" text-anchor="middle" font-size="' + (compact ? 9.5 : 10) + '" fill="#8E8E93">' + esc(item.hour) + '</text>';
     });
     return '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="今日时段分布">' + content + '</svg>';
@@ -1476,8 +1476,8 @@
       '</div>';
 
     const trend = '<div class="card chart-card"><div class="chart-head"><h3>每日预约与签到</h3>' +
-      '<div class="legend"><span><i style="background:#1a5fb4"></i>预约</span>' +
-      '<span><i style="background:#1f7a3d"></i>签到</span></div></div>' +
+      '<div class="legend"><span><i style="background:#007AFF"></i>预约</span>' +
+      '<span><i style="background:#34C759"></i>签到</span></div></div>' +
       '<div class="chart">' + (daily.length ? trendChart(daily) :
         '<div class="chart-empty">当前区间没有预约数据</div>') + '</div></div>';
 
@@ -1637,7 +1637,7 @@
       (isToday && start !== fromMinutes(Math.floor(toMinutes(nowHHMM()) / 30) * 30) ? '（非当前时段）' : '') +
       '。点击座位可查看占用详情、登记违约或强制释放；点击空闲座位可封禁。</div></div>';
 
-    const legend = '<div class="legend" style="margin:0 2px 12px"><span><i style="background:#1f7a3d"></i>空闲</span><span><i style="background:#b26a00"></i>已预约</span><span><i style="background:#1a5fb4"></i>使用中</span><span><i style="background:#C77D00"></i>暂离</span><span><i style="background:#8E8E93"></i>维护</span><span><i style="background:#B0B0B5"></i>停用</span></div>';
+    const legend = '<div class="legend" style="margin:0 2px 12px"><span><i style="background:#34C759"></i>空闲</span><span><i style="background:#FF9500"></i>已预约</span><span><i style="background:#007AFF"></i>使用中</span><span><i style="background:#C77D00"></i>暂离</span><span><i style="background:#8E8E93"></i>维护</span><span><i style="background:#B0B0B5"></i>停用</span></div>';
 
     const board = groups.map(({ room, seats: roomSeats }) =>
       '<section class="seat-room"><div class="seat-room-head"><div><h3>' + esc(room.name) + '</h3><p>' + esc(room.location || '') + '</p></div>' +
@@ -2350,7 +2350,7 @@
         '<div class="kpi"><div class="kpi-label">本月完成</div><div class="kpi-value">' + kpi.month_completed + '<small>次</small></div><div class="kpi-foot">近 30 日出勤率 ' + (kpi.attendance_rate == null ? '—' : kpi.attendance_rate + '%') + '</div></div>' +
         '<div class="kpi"><div class="kpi-label">30 日违规</div><div class="kpi-value">' + kpi.violations_30 + '<small>条</small></div><div class="kpi-foot">仅统计数量</div></div>' +
       '</div>' +
-      '<div class="card chart-card" style="margin-top:12px"><div class="chart-head"><h3>近 7 日班级预约</h3><div class="legend"><span><i style="background:#1a5fb4"></i>预约</span></div></div>' +
+      '<div class="card chart-card" style="margin-top:12px"><div class="chart-head"><h3>近 7 日班级预约</h3><div class="legend"><span><i style="background:#007AFF"></i>预约</span></div></div>' +
       '<div class="chart">' + trendChart(trend, { withCheckins: false }) + '</div></div>';
   }
 
@@ -2368,13 +2368,12 @@
     const labels = { booking: '预约', checkin: '签到', away: '暂离', credit: '信用分', cancel: '取消', consecutive: '连续违约', waitlist: '候补', blacklist: '黑名单', appeal: '申诉', reminder: '提醒', room: '开放时间' };
 
     return Object.entries(groups).map(([prefix, items]) =>
-      '<div class="section"><div class="section-head"><h2>' + esc(labels[prefix] || prefix) + '</h2><span class="tiny tertiary">' + items.length + ' 项</span></div>' +
-      '<div class="card table-wrap"><table class="data param-table"><thead><tr><th>参数</th><th class="col-value">当前值</th><th class="col-actions">操作</th></tr></thead><tbody>' +
-      items.map((item) =>
-        '<tr><td><span class="cell-main">' + esc(item.label) + '</span><span class="cell-sub mono">' + esc(item.code) + '</span></td>' +
-        '<td class="col-value"><strong>' + esc(item.value) + '</strong>' + (item.unit ? ' <span class="tertiary">' + esc(item.unit) + '</span>' : '') + '</td>' +
-        '<td class="col-actions"><button class="btn btn-secondary btn-sm" type="button" data-action="edit-param" data-code="' + esc(item.code) + '" data-label="' + esc(item.label) + '" data-value="' + esc(item.value) + '" data-kind="' + esc(item.kind) + '" data-unit="' + esc(item.unit || '') + '">修改</button></td></tr>').join('') +
-      '</tbody></table></div></div>').join('');
+      '<div class="section" style="margin-top:16px"><div class="section-head"><h2>' + esc(labels[prefix] || prefix) + '</h2></div>' +
+      '<div class="list">' + items.map((item) =>
+        '<button class="list-row clickable" type="button" data-action="edit-param" data-code="' + esc(item.code) + '" data-label="' + esc(item.label) + '" data-value="' + esc(item.value) + '" data-kind="' + esc(item.kind) + '" data-unit="' + esc(item.unit || '') + '">' +
+        '<div class="row-main"><div class="row-title">' + esc(item.label) + '</div><div class="row-sub mono">' + esc(item.code) + '</div></div>' +
+        '<div class="row-side"><span class="mono" style="font-weight:600">' + esc(item.value) + '</span><span class="tiny tertiary">' + esc(item.unit || '') + '</span>' + icon('chevron', 'row-chevron') + '</div></button>').join('') + '</div></div>'
+    ).join('');
   }
 
   function editParamSheet(config) {
@@ -2405,27 +2404,21 @@
     state.accountDirectory = items;
     return '<div class="account-toolbar"><p class="small muted">创建和管理账号；停用与重置密码会退出该账号的所有设备。</p>' +
       '<button class="btn btn-primary" type="button" data-action="account-create">新建账号</button></div>' +
-      (items.length ? '<div class="card table-wrap"><table class="data user-table"><thead><tr>' +
-        '<th class="col-id">账号</th><th class="col-name">姓名</th><th class="col-role">角色</th>' +
-        '<th>院系 / 班级</th><th class="col-status">状态</th><th class="col-actions">操作</th></tr></thead><tbody>' +
-        items.map((user) => {
-          const attrs = ' data-id="' + esc(user.id) + '" data-name="' + esc(user.name) + '"';
-          return '<tr>' +
-            '<td class="mono">' + esc(user.id) + '</td>' +
-            '<td><strong>' + esc(user.name) + '</strong></td>' +
-            '<td><span class="pill gray plain">' + esc(ROLE_TEXT[user.role] || user.role) + '</span></td>' +
-            '<td><span class="cell-main">' + esc(user.department || '未填写院系') + '</span>' +
-            (user.class_name ? '<span class="cell-sub">' + esc(user.class_name) + '</span>' : '') + '</td>' +
-            '<td><span class="pill ' + (user.status === 'active' ? 'green' : 'red') + '">' + (user.status === 'active' ? '已启用' : '已停用') + '</span>' +
-            (user.must_change_password ? ' <span class="pill orange">需修改密码</span>' : '') + '</td>' +
-            '<td class="col-actions"><div class="row-actions">' +
-            '<button class="btn btn-secondary btn-sm" type="button" data-action="edit-role"' + attrs + ' data-role="' + esc(user.role) + '">角色</button>' +
-            '<button class="btn btn-secondary btn-sm" type="button" data-action="account-sessions"' + attrs + '>登录设备</button>' +
-            '<button class="btn btn-secondary btn-sm" type="button" data-action="account-reset"' + attrs + '>重置密码</button>' +
-            '<button class="btn btn-secondary btn-sm" type="button" data-action="account-status"' + attrs + ' data-status="' + esc(user.status) + '"' +
-            (user.id === state.user.id && user.status === 'active' ? ' disabled title="不能停用自己的账号"' : '') + '>' +
-            (user.status === 'active' ? '停用' : '启用') + '</button></div></td></tr>';
-        }).join('') + '</tbody></table></div>' : emptyBlock('暂无账号', '点击“新建账号”添加成员。')) +
+      (items.length ? '<div class="list">' + items.map((user) => {
+        const attrs = ' data-id="' + esc(user.id) + '" data-name="' + esc(user.name) + '"';
+        return '<div class="list-row account-row"><span class="avatar-sm">' + esc(user.name.slice(0, 1)) + '</span>' +
+          '<div class="row-main"><div class="row-title">' + esc(user.name) + ' <span class="tertiary small">' + esc(user.id) + '</span></div>' +
+          '<div class="row-sub">' + esc(user.department || '未填写院系') + (user.class_name ? ' · ' + esc(user.class_name) : '') + '</div>' +
+          '<div class="account-tags"><span class="pill gray">' + esc(ROLE_TEXT[user.role] || user.role) + '</span>' +
+          '<span class="pill ' + (user.status === 'active' ? 'green' : 'red') + '">' + (user.status === 'active' ? '已启用' : '已停用') + '</span>' +
+          (user.must_change_password ? '<span class="pill orange">需修改密码</span>' : '') + '</div></div>' +
+          '<div class="account-actions"><button class="btn btn-secondary btn-sm" type="button" data-action="edit-role"' + attrs + ' data-role="' + esc(user.role) + '">角色</button>' +
+          '<button class="btn btn-secondary btn-sm" type="button" data-action="account-sessions"' + attrs + '>登录设备</button>' +
+          '<button class="btn btn-secondary btn-sm" type="button" data-action="account-reset"' + attrs + '>重置密码</button>' +
+          '<button class="btn btn-secondary btn-sm" type="button" data-action="account-status"' + attrs + ' data-status="' + esc(user.status) + '"' +
+          (user.id === state.user.id && user.status === 'active' ? ' disabled title="不能停用自己的账号"' : '') + '>' +
+          (user.status === 'active' ? '停用' : '启用') + '</button></div></div>';
+      }).join('') + '</div>' : emptyBlock('暂无账号', '点击“新建账号”添加成员。')) +
       accountPager(data, 20);
   }
 
