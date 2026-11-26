@@ -2,7 +2,7 @@
 
 > 当前版本：**v3.1.0**
 > 技术形态：FastAPI + SQLite + 原生 HTML/CSS/JavaScript，浏览器访问
-> 质量基线：`pytest` **504 passed / 1 skipped**；Node **39 passed**
+> 质量基线：`pytest` **510 passed / 1 skipped**；Node **39 passed**
 > 本文件是仓库的**唯一权威总说明**；设计、验收与历史记录见文末文档索引。
 
 ## 1. 项目简介
@@ -39,7 +39,7 @@ python -m venv .venv
 - 局域网访问：其他设备连接同一网络后，打开 `http://<主机IPv4>:8010/`；主机需放行 8010 端口，完整步骤见 [`局域网使用说明`](智慧自习室预约管理系统/seat_reservation/docs/局域网使用说明.md)
 - 外网访问：另跑 `ngrok http 8010`，分享其 HTTPS 地址；代理只转发请求，不保存业务数据
 
-Windows 下也可直接运行 `start-web.ps1`，效果与上面的启动命令一致。服务、Python 进程与代理需保持运行；关闭后网页无法访问，但数据仍在主机磁盘上。
+Windows 下也可在 `seat_reservation` 目录运行 `.\start-web.ps1`，效果与上面的启动命令一致。服务、Python 进程与代理需保持运行；关闭后网页无法访问，但数据仍在主机磁盘上。
 
 ## 4. 初始账号与密码规则
 
@@ -109,12 +109,13 @@ Windows 下也可直接运行 `start-web.ps1`，效果与上面的启动命令�
 | `SEAT_SESSION_IDLE_MINUTES` / `SEAT_SESSION_ABSOLUTE_HOURS` | 30 / 8 | 会话空闲与绝对有效期 |
 | `SEAT_SCHEDULER_ENABLED` / `SEAT_SCHEDULER_INTERVAL_SECONDS` | `true` / 60 | 超时扫描调度器 |
 | `SEAT_ACS_TOKEN` | 空 | 门禁/闸机对接令牌，留空则禁用 ACS 端点 |
+| `SEAT_PUBLIC_BASE_URL` | 空 | 桌贴二维码中的对外地址；反向代理或 ngrok 场景必须设置 |
 | `SEAT_LOG_LEVEL` / `SEAT_LOG_JSON` | `INFO` / `false` | 日志级别与 JSON 输出 |
 
 ## 8. 数据与备份
 
-- 交付默认库为 `var/delivery.db`；旧演示库 `var/web.db` 保留历史记录，不作为交付库。
-- 新库不复制演示账号、预约或座位，管理员登录后自行创建真实账号与资源。
+- 交付默认库为 `var/delivery.db`；库中只有系统管理员，学生、教师与自习室管理员账号由管理员创建或导入。
+- 首次启动自动完成迁移（当前 schema v5）并生成二维码签名密钥；重复启动不会重置已有账号与密码。
 - SQLite 使用 WAL 模式，写事务统一 `BEGIN IMMEDIATE`；预约冲突由唯一约束兜底，同一座位同一时段只会成功一单。
 - 在线备份（服务不用停）：
 
@@ -134,7 +135,8 @@ node --test tests/*.test.cjs
 
 当前基线：
 
-- `pytest`：**504 passed, 1 skipped**（跳过项为未安装 Playwright 的 `tests/test_e2e.py`，属预期）。
+- `pytest`：**510 passed, 1 skipped**（跳过项为未安装 Playwright 的 `tests/test_e2e.py`，属预期）。
+- 并发用例依赖 SQLite 的 WAL 文件锁；仓库放在 OneDrive 等同步目录、或被安全软件实时扫描时，6 条并发用例可能报 `attempt to write a readonly database`，把测试库移到本地非同步目录后重跑即可。
 - Node：**39 passed / 0 failed**。
 - 自检：`python run.py doctor` 输出运行环境、数据库路径与可写性、Schema 版本及账号/预约规模。
 
@@ -147,12 +149,13 @@ node --test tests/*.test.cjs
 | `test_analytics_*.py` | 运营分析、统计口径、CSV 导出 |
 | `test_integration_v12.py` | IT-01～IT-14、IT-02B 跨模块集成 |
 | `test_system_api.py` / `test_web_ui_api.py` | 系统状态、座位分母、冲突码区分 |
+| `test_qr_checkin.py` | 桌贴令牌签名、篡改拒绝、错座位、签到窗口、打印页权限 |
 | `test_security_*.py` | CSRF、越权、并发、凭证与事务安全 |
 | `*.test.cjs` | 账号中心、系统页、页面交互与审计视图 |
 
 ## 10. 部署要点
 
-- 生产环境设置 `SEAT_ENV=production`、`SEAT_COOKIE_SECURE=true`、`SEAT_DEMO_MODE=false`；生产环境自动关闭 `/docs` 与 `/openapi.json`。
+- 生产环境设置 `SEAT_ENV=production`、`SEAT_COOKIE_SECURE=true`；`SEAT_DEMO_MODE=true` 在生产环境会被拒绝启动，生产环境同时自动关闭 `/docs` 与 `/openapi.json`。
 - 置于 Nginx 等反向代理之后并启用 HTTPS；`location /` 需整体转发，不能只转发 `/api`，否则静态页面 404。
 - 数据库必须放在本地磁盘，目录对运行用户可写；不要把 SQLite 放到网络盘。
 - 使用 systemd 或 Windows 服务托管，配置自动重启；开启 NTP，签到与超时判定依赖系统时间。
@@ -163,19 +166,20 @@ node --test tests/*.test.cjs
 | 文档 | 内容 |
 |---|---|
 | [`CHANGELOG.md`](CHANGELOG.md) | v1.2 → v2.0.1 → v2.0.2 → v2.0.3 → v3.0.0 → v3.1.0 版本时间线 |
+| [`docs/文档体系与口径.md`](docs/文档体系与口径.md) | 四层文档定位、当前权威事实、历史差异说明与冲突取信顺序 |
 | [`docs/系统架构设计报告.md`](docs/系统架构设计报告.md) | 分层架构、数据模型、状态机、接口与规则映射 |
 | [`docs/四人协作分工与开发计划-v1.2.md`](docs/四人协作分工与开发计划-v1.2.md) | v1.2 阶段的协作分工与开发计划（历史记录） |
-| [`docs/collaboration/`](docs/collaboration/) | SFCR、模块设计与测试规范 |
-| [`docs/security-remediation/`](docs/security-remediation/) | 安全整改任务书、测试用例、报告与统计 |
-| [`智慧自习室预约管理系统/系统说明.md`](智慧自习室预约管理系统/系统说明.md) | 技术选型、状态机、业务规则与验收覆盖 |
+| [`docs/collaboration/`](docs/collaboration/) | SFCR、模块设计与测试规范（v1.2 阶段记录） |
+| [`docs/security-remediation/`](docs/security-remediation/) | 安全整改任务书、测试用例、报告与统计（v1.2～v2.0.3 阶段记录） |
+| [`智慧自习室预约管理系统/系统说明.md`](智慧自习室预约管理系统/系统说明.md) | 角色、业务闭环、关键规则、功能模块与已知边界 |
 | [`seat_reservation/docs/技术文档.md`](智慧自习室预约管理系统/seat_reservation/docs/技术文档.md) | 部署、备份恢复、安全设计与验收对照 |
 | [`智慧自习室预约管理系统/需求分析/需求规格说明书.md`](智慧自习室预约管理系统/需求分析/需求规格说明书.md) | 需求基线 v1.2 |
 
 ## 12. 已知限制
 
 - SQLite 单机单写者，不支持多节点同时写入；横向扩容需替换为 PostgreSQL 等数据库。
-- 未接入真实校园统一身份认证、门禁闸机与短信/微信通知，相关能力为教学模拟。
-- 不提供实时推送：座位状态变化后需刷新或重新查询才能看到。
+- 未接入学校统一身份认证；ACS 闸机端点使用共享令牌模拟，未与真实设备联调；通知仅站内消息，没有短信、邮件或微信推送。
+- 不提供实时推送：座位状态与未读消息在切页、回到窗口或刷新后更新。
 - 浏览器端仅对 Chromium 内核做过完整验证；未安装 Playwright 时，真实浏览器端到端用例跳过 1 条。
 - 桌贴是静态码，照片转发无法从技术上完全杜绝；真实校园系统需配合闸机或在座传感器。
 - SQLite 的 WAL 依赖本地文件锁：数据库放在云同步目录或被安全软件拦截时，并发写入可能报只读错误，建议使用本地普通目录。
