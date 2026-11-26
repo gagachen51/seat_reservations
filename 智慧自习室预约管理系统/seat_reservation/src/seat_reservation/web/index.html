@@ -7,81 +7,56 @@
   <meta name="color-scheme" content="light">
   <title>自习室 · 座位预约</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/styles.css?v=20261127c">
+  <link rel="stylesheet" href="/static/styles.css?v=20261127-auth3">
 </head>
 <body>
   <div id="boot" class="boot" aria-hidden="true"><span class="spinner"></span></div>
 
-  <section id="login" class="login" hidden>
-    <aside class="login-aside">
-      <div class="login-aside-inner">
-        <div class="brand-lg">
-          <span class="brand-mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M5 10V7.5A2.5 2.5 0 0 1 7.5 5h9A2.5 2.5 0 0 1 19 7.5V10"/>
-              <path d="M4 12.5A1.5 1.5 0 0 1 5.5 11h13A1.5 1.5 0 0 1 20 12.5V16H4z"/>
-              <path d="M6 16v3M18 16v3"/>
-            </svg>
-          </span>
-          <div>
-            <h1>自习室</h1>
-            <p>智慧座位预约</p>
-          </div>
-        </div>
-        <div class="login-copy">
-          <h2>把座位留给<br>真正来的人。</h2>
-          <p>预约、签到、暂离、现场处置与信用档案，在同一套规则下运转，每一步都有记录。</p>
-          <ul class="login-points">
-            <li>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15" rx="2.5"/><path d="M8 3v4M16 3v4M4 10h16"/></svg>
-              <span>预约、候补与超时自动释放</span>
-            </li>
-            <li>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L19 7"/></svg>
-              <span>扫码签到、暂离与签退闭环</span>
-            </li>
-            <li>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="m9 12 2 2 4-4"/></svg>
-              <span>现场巡检、信用限制与操作审计</span>
-            </li>
-          </ul>
-        </div>
-        <p class="login-aside-foot">校内私有部署 · 数据不出校</p>
-      </div>
-    </aside>
-    <div class="login-main">
-    <div class="login-wrap">
-      <div class="brand-lg login-brand-mobile">
-        <span class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+  <section id="login" class="login auth" hidden>
+    <div class="auth-art">
+      <header class="auth-brand">
+        <span class="auth-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
             <path d="M5 10V7.5A2.5 2.5 0 0 1 7.5 5h9A2.5 2.5 0 0 1 19 7.5V10"/>
             <path d="M4 12.5A1.5 1.5 0 0 1 5.5 11h13A1.5 1.5 0 0 1 20 12.5V16H4z"/>
             <path d="M6 16v3M18 16v3"/>
-          </svg>
-        </span>
-        <div>
-          <h1>自习室</h1>
-          <p>智慧座位预约</p>
-        </div>
+          </svg></span>
+        <span class="auth-brand-text"><strong>自习室</strong><small>智慧座位预约</small></span>
+      </header>
+
+      <div class="auth-copy">
+        <p class="auth-kicker">LIBRARY · SEAT RESERVATION</p>
+        <h2>一席之地，<br><span>各得其所。</span></h2>
+        <p class="auth-lede">预约、签到、暂离与信用记录，<br>在同一套规则下运转。</p>
       </div>
 
-      <form id="loginForm" class="login-card" novalidate>
-        <h2>登录</h2>
-        <p class="login-sub">使用校园账号进入预约系统</p>
-        <label class="field">
-          <span>学号 / 工号</span>
-          <input id="username" name="username" autocomplete="username" spellcheck="false" required>
-        </label>
-        <label class="field">
-          <span>密码</span>
-          <input id="password" name="password" type="password" autocomplete="current-password" required>
-        </label>
-        <button class="btn btn-primary btn-block" id="loginBtn" type="submit">登录</button>
-        <p class="form-error" id="loginError" hidden></p>
-      </form>
+      <svg class="auth-seatmap" viewBox="0 0 320 190" aria-hidden="true"><rect x="42" y="16" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="66" y="16" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="90" y="16" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="114" y="16" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="138" y="16" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="162" y="16" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="186" y="16" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.26)"/><rect x="210" y="16" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="234" y="16" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="258" y="16" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="282" y="16" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="18" y="40" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="42" y="40" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="66" y="40" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="90" y="40" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="114" y="40" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="138" y="40" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="162" y="40" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.26)"/><rect x="210" y="40" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="234" y="40" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="258" y="40" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="282" y="40" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="18" y="64" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="42" y="64" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="66" y="64" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="90" y="64" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="114" y="64" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="138" y="64" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.26)"/><rect x="162" y="64" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="186" y="64" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="210" y="64" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="234" y="64" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="258" y="64" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="282" y="64" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="18" y="88" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="42" y="88" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="90" y="88" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="138" y="88" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="162" y="88" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="186" y="88" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="210" y="88" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="234" y="88" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="258" y="88" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="282" y="88" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.26)"/><rect x="18" y="112" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="42" y="112" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="66" y="112" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="90" y="112" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.26)"/><rect x="114" y="112" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="138" y="112" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="162" y="112" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="186" y="112" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="210" y="112" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="258" y="112" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.26)"/><rect x="282" y="112" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="18" y="136" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="42" y="136" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="66" y="136" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.26)"/><rect x="90" y="136" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="114" y="136" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="138" y="136" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="162" y="136" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="186" y="136" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="210" y="136" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="234" y="136" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.26)"/><rect x="258" y="136" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="282" y="136" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="18" y="160" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="42" y="160" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.26)"/><rect x="66" y="160" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="90" y="160" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="138" y="160" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="162" y="160" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="186" y="160" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="210" y="160" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.26)"/><rect x="234" y="160" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="258" y="160" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="282" y="160" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="18" y="184" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.26)"/><rect x="42" y="184" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="66" y="184" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="90" y="184" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="114" y="184" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="138" y="184" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="162" y="184" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="186" y="184" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.26)"/><rect x="210" y="184" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="234" y="184" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="258" y="184" width="14" height="14" rx="1.5" fill="rgba(255,255,255,0.12)"/><rect x="114.0" y="88.0" width="14" height="14" rx="1.5" fill="#c8a15a"/><circle cx="121.0" cy="95.0" r="17" fill="none" stroke="#c8a15a" stroke-opacity="0.45"/><path d="M141.0 95.0 H175.0" stroke="#c8a15a" stroke-opacity="0.45"/><text x="181.0" y="98.5" fill="#c8a15a" font-size="8.5" letter-spacing="1.6">A-01</text></svg>
 
-      <p class="login-foot">智慧自习室预约管理系统</p>
+      <footer class="auth-art-foot">
+        <span>校内私有部署</span>
+        <span>数据不出校</span>
+      </footer>
     </div>
+
+    <div class="auth-side">
+      <div class="auth-form">
+        <p class="auth-kicker dark">SIGN IN</p>
+        <h1>登录</h1>
+        <p class="auth-sub">使用学号 / 工号进入预约系统</p>
+        <form id="loginForm" novalidate>
+          <label class="auth-field">
+            <span>学号 / 工号</span>
+            <input id="username" name="username" autocomplete="username" spellcheck="false" required>
+          </label>
+          <label class="auth-field">
+            <span>密码</span>
+            <input id="password" name="password" type="password" autocomplete="current-password" required>
+          </label>
+          <button class="auth-submit" id="loginBtn" type="submit">登 录</button>
+          <p class="form-error" id="loginError" hidden></p>
+        </form>
+        <p class="auth-help">首次登录需修改初始密码；忘记密码请联系自习室管理员。</p>
+      </div>
+      <p class="auth-copyright">智慧自习室预约管理系统</p>
     </div>
   </section>
 
