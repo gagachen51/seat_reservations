@@ -75,7 +75,7 @@ function harness() {
       state, usersView, accountSheet, accountStatusSheet, accountResetSheet,
       sessionSheet, profileSheet, waitlistView, accountConfirmWaitlist, accountCancelWaitlist,
       showLogin, submitLogin, logout, changePasswordSheet, restoreSession,
-      systemView, ACTIONS,
+      systemView, auditView, openAuditDetail, ACTIONS,
       mergeOptions, datalistOptions,
       seatsView, seatCard, openSeatInfo, openNoticeSheet, bookSelected, joinWaitlist,
       newComplaintSheet, analyticsHtml, ANALYTICS_METRIC_GUIDE, exportAdminCsv,

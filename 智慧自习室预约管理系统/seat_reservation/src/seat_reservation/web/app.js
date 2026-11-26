@@ -636,7 +636,7 @@
         '<div class="toolbar-row">' +
           '<label class="row small muted" style="gap:7px">开始' +
             '<select class="select-compact" data-filter="start">' + startOptions().map((value) =>
-              '<option value="' + value + '"' + (value === filters.start ? ' selected' : '') + '>' + value + '</option>').join('') + '</select>' +
+              '<option value="' + value + '"' + (value === filters.start ? ' selected' : '') + '>' + esc(auditActionText(value)) + '</option>').join('') + '</select>' +
           '</label>' +
           '<label class="row small muted" style="gap:7px">时长' +
             '<select class="select-compact" data-filter="duration">' + durationChoices.map((value) =>
@@ -2633,22 +2633,58 @@
   // ---------------------------------------------------------------------------
   // 视图：系统管理员 · 审计
   // ---------------------------------------------------------------------------
+  const AUDIT_ACTION_TEXT = {
+  "seat_block": "封禁座位",
+  "seat_unblock": "解除座位封禁",
+  "seat_block_release": "解除封禁记录",
+  "seat_block_expired": "封禁到期",
+  "seat_bulk_create": "批量创建座位",
+  "force_release": "强制释放预约",
+  "manual_violation": "登记违规",
+  "param_change": "修改系统参数",
+  "role_change": "修改角色",
+  "appeal_submit": "提交申诉",
+  "appeal_review": "审核申诉",
+  "blacklist_add": "加入黑名单",
+  "blacklist_release": "解除黑名单",
+  "complaint_resolve": "处理投诉",
+  "review_reply": "回复评价",
+  "auto_blacklist": "自动加入黑名单",
+  "user_create": "创建账号",
+  "user_status_change": "修改账号状态",
+  "user_reset_password": "重置密码",
+  "session_revoke": "注销登录会话",
+  "profile_update": "修改个人资料",
+  "bootstrap_admin": "初始化管理员",
+  "room_create": "创建自习室",
+  "room_update": "修改自习室",
+  "seat_create": "创建座位",
+  "seat_update": "修改座位",
+  "reservation_extend": "延长预约",
+  "reservation_resource_unavailable": "资源不可用取消预约",
+  "seed_demo": "初始化历史演示数据"
+};
+  const AUDIT_TARGET_TEXT = {"user": "账号", "room": "自习室", "seat": "座位", "reservation": "预约", "violation": "违规记录", "param": "系统参数", "complaint": "投诉", "review": "评价", "system": "系统", "demo": "历史演示数据"};
+  const auditActionText = code => AUDIT_ACTION_TEXT[code] || "其他操作";
+  const auditRoleText = code => ROLE_TEXT[code] || (code === "system" ? "系统自动任务" : "其他角色");
+  const auditTargetText = code => AUDIT_TARGET_TEXT[code] || "其他对象";
+
   async function auditView() {
     const action = state.auditAction || '';
     const data = await api('/admin/audit', { params: { action: action || undefined, page: state.page, page_size: 30 } });
     const items = data.items || [];
     const filters = '<div class="card toolbar" style="margin-bottom:14px"><div class="toolbar-row">' +
       '<select class="select-compact" data-audit="action"><option value="">全部动作</option>' +
-        ['seat_block', 'seat_unblock', 'force_release', 'manual_violation', 'param_change', 'role_change', 'appeal_review', 'blacklist_add', 'blacklist_release', 'complaint_resolve', 'review_reply', 'auto_blacklist'].map((value) =>
-          '<option value="' + value + '"' + (action === value ? ' selected' : '') + '>' + value + '</option>').join('') + '</select>' +
+        Object.keys(AUDIT_ACTION_TEXT).map((value) =>
+          '<option value="' + value + '"' + (action === value ? ' selected' : '') + '>' + esc(auditActionText(value)) + '</option>').join('') + '</select>' +
       '<div class="grow"></div><a class="btn btn-secondary btn-sm" href="/api/admin/export/audit.csv">导出 CSV</a></div></div>';
 
     if (!items.length) return filters + emptyBlock('没有审计记录', '封禁、释放、参数与角色变更会记录在这里。');
 
     return filters + '<div class="table-wrap"><table class="data"><thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>对象</th><th>IP</th></tr></thead><tbody>' +
       items.map((item) => '<tr class="clickable" data-action="audit-detail" data-id="' + esc(item.id) + '">' +
-        '<td class="nowrap">' + fmtDateTime(item.created_at) + '</td><td>' + esc(item.actor_id) + '<br><span class="tiny tertiary">' + esc(item.actor_role) + '</span></td>' +
-        '<td class="mono">' + esc(item.action) + '</td><td class="mono">' + esc(item.target_type) + ' / ' + esc(item.target_id) + '</td><td class="tiny tertiary">' + esc(item.ip || '—') + '</td></tr>').join('') +
+        '<td class="nowrap">' + fmtDateTime(item.created_at) + '</td><td>' + esc(item.actor_id) + '<br><span class="tiny tertiary">' + esc(auditRoleText(item.actor_role)) + '</span></td>' +
+        '<td class="mono">' + esc(auditActionText(item.action)) + '</td><td class="mono">' + esc(auditTargetText(item.target_type)) + ' / ' + esc(item.target_id) + '</td><td class="tiny tertiary">' + esc(item.ip || '—') + '</td></tr>').join('') +
       '</tbody></table></div><div class="pager"><span>共 ' + data.total + ' 条</span><div class="row">' +
       '<button class="btn btn-secondary btn-sm" type="button" data-action="page-prev"' + (state.page <= 1 ? ' disabled' : '') + '>上一页</button>' +
       '<button class="btn btn-secondary btn-sm" type="button" data-action="page-next"' + (state.page * 30 >= data.total ? ' disabled' : '') + '>下一页</button></div></div>';
@@ -2659,7 +2695,7 @@
     const item = (data.items || []).find((row) => row.id === id);
     if (!item) return;
     const body = '<dl class="detail-list">' +
-      [['日志号', item.id], ['操作人', item.actor_id + '（' + item.actor_role + '）'], ['动作', item.action], ['对象', item.target_type + ' / ' + item.target_id], ['时间', fmtDateTime(item.created_at)], ['IP', item.ip || '—']]
+      [['日志号', item.id], ['操作人', item.actor_id + '（' + auditRoleText(item.actor_role) + '）'], ['动作', auditActionText(item.action)], ['对象', auditTargetText(item.target_type) + ' / ' + item.target_id], ['时间', fmtDateTime(item.created_at)], ['IP', item.ip || '—']]
         .map(([label, value]) => '<div class="detail-row"><dt>' + label + '</dt><dd>' + esc(value) + '</dd></div>').join('') + '</dl>' +
       '<div class="section-head" style="margin-top:16px"><h2>变更前</h2></div><pre class="mono small" style="white-space:pre-wrap;background:var(--card-muted);padding:12px;border-radius:10px;overflow:auto">' + esc(JSON.stringify(item.before, null, 2) || '—') + '</pre>' +
       '<div class="section-head" style="margin-top:14px"><h2>变更后</h2></div><pre class="mono small" style="white-space:pre-wrap;background:var(--card-muted);padding:12px;border-radius:10px;overflow:auto">' + esc(JSON.stringify(item.after, null, 2) || '—') + '</pre>';

@@ -38,3 +38,15 @@ node --test tests/account_frontend.test.cjs tests/web_ui.test.cjs tests/system_u
 ```
 
 历史课程评审与发布记录保留供追溯，其中桌面安装、演示账号和旧密码策略已由本说明替代。
+
+## 恢复旧库座位
+
+如果交付库尚无座位，在项目目录执行：
+
+```powershell
+.\.venv\Scripts\python.exe scripts/restore_resources.py --source var/web.db --target var/delivery.db
+```
+
+脚本先用 SQLite 在线备份创建 `var/backups/` 下的交付库备份，再以事务导入缺失的自习室和座位；同编号资源不覆盖，账号与预约不迁移，失败自动回滚。完成后刷新页面重新查询座位。旧库保留到验收完成；维护或停用状态会保留，可在资源管理中核查。
+
+审计页面的动作、角色和对象类型采用中文展示，筛选仍使用原始动作编号，兼容历史审计记录。
