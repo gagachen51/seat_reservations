@@ -975,6 +975,31 @@ class SqliteRepository:
         ).fetchall()
         return [self._reservation(row) for row in rows]
 
+    def list_active_reservations(
+        self, *, room_id: str | None = None, seat_id: str | None = None
+    ) -> list[Reservation]:
+        """列出所有仍占用座位的预约（pending/in_use/away）。
+
+        供 C 的超时扫描与 B 的资源变更 helper 复用：房间关闭/座位停用后，
+        必须能一次性找到该资源下所有仍有效的预约，而不是只处理某个时间点
+        恰好到期的预约。
+        """
+        sql = f"""
+            SELECT r.* FROM reservations r
+            JOIN seats s ON s.id = r.seat_id
+            WHERE r.status IN ({_placeholders(len(OCCUPYING_STATUSES))})
+        """
+        params: list[Any] = [*sorted(OCCUPYING_STATUSES)]
+        if room_id:
+            sql += " AND s.room_id = ?"
+            params.append(room_id)
+        if seat_id:
+            sql += " AND r.seat_id = ?"
+            params.append(seat_id)
+        sql += " ORDER BY r.start_at, r.id"
+        rows = self.conn.execute(sql, params).fetchall()
+        return [self._reservation(row) for row in rows]
+
     def list_due_pending(self, now: datetime) -> list[Reservation]:
         rows = self.conn.execute(
             "SELECT * FROM reservations WHERE status='pending' AND checkin_deadline < ? ORDER BY start_at",

@@ -101,6 +101,8 @@ from .timeutil import (
 )
 
 REWARD_REASON = "按时签到签退奖励"
+#: M-04 资源不可用取消的统一结束原因（B 的 release_affected_reservations 契约）。
+RESOURCE_UNAVAILABLE_REASON = "resource_unavailable"
 _CROCKFORD = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 # FR-54 / FR-62 / FR-72 要求的导出类型；路由与引擎共用，避免"前端有链接、后端不认"。
 EXPORT_KINDS = (
@@ -565,6 +567,84 @@ class DomainEngine:
                 reservation.end_slot,
                 now,
             )
+
+    def _cancel_resource_unavailable(
+        self,
+        reservation: Reservation,
+        reason: str,
+        now: datetime,
+        *,
+        actor: Actor | None = None,
+    ) -> bool:
+        """资源不可用时统一取消预约：不记 no_show、不扣信用、不重复处理。
+
+        与 B 的 ``release_affected_reservations`` 契约一致：预约置为
+        ``cancelled``、``end_reason="resource_unavailable"``，写通知与审计。
+        """
+        if reservation.status not in OCCUPYING_STATUSES:
+            return False
+        before = {
+            "status": reservation.status,
+            "end_reason": reservation.end_reason,
+            "version": reservation.version,
+        }
+        self._release_reservation(
+            reservation,
+            ReservationStatus.CANCELLED.value,
+            RESOURCE_UNAVAILABLE_REASON,
+            now,
+        )
+        self._notify(
+            reservation.user_id,
+            NotificationType.SEAT_BLOCKED.value,
+            f"因资源不可用（{reason}）取消您 {reservation.seat_id} "
+            f"{fmt_date(reservation.day)} {hhmm(reservation.start_slot)}-"
+            f"{hhmm(reservation.end_slot)} 的预约；不记违约、不扣信用分。",
+            now,
+            dedupe_key=f"resource_unavailable:{reservation.id}",
+        )
+        self._audit(
+            actor,
+            "reservation_resource_unavailable",
+            "reservation",
+            reservation.id,
+            before=before,
+            after={
+                "status": reservation.status,
+                "end_reason": reservation.end_reason,
+                "reason": reason,
+            },
+            now=now,
+        )
+        return True
+
+    def release_affected_reservations(
+        self,
+        room_id: str | None = None,
+        seat_id: str | None = None,
+        reason: str = "",
+        actor: Actor | None = None,
+        now: datetime | None = None,
+    ) -> list[str]:
+        """B 的资源变更统一 helper：释放房间/座位下所有仍有效的预约。
+
+        契约（M-04）：受影响预约统一 ``cancelled``、
+        ``end_reason="resource_unavailable"``；不记 no_show、不扣信用；写通知
+        与审计；重复调用幂等（第二次已无占用中的预约）。
+        """
+        if not room_id and not seat_id:
+            return []
+        current = now or datetime.now()
+        label = reason.strip() or "资源状态变更"
+        affected: list[str] = []
+        for reservation in self.repo.list_active_reservations(
+            room_id=room_id, seat_id=seat_id
+        ):
+            if self._cancel_resource_unavailable(
+                reservation, label, current, actor=actor
+            ):
+                affected.append(reservation.id)
+        return affected
 
     def _offer_waitlist(
         self, seat_id: str, day: date, start_slot: int, end_slot: int, now: datetime
@@ -1366,6 +1446,7 @@ class DomainEngine:
             "late_checkout": 0,
             "waitlist_expired": 0,
             "seat_blocks_expired": 0,
+            "resource_unavailable": 0,
             "reminders": 0,
         }
         for reservation in self.repo.list_due_pending(now):
