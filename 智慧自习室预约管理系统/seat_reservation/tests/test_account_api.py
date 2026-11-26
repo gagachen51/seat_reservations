@@ -1,19 +1,15 @@
-"""账号 HTTP 契约；在夹具中装配 A 路由，正式注册由 B 的 SFCR 完成。"""
+"""账号 HTTP 契约；使用正式应用工厂验证接口注册及账号生命周期。"""
 import pytest
 from fastapi.testclient import TestClient
 
 from seat_reservation.api.app import create_app
-from seat_reservation.api.routes.account_routes import router
 from seat_reservation.config import Settings
 from tests.helpers import PASSWORD
 
 
 @pytest.fixture
 def account_app(ctx):
-    app = create_app(Settings.for_tests(ctx.settings.db_path))
-    if not any(getattr(route, "path", "") == "/api/me/sessions" for route in app.routes):
-        app.include_router(router, prefix="/api")
-    return app
+    return create_app(Settings.for_tests(ctx.settings.db_path))
 
 
 @pytest.fixture

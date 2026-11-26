@@ -13,7 +13,7 @@ from fastapi import Depends, Request
 from fastapi.responses import JSONResponse
 
 from ..domain.engine import DomainEngine
-from ..domain.models import Actor, Page, Result
+from ..domain.models import Actor, Page, Result, Role
 from ..errors import Forbidden, Unauthenticated
 from ..service.auth import AuthSession, actor_of
 from ..service.container import AppContext
@@ -34,7 +34,8 @@ def get_session(request: Request, ctx: AppContext = Depends(get_context)) -> Aut
     if session is None:
         raise Unauthenticated("登录状态已失效，请重新登录")
     path = request.url.path.rstrip("/") or "/"
-    if session.user.must_change_password and path not in _PASSWORD_CHANGE_ALLOWED:
+    if (session.user.role != Role.SYS_ADMIN.value and session.user.must_change_password
+            and path not in _PASSWORD_CHANGE_ALLOWED):
         raise Forbidden(
             "首次登录或密码重置后必须先修改密码",
             code="PASSWORD_CHANGE_REQUIRED",

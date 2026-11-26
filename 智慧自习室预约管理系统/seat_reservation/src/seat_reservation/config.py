@@ -19,7 +19,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DB_PATH = PROJECT_ROOT / "var" / "seat_reservation.db"
+DEFAULT_DB_PATH = PROJECT_ROOT / "var" / "delivery.db"
 # 演示库与正式库默认分离：未显式指定 SEAT_DB_PATH 时，演示模式落到独立文件，
 # 避免演示种子数据（含演示系统管理员）写进正式库。
 DEFAULT_DEMO_DB_PATH = PROJECT_ROOT / "var" / "seat_demo.db"

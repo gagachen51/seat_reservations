@@ -39,9 +39,9 @@ test('create form sends trimmed fields and requests generated password only when
   h.field('#accountId', ' S9 '); h.field('#accountName', ' 新姓名 ');
   h.field('#accountRole', 'student'); h.field('#accountDepartment', ' 院系 ');
   h.field('#accountClass', ' 班级 '); h.field('#accountPassword', '');
-  await h.a.accountSheet();
+  await h.a.ACTIONS['account-create']();
   assert.match(h.panels[0].body, /院系（选填，可直接输入）/);
-  assert.match(h.panels[0].body, /初始密码（留空则使用临时密码 12345678）/);
+  assert.match(h.panels[0].body, /初始密码统一为 12345678/);
   assert.match(h.panels[0].body, /例如：计算机科学与技术学院/);
   assert.match(h.panels[0].body, /例如：计科2301/);
   assert.match(h.panels[0].body, /信息工程学院/);
@@ -50,7 +50,7 @@ test('create form sends trimmed fields and requests generated password only when
   const post = h.calls.find((call) => call.options.method === 'POST');
   assert.deepEqual(post, { url: '/admin/users', options: { method: 'POST',
     body: { id: 'S9', name: '新姓名', role: 'student', department: '院系', class_name: '班级' } } });
-  assert.match(h.panels[1].body, /已将临时密码重置为 12345678，该账号下次登录时必须修改为新密码。/);
+  assert.match(h.panels[1].body, /初始密码统一为 12345678；非系统管理员下次登录时必须修改为新密码。/);
   assert.match(h.panels[1].body, /12345678/);
   assert.ok(!JSON.stringify(h.a.state).includes('12345678'));
 });
@@ -59,7 +59,7 @@ test('invalid create form never sends a request', async () => {
   const h = harness();
   h.respond(() => { throw new Error('should not call'); });
   h.field('#accountForm', '', false);
-  await h.a.accountSheet();
+  await h.a.ACTIONS['account-create']();
   await h.panels[0].actions[1].onClick();
   assert.ok(!h.calls.some((call) => call.options.method === 'POST'));
 });
@@ -68,7 +68,7 @@ test('status change requires a reason and targets only the selected account', as
   const h = harness();
   h.respond(() => ({}));
   h.field('#accountStatusForm', '', true); h.field('#accountReason', ' 暂停使用 ');
-  h.a.accountStatusSheet({ id: 'S@9', name: '同学', status: 'active' });
+  await h.a.ACTIONS['account-status']({ dataset: { id: 'S@9', name: '同学', status: 'active' } });
   await h.panels[0].actions[1].onClick();
   assert.deepEqual(h.calls[0], { url: '/admin/users/S%409/status',
     options: { method: 'PUT', body: { status: 'disabled', reason: '暂停使用' } } });
@@ -77,11 +77,11 @@ test('status change requires a reason and targets only the selected account', as
 test('password reset calls the correct endpoint and shows the 12345678 temp password', async () => {
   const h = harness();
   h.respond(() => ({ initial_password: '12345678' }));
-  h.a.accountResetSheet({ id: 'S1', name: '同学' });
+  await h.a.ACTIONS['account-reset']({ dataset: { id: 'S1', name: '同学' } });
   assert.match(h.panels[0].body, /重置后临时密码固定为 12345678/);
   await h.panels[0].actions[1].onClick();
   assert.equal(h.calls[0].url, '/admin/users/S1/reset-password');
-  assert.match(h.panels[1].body, /已将临时密码重置为 12345678，该账号下次登录时必须修改为新密码。/);
+  assert.match(h.panels[1].body, /初始密码统一为 12345678；非系统管理员下次登录时必须修改为新密码。/);
   assert.match(h.panels[1].body, /12345678/);
   assert.ok(!JSON.stringify(h.a.state).includes('12345678'));
 });
@@ -213,7 +213,7 @@ test('first login with must_change_password skips /meta and opens forced change 
   h.a.setEnterApp(() => { entered += 1; });
   h.respond(url => {
     if (url === '/auth/login') {
-      return { csrf_token: 'csrf-1', user: { id: 'Y0001', name: '管理员', role: 'sys_admin', must_change_password: true } };
+      return { csrf_token: 'csrf-1', user: { id: 'Y0001', name: '学生', role: 'student', must_change_password: true } };
     }
     throw new Error('unexpected request ' + url);
   });
@@ -237,7 +237,7 @@ test('forced password change completes and returns to login with new-password hi
   const h = harness();
   h.respond(url => {
     if (url === '/auth/login') {
-      return { csrf_token: 'csrf-1', user: { id: 'Y0001', name: '管理员', role: 'sys_admin', must_change_password: true } };
+      return { csrf_token: 'csrf-1', user: { id: 'Y0001', name: '学生', role: 'student', must_change_password: true } };
     }
     if (url === '/auth/change-password') return null;
     return {};
@@ -264,7 +264,7 @@ test('session restore with must_change_password keeps session and opens forced s
   h.a.setEnterApp(() => { entered += 1; });
   h.respond(url => {
     if (url === '/auth/me') {
-      return { csrf_token: 'csrf-2', user: { id: 'Y0001', name: '管理员', role: 'sys_admin', must_change_password: true } };
+      return { csrf_token: 'csrf-2', user: { id: 'Y0001', name: '学生', role: 'student', must_change_password: true } };
     }
     throw new Error('unexpected request ' + url);
   });
@@ -301,4 +301,30 @@ test('normal login and session restore still load /meta and enter the app', asyn
   assert.deepEqual(h.calls.map(c => c.url), ['/auth/login', '/meta', '/auth/me', '/meta']);
   assert.equal(entered, 2);
   assert.equal(h.panels.length, 0);
+});
+
+
+test('account device button dispatches a request for the selected user', async () => {
+  const h = harness();
+  h.respond(() => ({ items: [] }));
+  await h.a.ACTIONS['account-sessions']({ dataset: { id: 'S@9', name: '同学' } });
+  assert.equal(h.calls[0].url, '/admin/users/S%409/sessions');
+  assert.equal(h.panels[0].title, '账号登录设备');
+  assert.match(h.panels[0].body, /暂无有效登录设备/);
+});
+
+
+test('system administrator bypasses first-login password gate', async () => {
+  const h = harness();
+  let entered = 0;
+  h.a.setEnterApp(() => { entered += 1; });
+  h.respond(url => url === '/auth/login'
+    ? { csrf_token: 'csrf', user: { id: 'Y0001', role: 'sys_admin', must_change_password: true } }
+    : {});
+  h.field('#username', 'Y0001');
+  h.field('#password', '12345678');
+  await h.a.submitLogin({ preventDefault() {} });
+  assert.equal(entered, 1);
+  assert.equal(h.panels.length, 0);
+  assert.deepEqual(h.calls.map(c => c.url), ['/auth/login', '/meta']);
 });

@@ -56,7 +56,7 @@ def create_user_api(client: TestClient, headers: dict[str, str], user_id: str, *
         "role": "student",
         "department": "计算机学院",
         "class_name": "软件 2301",
-        "password": "TempPass123",
+        "password": "12345678",
     }
     body.update(overrides)
     return client.post("/api/admin/users", headers=headers, json=body)
@@ -131,7 +131,7 @@ def test_it_02_force_password_blocks_business_api(api: TestClient) -> None:
     admin_headers = login(api)
     created = create_user_api(api, admin_headers, "IT-02")
     assert created.status_code == 201, created.text
-    login(api, "IT-02", "TempPass123")
+    login(api, "IT-02", "12345678")
     csrf = {"X-CSRF-Token": api.cookies.get("seat_csrf") or ""}
     for url in ("/api/meta", "/api/reservations", "/api/me/dashboard"):
         response = api.get(url, headers=csrf)
@@ -141,7 +141,7 @@ def test_it_02_force_password_blocks_business_api(api: TestClient) -> None:
     changed = api.post(
         "/api/auth/change-password",
         headers=csrf,
-        json={"old_password": "TempPass123", "new_password": "Changed-Pass-123"},
+        json={"old_password": "12345678", "new_password": "Changed-Pass-123"},
     )
     assert changed.status_code == 200
     assert api.get("/api/auth/me", headers=csrf).status_code == 401
@@ -163,7 +163,7 @@ def test_it_02b_must_change_login_keeps_session_until_password_updated(api: Test
     created = create_user_api(api, admin, "IT-02B")
     assert created.status_code == 201, created.text
 
-    headers = login(api, "IT-02B", "TempPass123")
+    headers = login(api, "IT-02B", "12345678")
     me = api.get("/api/auth/me", headers=headers)
     assert me.status_code == 200
     assert me.json()["data"]["user"]["must_change_password"] is True
@@ -175,7 +175,7 @@ def test_it_02b_must_change_login_keeps_session_until_password_updated(api: Test
     changed = api.post(
         "/api/auth/change-password",
         headers=headers,
-        json={"old_password": "TempPass123", "new_password": "Changed-Pass-123"},
+        json={"old_password": "12345678", "new_password": "Changed-Pass-123"},
     )
     assert changed.status_code == 200
 

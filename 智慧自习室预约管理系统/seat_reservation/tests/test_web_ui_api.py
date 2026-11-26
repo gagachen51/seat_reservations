@@ -1,10 +1,9 @@
-"""桌面端全流程走查发现的 7 项缺陷：后端接口与桌面桥接测试。
+"""网页端全流程走查发现的 7 项缺陷：后端接口回归测试。
 
 覆盖：
 * 自习室物理启用座位数 total_seats（分母）；
 * USER_TIME_CONFLICT / SEAT_OCCUPIED / SEAT_DISABLED / SEAT_UNAVAILABLE 区分；
-* 演示数据初始化保留现有系统管理员密码与个人状态；
-* 桌面版 pywebview 原生另存为桥接。
+* 演示数据初始化保留现有系统管理员密码与个人状态。
 """
 
 from __future__ import annotations
@@ -17,7 +16,6 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-import desktop_launcher
 from seat_reservation.api.app import create_app
 from seat_reservation.config import Settings
 from seat_reservation.domain.models import User
@@ -231,44 +229,3 @@ def test_seed_demo_creates_default_admin_when_none_active(tmp_path: Path) -> Non
         admin = SqliteRepository(conn).get_user("Y0001")
     assert admin is not None
     assert verify_password("Demo-Pass-5678", admin.password_hash)
-
-
-def test_desktop_bridge_saves_csv_with_bom(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    fake_webview = types.SimpleNamespace(SAVE_DIALOG="save-dialog")
-    monkeypatch.setitem(sys.modules, "webview", fake_webview)
-    target = tmp_path / "预约记录.csv"
-    seen: dict[str, object] = {}
-
-    class FakeWindow:
-        def create_file_dialog(self, dialog_type, **kwargs):  # noqa: ANN001
-            seen["dialog_type"] = dialog_type
-            seen.update(kwargs)
-            return str(target)
-
-    bridge = desktop_launcher.Bridge("http://127.0.0.1:8010")
-    bridge._window = FakeWindow()  # noqa: SLF001 - 测试注入
-    result = bridge.save_export_file("../不安全的:名称.csv", "a,b\n1,2")
-    assert result["ok"] is True
-    assert Path(result["path"]) == target
-    assert seen["save_filename"] == "不安全的名称.csv"
-    content = target.read_text(encoding="utf-8")
-    assert content.startswith("\ufeff")
-    assert "a,b" in content
-
-
-def test_desktop_bridge_handles_cancel_and_missing_window(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    fake_webview = types.SimpleNamespace(SAVE_DIALOG="save-dialog")
-    monkeypatch.setitem(sys.modules, "webview", fake_webview)
-
-    class CancelWindow:
-        def create_file_dialog(self, *_args, **_kwargs):
-            return []
-
-    bridge = desktop_launcher.Bridge("http://127.0.0.1:8010")
-    bridge._window = CancelWindow()  # noqa: SLF001
-    assert bridge.save_export_file("x.csv", "a")["canceled"] is True
-
-    empty = desktop_launcher.Bridge("http://127.0.0.1:8010")
-    assert empty.save_export_file("x.csv", "a")["ok"] is False

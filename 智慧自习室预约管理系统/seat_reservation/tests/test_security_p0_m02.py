@@ -5,7 +5,7 @@
 * 生产 Cookie Secure、Demo 互斥、Docs/OpenAPI 关闭；
 * .env 加载与“进程环境优先”的优先级；
 * 配置日志摘要不含秘密与完整数据库路径；
-* 桌面启动器的环境设置不回归。
+* 服务启动时的环境设置不回归。
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-import desktop_launcher
 from seat_reservation.api.app import create_app
 from seat_reservation.config import (
     DEFAULT_DB_PATH,
@@ -274,23 +273,3 @@ def test_startup_log_contains_no_secrets(tmp_path: Path) -> None:
     assert "ACS-TOPSECRET-TOKEN" not in text
     assert str(db_path) not in text
     assert "seat.db" in text
-
-
-# ---------------------------------------------------------------------------
-# 桌面启动器环境设置
-# ---------------------------------------------------------------------------
-def test_launcher_environment_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(desktop_launcher, "data_root", lambda: tmp_path)
-    for key in ("SEAT_ENV", "SEAT_DB_PATH", "SEAT_HOST", "SEAT_SCHEDULER_ENABLED"):
-        monkeypatch.delenv(key, raising=False)
-
-    root = desktop_launcher.prepare_runtime()
-    assert root == tmp_path
-    assert os.environ["SEAT_ENV"] == "development"
-    assert os.environ["SEAT_HOST"] == "127.0.0.1"
-    assert os.environ["SEAT_DB_PATH"] == str(tmp_path / "data" / "seat_reservation.db")
-
-    settings = Settings.from_env()
-    assert settings.env == "development"
-    assert settings.db_path == tmp_path / "data" / "seat_reservation.db"
-    assert settings.demo_mode is False

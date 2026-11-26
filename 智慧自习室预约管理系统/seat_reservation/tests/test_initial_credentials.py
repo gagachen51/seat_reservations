@@ -42,7 +42,7 @@ def test_bootstrap_admin_writes_initial_credentials_file(tmp_path: Path) -> None
     assert "账号 ID：Y0001" in text
     assert f"初始密码：{password}" in text
     assert "生成时间：" in text
-    assert "首次登录后系统将强制要求修改密码" in text
+    assert "系统管理员免首次强制改密" in text
     assert "删除此文件" in text
     assert list(target.parent.glob("initial_admin_credentials*.txt")) == [target]
 

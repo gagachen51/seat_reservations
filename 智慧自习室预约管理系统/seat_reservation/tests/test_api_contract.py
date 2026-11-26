@@ -108,30 +108,8 @@ def test_common_and_auth_routes(client: TestClient, call: Calls) -> None:
     assert client.get("/api/auth/me").status_code == 401
 
 
-def test_demo_accounts_available_in_demo_mode(client: TestClient, call: Calls) -> None:
-    response = call(client, {}, "GET", "/api/auth/demo-accounts", expect=200)
-    items = response.json()["data"]
-    assert len(items) == 4
-    assert {item["role"] for item in items} == {
-        "student",
-        "teacher",
-        "room_admin",
-        "sys_admin",
-    }
-    assert all(item["username"] and item["name"] for item in items)
-    # 演示密码属于部署凭据，只能由初始化渠道一次性展示，接口不得下发。
-    assert all("password" not in item for item in items)
 
 
-def test_demo_accounts_unavailable_when_disabled(ctx) -> None:
-    import dataclasses
-
-    settings = dataclasses.replace(Settings.for_tests(ctx.settings.db_path), demo_mode=False)
-    app = create_app(settings)
-    with TestClient(app) as disabled:
-        response = disabled.get("/api/auth/demo-accounts")
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "NOT_FOUND"
 
 
 def test_student_routes_contract(client: TestClient, call: Calls) -> None:

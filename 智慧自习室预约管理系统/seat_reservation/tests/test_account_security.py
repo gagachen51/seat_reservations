@@ -50,7 +50,7 @@ CREATE_BODY = {
     "role": "student",
     "department": "计算机学院",
     "class_name": "软件 2301",
-    "password": "TempPass123",
+    "password": "12345678",
 }
 
 
@@ -84,7 +84,7 @@ def create_engine_user(env: Env, user_id: str = "TMP-STU", **overrides):
         "user_id": user_id,
         "name": "临时学生",
         "role": "student",
-        "password": "TempPass123",
+        "password": "12345678",
     }
     values.update(overrides)
     with env.ctx.engine() as engine:
@@ -417,9 +417,9 @@ def test_a_sec_014_concurrent_create_same_id(env: Env) -> None:
 # ---------------------------------------------------------------------------
 def test_a_sec_015_force_password_full_flow(api: TestClient) -> None:
     admin_headers = login(api)
-    created = create_via_api(api, admin_headers, password="TempPass123")
+    created = create_via_api(api, admin_headers, password="12345678")
     assert created.status_code == 201, created.text
-    login(api, "TMP-STU", "TempPass123")
+    login(api, "TMP-STU", "12345678")
     headers = {"X-CSRF-Token": api.cookies.get("seat_csrf") or ""}
     for method, url in (("GET", "/api/meta"), ("GET", "/api/reservations"), ("GET", "/api/me/dashboard")):
         response = api.request(method, url, headers=headers)
@@ -429,7 +429,7 @@ def test_a_sec_015_force_password_full_flow(api: TestClient) -> None:
     changed = api.post(
         "/api/auth/change-password",
         headers=headers,
-        json={"old_password": "TempPass123", "new_password": PASSWORD_NEW},
+        json={"old_password": "12345678", "new_password": PASSWORD_NEW},
     )
     assert changed.status_code == 200
     assert api.get("/api/auth/me").status_code == 401
@@ -637,9 +637,9 @@ def test_a_sec_023_real_openapi_has_eight_account_routes(api: TestClient) -> Non
 # ---------------------------------------------------------------------------
 def test_a_sec_024_force_password_and_csrf_integration(api: TestClient) -> None:
     admin_headers = login(api)
-    created = create_via_api(api, admin_headers, password="TempPass123")
+    created = create_via_api(api, admin_headers, password="12345678")
     assert created.status_code == 201
-    login(api, "TMP-STU", "TempPass123")
+    login(api, "TMP-STU", "12345678")
     no_csrf = api.post("/api/reservations", json={})
     assert no_csrf.status_code == 403 and no_csrf.json()["error"]["code"] == "CSRF_FAILED"
     csrf_headers = {"X-CSRF-Token": api.cookies.get("seat_csrf") or ""}
@@ -648,7 +648,7 @@ def test_a_sec_024_force_password_and_csrf_integration(api: TestClient) -> None:
     changed = api.post(
         "/api/auth/change-password",
         headers=csrf_headers,
-        json={"old_password": "TempPass123", "new_password": PASSWORD_NEW},
+        json={"old_password": "12345678", "new_password": PASSWORD_NEW},
     )
     assert changed.status_code == 200
     assert api.get("/api/auth/me").status_code == 401

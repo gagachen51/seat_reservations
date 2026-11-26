@@ -1684,97 +1684,11 @@ body {
   -webkit-backdrop-filter: blur(24px) saturate(180%);
 }
 
-/* ==========================================================================
-   桌面壳：自绘标题栏（无系统边框）
-   仅在 ?shell=1 时启用，浏览器访问不受影响。
-   ========================================================================== */
-
-.titlebar { display: none; }
-
-body.shell .titlebar {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 44px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 6px 0 14px;
-  background: #fff;
-  border-bottom: 1px solid rgba(16, 24, 40, 0.07);
-  z-index: 140;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.titlebar-brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--label);
-  letter-spacing: 0.01em;
-}
-
-.titlebar-logo {
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
-  background: linear-gradient(180deg, #3d9cff, #0064d8);
-  display: grid;
-  place-items: center;
-  color: #fff;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
-}
-
-.titlebar-logo svg { width: 12px; height: 12px; }
-
-.titlebar-drag { flex: 1; height: 100%; }
-
-.titlebar-actions { display: flex; gap: 2px; }
-
-.titlebar-actions button {
-  width: 40px;
-  height: 30px;
-  border: 0;
-  background: transparent;
-  border-radius: 6px;
-  color: #4a4a4f;
-  display: grid;
-  place-items: center;
-  cursor: default;
-  transition: background 0.14s var(--ease-out), color 0.14s var(--ease-out);
-}
-
-.titlebar-actions button:hover { background: rgba(16, 24, 40, 0.06); }
-.titlebar-actions button[data-win="close"]:hover { background: #e81123; color: #fff; }
-.titlebar-actions svg { width: 11px; height: 11px; }
-
-body.shell { padding-top: 44px; }
-body.shell .app,
-body.shell .login { min-height: calc(100dvh - 44px); }
-body.shell .sidebar { height: calc(100dvh - 44px); }
-body.shell .topbar { top: 44px; }
-
-@media (max-width: 860px) {
-  body.shell .sidebar { height: auto; }
-}
-
 /* 侧栏宽度需同时改 flex-basis，否则 flex 布局会忽略 width */
 .sidebar {
   width: 212px;
   flex: 0 0 212px;
 }
-
-/* 桌面壳里 logo 已在标题栏，侧栏不再重复品牌 */
-body.shell .brand { display: none; }
-body.shell .sidebar { padding-top: 14px; }
-
-/* 桌面窗口模式：顶部 44px 是自绘标题栏（z-index 140），提示条原本停在 top:14px
-   会被整条盖住、完全看不到。这里下移到标题栏下方，与 topbar 的让位保持一致。 */
-body.shell .toast { top: 58px; }
 
 /* ==========================================================================
    资源与座位治理（成员 B / FR-21 / PR-05 / PR-06）
