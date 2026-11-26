@@ -636,7 +636,7 @@
         '<div class="toolbar-row">' +
           '<label class="row small muted" style="gap:7px">开始' +
             '<select class="select-compact" data-filter="start">' + startOptions().map((value) =>
-              '<option value="' + value + '"' + (value === filters.start ? ' selected' : '') + '>' + esc(auditActionText(value)) + '</option>').join('') + '</select>' +
+              '<option value="' + value + '"' + (value === filters.start ? ' selected' : '') + '>' + esc(value) + '</option>').join('') + '</select>' +
           '</label>' +
           '<label class="row small muted" style="gap:7px">时长' +
             '<select class="select-compact" data-filter="duration">' + durationChoices.map((value) =>

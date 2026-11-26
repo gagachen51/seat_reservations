@@ -153,3 +153,22 @@ test('web export falls back to Blob download when no desktop bridge exists', asy
   assert.equal(link.clicked, true);
   assert.ok(h.appended.includes(link));
 });
+
+
+test('booking start-time options display clock values, not audit labels', async () => {
+  const h = harness();
+  h.a.state.meta = meta();
+  h.a.state.seatFilters = filters();
+  h.respond(() => ({ items: [], rooms: [], total: 0 }));
+  const html = await h.a.seatsView();
+  const select = html.match(/<select[^>]*data-filter="start"[^>]*>([\s\S]*?)<\/select>/)[1];
+  const options = [...select.matchAll(/<option value="([^"]+)"[^>]*>([^<]+)<\/option>/g)];
+  assert.ok(options.length > 1);
+  for (const option of options) {
+    assert.match(option[1], /^\d{2}:\d{2}$/);
+    assert.equal(option[2], option[1]);
+  }
+  assert.match(select, /value="09:00" selected>09:00/);
+  assert.equal(h.calls[0].options.params.start, '09:00');
+  assert.ok(!select.includes('其他操作'));
+});
