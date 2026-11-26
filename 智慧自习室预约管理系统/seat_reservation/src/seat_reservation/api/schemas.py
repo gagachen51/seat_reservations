@@ -142,6 +142,12 @@ class ParamIn(BaseModel):
     value: str
 
 
+class DemoInitIn(BaseModel):
+    """演示数据初始化：必须回传固定确认短语，避免误触或脚本误调。"""
+
+    confirm: str = Field(min_length=1, max_length=64)
+
+
 class RoleIn(BaseModel):
     role: str
 

@@ -1,59 +1,7 @@
 // 无第三方依赖的视图/控制器测试；不替代真实浏览器视觉验收。
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const vm = require('node:vm');
-
-function harness() {
-  const source = fs.readFileSync(path.join(__dirname, '../src/seat_reservation/web/app.js'), 'utf8');
-  const end = source.indexOf('  // 事件绑定');
-  assert.ok(end > 0);
-  const elements = {
-    '#app': { hidden: false },
-    '#login': { hidden: true },
-    '#boot': { hidden: false },
-    '#loginBtn': { disabled: false, textContent: '登录' },
-    '#loginError': { hidden: true, textContent: '' },
-    '#username': { value: '', focus() {} },
-    '#password': { value: '', focus() {} },
-    '#demoBox': { hidden: true, innerHTML: '' },
-  };
-  const panels = [];
-  const calls = [];
-  const context = vm.createContext({
-    document: {
-      querySelector: (selector) => elements[selector],
-      querySelectorAll: () => [],
-      body: { dataset: {} },
-    },
-    setTimeout: (fn) => fn(), clearTimeout() {}, setInterval() {}, clearInterval() {},
-    console, URL, Date,
-  });
-  vm.runInContext(source.slice(0, end) + `
-    globalThis.account = {
-      state, usersView, accountSheet, accountStatusSheet, accountResetSheet,
-      sessionSheet, profileSheet, waitlistView, accountConfirmWaitlist, accountCancelWaitlist,
-      showLogin, submitLogin, logout, changePasswordSheet, restoreSession,
-      setApi(fn) { api = fn; }, setPanel(fn) { openSheet = fn; },
-      setEnterApp(fn) { enterApp = fn; }
-    };
-    renderView = () => {}; renderUser = () => {}; refreshBadge = () => {};
-    enterApp = () => {};
-    toast = () => {}; closeSheet = () => { state.sheet = null; };
-  })();`, context);
-  const a = context.account;
-  a.state.user = { id: 'Y1', name: '管理员', role: 'sys_admin', department: '计算机' };
-  a.setPanel(config => panels.push(config));
-  return {
-    a, panels, calls, elements,
-    field(id, value, valid = true) { elements[id] = { value, reportValidity: () => valid, focus() {} }; },
-    respond(fn) { a.setApi(async (url, options = {}) => {
-      calls.push(JSON.parse(JSON.stringify({ url, options })));
-      return fn(url, options);
-    }); },
-  };
-}
+const { harness } = require('./support/frontend_harness.cjs');
 
 test('account list escapes user data and shows disabled state and paging', async () => {
   const h = harness();
@@ -78,14 +26,28 @@ test('current administrator cannot click disable-self button', async () => {
 
 test('create form sends trimmed fields and requests generated password only when blank', async () => {
   const h = harness();
-  h.respond(() => ({ user: { id: 'S9' }, initial_password: 'Generated-123' }));
+  h.respond((url, options) => {
+    if (url === '/admin/users' && (options.method || 'GET') === 'GET') {
+      return { total: 2, items: [
+        { id: 'S1', name: '甲', department: '信息工程学院', class_name: '计科2301' },
+        { id: 'S2', name: '乙', department: '软件学院', class_name: '软工2302' },
+      ] };
+    }
+    return { user: { id: 'S9' }, initial_password: 'Generated-123' };
+  });
   h.field('#accountForm', '', true);
   h.field('#accountId', ' S9 '); h.field('#accountName', ' 新姓名 ');
   h.field('#accountRole', 'student'); h.field('#accountDepartment', ' 院系 ');
   h.field('#accountClass', ' 班级 '); h.field('#accountPassword', '');
-  h.a.accountSheet();
+  await h.a.accountSheet();
+  assert.match(h.panels[0].body, /院系（选填，可直接输入）/);
+  assert.match(h.panels[0].body, /例如：计算机科学与技术学院/);
+  assert.match(h.panels[0].body, /例如：计科2301/);
+  assert.match(h.panels[0].body, /信息工程学院/);
+  assert.match(h.panels[0].body, /计科2301/);
   await h.panels[0].actions[1].onClick();
-  assert.deepEqual(h.calls[0], { url: '/admin/users', options: { method: 'POST',
+  const post = h.calls.find((call) => call.options.method === 'POST');
+  assert.deepEqual(post, { url: '/admin/users', options: { method: 'POST',
     body: { id: 'S9', name: '新姓名', role: 'student', department: '院系', class_name: '班级' } } });
   assert.match(h.panels[1].body, /Generated-123/);
   assert.ok(!JSON.stringify(h.a.state).includes('Generated-123'));
@@ -95,9 +57,9 @@ test('invalid create form never sends a request', async () => {
   const h = harness();
   h.respond(() => { throw new Error('should not call'); });
   h.field('#accountForm', '', false);
-  h.a.accountSheet();
+  await h.a.accountSheet();
   await h.panels[0].actions[1].onClick();
-  assert.equal(h.calls.length, 0);
+  assert.ok(!h.calls.some((call) => call.options.method === 'POST'));
 });
 
 test('status change requires a reason and targets only the selected account', async () => {

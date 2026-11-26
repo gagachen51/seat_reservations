@@ -6,6 +6,20 @@
   // 常量
   // ---------------------------------------------------------------------------
   const ROLE_TEXT = { student: '学生', teacher: '教师', room_admin: '自习室管理员', sys_admin: '系统管理员' };
+  // 新建账号的院系/班级联想：动态历史值（已有账号）会与这些常用预设合并。
+  // 只是建议，输入框始终允许自由输入任意文本。
+  const DEPARTMENT_PRESETS = [
+    '计算机科学与技术学院', '信息工程学院', '软件学院', '经济管理学院',
+    '外国语学院', '数学与统计学院', '电子信息学院', '机械工程学院',
+    // 兼容演示数据中的历史写法
+    '计算机学院', '后勤保障处', '信息化中心',
+  ];
+  const CLASS_PRESETS = [
+    '计科2301', '计科2302', '软工2301', '软工2302', '信管2301', '电商2301',
+    '英语2301', '数学2301',
+    // 兼容演示数据中的历史写法
+    '软件 2301', '软件 2302',
+  ];
   const RES_STATUS = {
     pending: ['待签到', 'orange'],
     in_use: ['使用中', 'blue'],
@@ -98,6 +112,7 @@
     seatsAdmin: [],
     seatBlocks: [],
     page: 1,
+    accountDirectory: [],
     sheet: null,
     sheetTimer: null,
     refreshTimer: null,
@@ -111,6 +126,23 @@
     return String(value == null ? '' : value).replace(/[&<>"']/g, (ch) => (
       { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
     ));
+  }
+
+  // 历史值优先，预设兜底；去空白、去重，保证空库也有下拉可选。
+  function mergeOptions(history, presets) {
+    const seen = new Set();
+    const merged = [];
+    [...(history || []), ...(presets || [])].forEach((value) => {
+      const text = String(value == null ? '' : value).trim();
+      if (!text || seen.has(text)) return;
+      seen.add(text);
+      merged.push(text);
+    });
+    return merged;
+  }
+
+  function datalistOptions(values) {
+    return values.map((value) => '<option value="' + esc(value) + '"></option>').join('');
   }
 
   function pad(n) { return String(n).padStart(2, '0'); }
@@ -342,8 +374,8 @@
   async function loadDemoAccounts() {
     const box = $('#demoBox');
     try {
-      const health = await api('/health');
-      if (!health || !health.demo) { box.hidden = true; return; }
+      // /api/health 按 L-02 只返回状态，不能再作为演示模式的判断依据；
+      // 演示账号接口自身会校验演示模式/演示数据，不可用时返回 404。
       const accounts = await api('/auth/demo-accounts');
       if (!Array.isArray(accounts) || !accounts.length) { box.hidden = true; return; }
       box.hidden = false;
@@ -373,6 +405,7 @@
     state.sheet = null;
     state.view = null;
     state.page = 1;
+    state.accountDirectory = [];
     state.selectedSeat = null;
     state.seatCache = [];
     state.roomsAdmin = [];
@@ -391,10 +424,9 @@
     $('#boot').hidden = true;
     const errorBox = $('#loginError');
     if (message) { errorBox.hidden = false; errorBox.textContent = message; } else { errorBox.hidden = true; }
-    if (!document.body.dataset.demoLoaded) {
-      document.body.dataset.demoLoaded = '1';
-      loadDemoAccounts();
-    }
+    // 每次回到登录页都重新探测：演示数据可能刚刚在「系统」页初始化完成，
+    // 不能沿用首次加载时的“不可用”结论。
+    loadDemoAccounts();
     setTimeout(() => $('#username').focus(), 50);
   }
 
@@ -2306,6 +2338,8 @@
   async function usersView() {
     const data = await api('/admin/users', { params: { page: state.page, page_size: 20 } });
     const items = data.items || [];
+    // 供新建账号弹窗合并院系/班级历史值；后续打开弹窗时会再取一次完整目录。
+    state.accountDirectory = items;
     return '<div class="account-toolbar"><p class="small muted">创建和管理账号；停用与重置密码会退出该账号的所有设备。</p>' +
       '<button class="btn btn-primary" type="button" data-action="account-create">新建账号</button></div>' +
       (items.length ? '<div class="list">' + items.map((user) => {
@@ -2340,17 +2374,35 @@
     } else openSheet(config);
   }
 
-  function accountSheet() {
+  async function accountSheet() {
+    // 院系/班级联想值 = 已有账号历史值 + 常用预设；取数失败不阻断建号。
+    let directory = state.accountDirectory || [];
+    try {
+      const data = await api('/admin/users', { params: { page: 1, page_size: 100 } });
+      if (data && Array.isArray(data.items)) {
+        directory = data.items;
+        state.accountDirectory = directory;
+      }
+    } catch (error) {
+      if (error && error.code === 'UNAUTHENTICATED') return;
+    }
+    const departments = mergeOptions(directory.map((user) => user.department), DEPARTMENT_PRESETS);
+    const classes = mergeOptions(directory.map((user) => user.class_name), CLASS_PRESETS);
     openAccountPanel({
       title: '新建账号', subtitle: '新账号首次登录需要修改密码',
       body: '<form id="accountForm" class="account-form">' +
         '<label class="field"><span>账号</span><input id="accountId" required maxlength="64" autocomplete="off" placeholder="例如 S2026001"></label>' +
-        '<label class="field"><span>姓名</span><input id="accountName" required maxlength="100" autocomplete="off"></label>' +
+        '<label class="field"><span>姓名</span><input id="accountName" required maxlength="100" autocomplete="off" placeholder="例如 张三"></label>' +
         '<label class="field"><span>角色</span><select id="accountRole">' + Object.entries(ROLE_TEXT).map(([value, label]) =>
           '<option value="' + value + '">' + esc(label) + '</option>').join('') + '</select></label>' +
-        '<label class="field"><span>院系（可选）</span><input id="accountDepartment" maxlength="100"></label>' +
-        '<label class="field"><span>班级（可选）</span><input id="accountClass" maxlength="100"></label>' +
-        '<label class="field"><span>初始密码（留空自动生成）</span><input id="accountPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password"></label></form>',
+        '<label class="field"><span>院系（选填，可直接输入）</span>' +
+          '<input id="accountDepartment" maxlength="100" list="accountDepartmentOptions" autocomplete="off" placeholder="例如：计算机科学与技术学院">' +
+          '<datalist id="accountDepartmentOptions">' + datalistOptions(departments) + '</datalist></label>' +
+        '<label class="field"><span>班级（选填，可直接输入）</span>' +
+          '<input id="accountClass" maxlength="100" list="accountClassOptions" autocomplete="off" placeholder="例如：计科2301">' +
+          '<datalist id="accountClassOptions">' + datalistOptions(classes) + '</datalist></label>' +
+        '<label class="field"><span>初始密码（留空自动生成）</span><input id="accountPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password" placeholder="不填写则由系统生成"></label>' +
+        '<p class="tiny tertiary">院系与班级可留空；下拉项来自已有账号与常用预设，也可以直接输入任意文本。</p></form>',
       actions: [
         { label: '取消', kind: 'secondary', onClick: closeSheet },
         { label: '创建账号', kind: 'primary', onClick: async () => {
@@ -2582,22 +2634,66 @@
   // 视图：系统管理员 · 系统
   // ---------------------------------------------------------------------------
   async function systemView() {
-    const [health, scheduler] = await Promise.all([api('/health'), api('/admin/scheduler')]);
-    const summary = scheduler.last_summary || {};
+    // 系统状态来自管理端专用接口；/api/health 按 L-02 只返回 status。
+    // 任一接口或字段缺失都不能让「系统」页面整页崩溃：全部使用可选链 + 兜底。
+    let health = null;
+    let scheduler = null;
+    try {
+      health = await api('/admin/system');
+    } catch (error) {
+      if (error && error.code === 'UNAUTHENTICATED') throw error;
+    }
+    try {
+      scheduler = await api('/admin/scheduler');
+    } catch (error) {
+      if (error && error.code === 'UNAUTHENTICATED') throw error;
+    }
+
+    const db = health?.db || {};
+    const schemaVersion = db?.schema_version ?? health?.schema_version ?? 4;
+    const sizeBytes = Number(db?.size_bytes);
+    const sizeText = Number.isFinite(sizeBytes) ? (sizeBytes / 1024).toFixed(1) + ' KB' : '—';
+    const uptimeSeconds = Number(health?.uptime_seconds);
+    const uptimeText = Number.isFinite(uptimeSeconds) ? Math.floor(uptimeSeconds / 60) + ' 分钟' : '—';
+    const statusText = health?.status === 'ok' ? '正常' : health?.status === 'degraded' ? '降级' : '未知';
+    const demoData = health?.demo_data === true;
+    const modeText = health?.demo_data ? '演示数据已初始化' : health?.demo_mode ? '演示模式' : '正式数据';
+    const sched = scheduler || health?.scheduler || {};
+    const schedEnabled = sched?.enabled !== undefined ? Boolean(sched.enabled) : Boolean(health?.scheduler?.enabled);
+    const schedRunning = sched?.running === true;
+    const summary = sched?.last_summary || {};
     const rows = [
-      ['版本', health.version],
-      ['环境', health.env],
-      ['Schema', 'v' + health.db.schema_version],
-      ['数据库大小', (health.db.size_bytes / 1024).toFixed(1) + ' KB'],
-      ['运行时长', Math.floor(health.uptime_seconds / 60) + ' 分钟'],
-      ['调度器', scheduler.enabled ? (scheduler.running ? '运行中' : '未启动') : '已禁用'],
-      ['扫描间隔', (scheduler.interval_seconds || 0) + ' 秒'],
-      ['最近扫描', scheduler.last_run_at ? fmtDateTime(scheduler.last_run_at) : '—'],
-      ['最近结果', '未签到 ' + (summary.no_show || 0) + ' · 暂离超时 ' + (summary.away_timeout || 0) + ' · 超时未签退 ' + (summary.late_checkout || 0) + ' · 提醒 ' + (summary.reminders || 0)],
+      ['运行状态', statusText],
+      ['版本', health?.version || '—'],
+      ['环境', health?.env || '—'],
+      ['数据模式', modeText],
+      ['数据库版本', 'v' + (schemaVersion === null || schemaVersion === undefined ? 4 : schemaVersion)],
+      ['数据库大小', sizeText],
+      ['账号数量', db?.users === undefined || db?.users === null ? '—' : Number(db.users) + ' 个'],
+      ['运行时长', uptimeText],
+      ['调度器状态', schedEnabled ? (schedRunning ? '运行中' : '未启动') : '已禁用'],
+      ['扫描间隔', (Number(sched?.interval_seconds) || 0) + ' 秒'],
+      ['最近扫描', sched?.last_run_at ? fmtDateTime(sched.last_run_at) : '—'],
+      ['最近结果', '未签到 ' + (summary?.no_show || 0) + ' · 暂离超时 ' + (summary?.away_timeout || 0) + ' · 超时未签退 ' + (summary?.late_checkout || 0) + ' · 提醒 ' + (summary?.reminders || 0)],
     ];
-    return '<div class="card"><dl class="detail-list" style="padding:4px 16px">' + rows.map(([label, value]) =>
-      '<div class="detail-row"><dt>' + label + '</dt><dd>' + esc(value) + '</dd></div>').join('') + '</dl></div>' +
-      (scheduler.last_error ? '<div class="banner danger" style="margin-top:12px">' + icon('alert') + '<div>最近一次任务失败：' + esc(scheduler.last_error) + '</div></div>' : '') +
+    return (health === null ? '<div class="banner danger" style="margin-bottom:12px">' + icon('alert') + '<div>运行状态暂时无法获取，已显示可用的兜底信息；请稍后刷新或检查服务日志。</div></div>' : '') +
+      '<div class="card"><dl class="detail-list" style="padding:4px 16px">' + rows.map(([label, value]) =>
+        '<div class="detail-row"><dt>' + label + '</dt><dd>' + esc(value) + '</dd></div>').join('') + '</dl></div>' +
+      (sched?.last_error ? '<div class="banner danger" style="margin-top:12px">' + icon('alert') + '<div>最近一次任务失败：' + esc(sched.last_error) + '</div></div>' : '') +
+      '<div class="section"><div class="section-head"><h2>演示数据（课程演示与测试）</h2></div>' +
+        '<div class="card card-pad">' +
+          '<p class="small muted">' + (demoData
+            ? '当前库已包含标准演示数据。重新初始化会再次清空业务数据并生成新的统一演示密码。'
+            : '可在当前库中一键写入标准演示自习室、座位与四个角色账号，便于课程演示与验收。') + '</p>' +
+          '<ul class="small muted" style="margin:8px 0 12px;padding-left:18px">' +
+            '<li>会清空现有账号、预约、资源等业务数据，<strong>审计日志保留</strong>。</li>' +
+            '<li>写入 3 个自习室、24 个座位，以及 S2023001、T7001、A9001、Y0001 演示账号。</li>' +
+            '<li>所有演示账号使用<strong>同一个统一初始密码</strong>，密码只在成功提示中显示一次。</li>' +
+            '<li>初始化后当前登录会话会失效，需要使用演示账号重新登录。</li>' +
+          '</ul>' +
+          '<button class="btn btn-danger" type="button" data-action="system-init-demo">' +
+            (demoData ? '重新初始化演示数据' : '初始化演示数据') + '</button>' +
+        '</div></div>' +
       '<div class="section"><div class="section-head"><h2>数据导出</h2></div><div class="list">' +
         [['reservations', '预约记录'], ['violations', '违规记录'], ['audit', '审计日志'], ['complaints', '投诉记录'], ['blacklist', '黑名单记录'], ['credit_logs', '信用流水'], ['waitlist', '候补记录']].map(([kind, label]) =>
           '<a class="list-row clickable" href="/api/admin/export/' + kind + '.csv"><div class="row-main"><div class="row-title">' + label + '</div><div class="row-sub">CSV · UTF-8 BOM · 可用 Excel 打开</div></div><div class="row-side">' + icon('download', 'row-chevron') + '</div></a>').join('') +
@@ -2607,6 +2703,57 @@
         '<p style="margin-top:6px">· 对外部署请置于 HTTPS 反向代理之后，并设置 <span class="mono">SEAT_COOKIE_SECURE=true</span>。</p>' +
         '<p style="margin-top:6px">· 定时任务由服务内调度线程执行；多实例部署时应只保留一个调度器。</p>' +
       '</div></div>';
+  }
+
+  function initDemoDataSheet() {
+    confirmSheet({
+      title: '初始化演示数据',
+      subtitle: '仅用于课程演示与测试',
+      message: '此操作会清空当前库中的账号、预约、资源等业务数据，写入标准演示数据（审计日志保留）。'
+        + '写入后所有演示账号使用同一个统一初始密码，密码只显示一次；当前登录会话会立即失效。确认继续？',
+      confirmLabel: '确认初始化',
+      danger: true,
+      onConfirm: async () => {
+        const data = await api('/admin/system/demo-data', {
+          method: 'POST',
+          body: { confirm: 'INITIALIZE_DEMO_DATA' },
+        });
+        demoInitializedSheet(data || {});
+      },
+    });
+  }
+
+  function demoInitializedSheet(data) {
+    const accounts = Array.isArray(data.accounts) ? data.accounts : [];
+    const password = data.demo_password || '';
+    const accountRows = accounts.map((account) =>
+      '<div class="detail-row"><dt>' + esc(account.role_label || ROLE_TEXT[account.role] || account.role) + '</dt>' +
+      '<dd><span class="mono">' + esc(account.username) + '</span> · ' + esc(account.name) + '</dd></div>').join('');
+    openAccountPanel({
+      title: '演示数据已初始化',
+      subtitle: '统一演示密码只显示这一次',
+      body: '<p class="small muted">请立即记录以下统一初始密码。关闭本窗口后系统不再展示，遗忘只能重新初始化演示数据。</p>' +
+        '<label class="field account-secret"><span>统一初始密码</span><input id="demoInitialPassword" readonly autocomplete="off" value="' + esc(password) + '"></label>' +
+        '<div class="card card-pad" style="margin-top:12px"><dl class="detail-list">' + accountRows + '</dl></div>' +
+        '<p class="tiny tertiary" style="margin-top:12px">演示数据已写入；当前登录会话已失效，请使用上述任一演示账号与统一密码重新登录。' +
+        (data.counts ? '（账号 ' + Number(data.counts.users || 0) + ' · 自习室 ' + Number(data.counts.rooms || 0) + ' · 座位 ' + Number(data.counts.seats || 0) + '）' : '') + '</p>',
+      actions: [
+        { label: '复制密码', kind: 'secondary', onClick: async () => {
+            const input = $('#demoInitialPassword');
+            try {
+              await navigator.clipboard.writeText(input ? input.value : password);
+              toast('统一演示密码已复制');
+            } catch (error) {
+              if (input) { input.focus(); input.select(); }
+              toast('请手动复制选中的密码');
+            }
+          } },
+        { label: '重新登录', kind: 'primary', onClick: () => {
+            closeSheet();
+            showLogin('演示数据已初始化，请使用演示账号与刚才的统一密码重新登录');
+          } },
+      ],
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -2827,6 +2974,7 @@
     'analytics-range': (el) => setAnalyticsRange(el.dataset.range),
     'analytics-room': (el) => setAnalyticsRoom(el.dataset.room),
     'account-create': () => accountSheet(),
+    'system-init-demo': () => initDemoDataSheet(),
     'account-status': (el) => accountStatusSheet({ id: el.dataset.id, name: el.dataset.name, status: el.dataset.status }),
     'account-reset': (el) => accountResetSheet({ id: el.dataset.id, name: el.dataset.name }),
     'account-sessions': (el) => sessionSheet({ id: el.dataset.id, name: el.dataset.name }).catch(handleError),

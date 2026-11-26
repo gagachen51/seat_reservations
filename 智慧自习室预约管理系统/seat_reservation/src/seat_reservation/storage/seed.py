@@ -65,8 +65,18 @@ ROOMS = [
     ("C301", "图书馆 C301", "三楼静音区", 7),
 ]
 
+# 判断库内是否已经写入标准演示数据：四个角色各取一个标志账号。
+# 只有同时存在这三个非系统管理员账号，才认为演示数据完整。
+DEMO_USER_IDS = ("S2023001", "T7001", "A9001")
+
 
 def _reset(conn) -> None:
+    """清空业务表后重新写入演示数据。
+
+    ``audit_logs`` 必须保留：审计表是 append-only（数据库触发器禁止 UPDATE /
+    DELETE），既不能删，也不应该在演示数据初始化时抹掉历史审计。重复初始化
+    会追加一条新的 ``seed_demo`` 审计，而不是覆盖旧记录。
+    """
     for table in (
         "reservation_slots",
         "reviews",
@@ -77,7 +87,6 @@ def _reset(conn) -> None:
         "notifications",
         "blacklist",
         "seat_blocks",
-        "audit_logs",
         "sessions",
         "reservations",
         "seats",
@@ -86,7 +95,27 @@ def _reset(conn) -> None:
         "sequences",
         "system_params",
     ):
+        if table == "sequences":
+            # 审计编号序列必须保留，否则重新初始化会从 A-0000001 重号，
+            # 与保留下来的历史审计主键冲突。
+            conn.execute("DELETE FROM sequences WHERE name <> 'audit'")
+            continue
         conn.execute(f"DELETE FROM {table}")
+
+    # 兼容“有审计记录但序列缺失/落后”的旧库：把 audit 序列推进到当前最大值。
+    sequence = conn.execute(
+        "SELECT value FROM sequences WHERE name = 'audit'"
+    ).fetchone()
+    maximum = conn.execute(
+        "SELECT MAX(CAST(substr(id, 3) AS INTEGER)) AS m FROM audit_logs"
+    ).fetchone()
+    target = max(int(sequence["value"]) if sequence else 0, int(maximum["m"] or 0))
+    if target:
+        conn.execute(
+            "INSERT INTO sequences(name, value) VALUES ('audit', ?) "
+            "ON CONFLICT(name) DO UPDATE SET value = excluded.value",
+            (target,),
+        )
 
 
 def _make_users(now: datetime, password: str, iterations: int) -> list[User]:

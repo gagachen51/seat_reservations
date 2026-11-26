@@ -11,8 +11,9 @@ from fastapi.responses import JSONResponse, Response
 
 from ...domain.engine import DomainEngine
 from ...domain.models import Actor, Page, Role
-from ...errors import AppError, Forbidden
+from ...errors import AppError, Forbidden, ValidationFailed
 from ...service.container import AppContext
+from ...storage.seed import resolve_demo_password
 from ..deps import (
     client_ip,
     get_actor,
@@ -27,6 +28,7 @@ from ..schemas import (
     AppealReviewIn,
     BlacklistIn,
     ComplaintResolveIn,
+    DemoInitIn,
     ManualViolationIn,
     ParamIn,
     ReasonIn,
@@ -40,6 +42,17 @@ from ..schemas import (
 )
 
 router = APIRouter(tags=["admin"])
+
+# 演示数据初始化必须回传的确认短语：前端二次确认后才会发送。
+DEMO_INIT_CONFIRM = "INITIALIZE_DEMO_DATA"
+
+# 与 storage/seed.py 中的标准演示账号保持一致；仅用于成功提示展示。
+DEMO_ACCOUNT_CARDS = (
+    {"username": "S2023001", "name": "张伟", "role": "student", "role_label": "学生"},
+    {"username": "T7001", "name": "刘明", "role": "teacher", "role_label": "教师"},
+    {"username": "A9001", "name": "王丽", "role": "room_admin", "role_label": "自习室管理员"},
+    {"username": "Y0001", "name": "陈刚", "role": "sys_admin", "role_label": "系统管理员"},
+)
 
 
 @router.get("/admin/stats", summary="运营看板")
@@ -535,6 +548,84 @@ def set_param(
         engine.set_param(
             actor, code, payload.value, datetime.now(), ip=client_ip(request)
         )
+    )
+
+
+@router.get("/admin/system", summary="系统运行状态")
+def system_status(
+    actor: Actor = Depends(get_actor),
+    ctx: AppContext = Depends(get_context),
+) -> JSONResponse:
+    """管理端完整运行状态。
+
+    ``/api/health`` 按 L-02 只返回可用性；本接口带 sysadmin 权限校验，返回
+    版本、Schema、库大小、运行时长与调度器详情，供「系统」页面渲染。
+    """
+    if actor.role != Role.SYS_ADMIN:
+        raise Forbidden("仅系统管理员可查看系统状态", rule="PR-15")
+    return success(ctx.system_status())
+
+
+@router.post("/admin/system/demo-data", summary="初始化演示数据")
+def initialize_demo_data(
+    payload: DemoInitIn,
+    request: Request,
+    actor: Actor = Depends(get_actor),
+    ctx: AppContext = Depends(get_context),
+) -> JSONResponse:
+    """清空业务数据并写入标准演示数据（课程演示/测试专用）。
+
+    * 仅系统管理员、仅非生产环境、必须回传固定确认短语；
+    * 统一演示密码只在本响应中返回一次，供操作者当场记录，不写入审计或日志；
+    * 审计表 append-only，重复初始化不会删除历史审计（见 ``seed._reset``）。
+    """
+    if actor.role != Role.SYS_ADMIN:
+        raise Forbidden("仅系统管理员可初始化演示数据", rule="PR-15")
+    if ctx.settings.is_production:
+        raise Forbidden("生产环境不允许写入演示数据", rule="PR-15")
+    if payload.confirm != DEMO_INIT_CONFIRM:
+        raise ValidationFailed(
+            "确认短语不正确，未写入任何数据", code="DEMO_CONFIRM_REQUIRED"
+        )
+
+    now = datetime.now()
+    password = resolve_demo_password()
+    try:
+        counts = ctx.seed_demo(now, password=password)
+    except Exception as exc:  # noqa: BLE001 - 失败也要留审计
+        with ctx.engine() as engine:
+            engine.audit_event(
+                actor,
+                "initialize_demo_data",
+                "system",
+                "demo",
+                result="failed",
+                details={"error": type(exc).__name__},
+                now=now,
+                ip=client_ip(request),
+            )
+        raise
+
+    with ctx.engine() as engine:
+        engine.audit_event(
+            actor,
+            "initialize_demo_data",
+            "system",
+            "demo",
+            details={"counts": counts},
+            now=now,
+            ip=client_ip(request),
+        )
+
+    # 演示数据写入会清空 sessions：当前会话已失效，必须提示重新登录。
+    return success(
+        {
+            "counts": counts,
+            "accounts": [dict(item) for item in DEMO_ACCOUNT_CARDS],
+            "demo_password": password,
+            "must_relogin": True,
+        },
+        "演示数据已初始化",
     )
 
 
