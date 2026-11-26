@@ -5,7 +5,7 @@
 * 初始化幂等、失败不留半初始化状态；
 * 演示密码不再硬编码、不通过接口下发、不写入明文文件；
 * Demo 库与正式库默认分离；
-* 桌面启动器非 Demo 只建随机密码的系统管理员，不写账号密码文件。
+* 桌面启动器非 Demo 只建随机密码的系统管理员，并在运行期数据目录写一次性凭据文件。
 """
 
 from __future__ import annotations
@@ -233,9 +233,13 @@ def test_launcher_non_demo_provisioning_creates_only_admin(tmp_path: Path) -> No
         user_ids = [row["id"] for row in conn.execute("SELECT id FROM users").fetchall()]
     assert user_ids == ["Y0001"]
 
-    # 不产生任何明文账号密码文件
-    assert not (tmp_path / "初始账号与密码.txt").exists()
-    assert not list(tmp_path.glob("*.txt"))
+    # 正式模式把一次性凭据写入运行期数据目录（与 DB 同级，已被 .gitignore 排除）
+    credentials = tmp_path / seed_module.INITIAL_CREDENTIALS_FILENAME
+    assert credentials.is_file()
+    text = credentials.read_text(encoding="utf-8")
+    assert "Y0001" in text and password in text
+    assert "删除此文件" in text
+    assert list(tmp_path.glob("*.txt")) == [credentials]
 
     # 再次启动不重复建号、不再返回密码
     again, created_again = desktop_launcher.create_accounts(ctx, demo=False)

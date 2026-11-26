@@ -30,6 +30,7 @@ from ..security import (
 )
 from ..storage.database import Database
 from ..storage.repository import SqliteRepository
+from ..storage.seed import BOOTSTRAP_ADMIN_ID, remove_initial_admin_credentials
 
 logger = get_logger(__name__)
 
@@ -315,6 +316,9 @@ class AuthService:
             user.updated_at = now
             repo.save_user(user)
             conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+        if user_id == BOOTSTRAP_ADMIN_ID:
+            # 初始管理员完成首次改密后，一次性凭据文件即失效，顺手清理。
+            remove_initial_admin_credentials(self.db)
 
     def purge_expired(self, now: datetime | None = None) -> int:
         now = now or datetime.now()
