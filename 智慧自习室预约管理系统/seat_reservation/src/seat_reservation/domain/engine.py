@@ -114,6 +114,36 @@ EXPORT_KINDS = (
 )
 ANALYTICS_DEFAULT_DAYS = 7
 MAX_ANALYTICS_DAYS = 90
+# L-10：导出最大跨度/行数。超过上限返回 4xx，不静默截断。
+MAX_EXPORT_DAYS = 366
+MAX_EXPORT_ROWS = 10_000
+
+# 审计 details/before/after 的敏感 key 片段；新增模块统一走 audit_event。
+_AUDIT_SENSITIVE_KEY_FRAGMENTS = (
+    "password",
+    "token",
+    "secret",
+    "credential",
+    "csrf",
+    "authorization",
+    "cookie",
+)
+
+
+def _redact_audit(value: Any) -> Any:
+    """递归过滤审计数据中的敏感字段，不改变非敏感业务字段。"""
+    if isinstance(value, dict):
+        result: dict[str, Any] = {}
+        for key, item in value.items():
+            text_key = str(key)
+            if any(part in text_key.lower() for part in _AUDIT_SENSITIVE_KEY_FRAGMENTS):
+                result[text_key] = "[REDACTED]"
+            else:
+                result[text_key] = _redact_audit(item)
+        return result
+    if isinstance(value, (list, tuple)):
+        return [_redact_audit(item) for item in value]
+    return value
 
 
 def _new_credential() -> str:
@@ -190,6 +220,50 @@ class DomainEngine:
                 ip=ip,
                 created_at=now,
             )
+        )
+
+    def audit_event(
+        self,
+        actor: Actor | None,
+        action: str,
+        target_type: str,
+        target_id: str,
+        *,
+        result: str = "success",
+        details: dict[str, Any] | None = None,
+        before: dict[str, Any] | None = None,
+        after: dict[str, Any] | None = None,
+        now: datetime | None = None,
+        ip: str = "",
+    ) -> None:
+        """共享审计入口：B/C/D 统一调用，不修改 _audit 的既有签名。
+
+        参数：
+        - actor: 操作者；系统任务可为 None。
+        - action: 稳定事件名，例如 export_csv / reservation_cancel。
+        - target_type/target_id: 审计对象。
+        - result: success / denied / failed / noop。
+        - details: 事件附加信息（自动脱敏）。
+        - before/after: 可选状态快照（自动脱敏）。
+        - now/ip: 测试可注入时间与来源。
+        """
+        clean_details = _redact_audit(details or {})
+        clean_before = _redact_audit(before) if before is not None else None
+        clean_after = _redact_audit(after) if after is not None else None
+        payload: dict[str, Any] = {"result": result}
+        if clean_details:
+            payload["details"] = clean_details
+        if clean_after is not None:
+            payload["after"] = clean_after
+        self._audit(
+            actor,
+            action,
+            target_type,
+            target_id,
+            before=clean_before,
+            after=payload,
+            now=now or datetime.now(),
+            ip=ip,
         )
 
     def _notify(
@@ -3028,15 +3102,21 @@ class DomainEngine:
         date_to: date | None,
         now: datetime,
     ) -> tuple[date, date]:
-        """补齐分析日期：未给出的一端按 7 天窗口对称补齐。"""
-        if date_from is None and date_to is None:
-            date_to = now.date()
-            date_from = date_to - timedelta(days=ANALYTICS_DEFAULT_DAYS - 1)
-        elif date_from is None:
-            assert date_to is not None
-            date_from = date_to - timedelta(days=ANALYTICS_DEFAULT_DAYS - 1)
-        elif date_to is None:
-            date_to = date_from + timedelta(days=ANALYTICS_DEFAULT_DAYS - 1)
+        """补齐分析日期：未给出的一端按 7 天窗口对称补齐。
+
+        L-09：最小/最大日期附近加减窗口会触发 OverflowError，必须转为 4xx。
+        """
+        try:
+            if date_from is None and date_to is None:
+                date_to = now.date()
+                date_from = date_to - timedelta(days=ANALYTICS_DEFAULT_DAYS - 1)
+            elif date_from is None:
+                assert date_to is not None
+                date_from = date_to - timedelta(days=ANALYTICS_DEFAULT_DAYS - 1)
+            elif date_to is None:
+                date_to = date_from + timedelta(days=ANALYTICS_DEFAULT_DAYS - 1)
+        except (OverflowError, ValueError) as exc:
+            raise ValidationFailed("日期超出支持范围，请调整日期区间") from exc
         self._validate_date_range(date_from, date_to, max_days=MAX_ANALYTICS_DAYS)
         return date_from, date_to
 
@@ -3066,7 +3146,14 @@ class DomainEngine:
         return data
 
     def export_rows(
-        self, actor: Actor, kind: str, *, date_from: date | None, date_to: date | None
+        self,
+        actor: Actor,
+        kind: str,
+        *,
+        date_from: date | None,
+        date_to: date | None,
+        audit: bool = False,
+        now: datetime | None = None,
     ) -> tuple[list[str], list[list[Any]]]:
         # PR-16：导出权限集中在 DomainEngine，Repository 只做查询。
         self._require(actor, {Role.SYS_ADMIN}, "PR-16")
@@ -3074,12 +3161,34 @@ class DomainEngine:
             raise ValidationFailed(
                 f"不支持的导出类型：{kind}；可选值为 {', '.join(sorted(EXPORT_KINDS))}"
             )
-        self._validate_date_range(date_from, date_to)
-        return self.repo.export_rows(
+        # L-10：导出单独定义跨度上限，不与分析 90 天规则混用。
+        self._validate_date_range(date_from, date_to, max_days=MAX_EXPORT_DAYS)
+        headers, rows = self.repo.export_rows(
             kind,
             date_from=date_from,
             date_to=date_to,
         )
+        if len(rows) > MAX_EXPORT_ROWS:
+            raise ValidationFailed(
+                f"导出行数超过 {MAX_EXPORT_ROWS} 条，请缩小日期范围",
+                rule="L-10",
+            )
+        if audit:
+            self.audit_event(
+                actor,
+                "export_csv",
+                "export",
+                kind,
+                result="success",
+                details={
+                    "kind": kind,
+                    "date_from": date_from.isoformat() if date_from else None,
+                    "date_to": date_to.isoformat() if date_to else None,
+                    "rows": len(rows),
+                },
+                now=now or datetime.now(),
+            )
+        return headers, rows
 
     def param_snapshot_json(self) -> str:
         return json.dumps(self.params.snapshot(), ensure_ascii=False, sort_keys=True)

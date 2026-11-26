@@ -96,8 +96,7 @@ def busy_seat(client: TestClient, headers: dict[str, str], day: str) -> str:
 
 def test_common_and_auth_routes(client: TestClient, call: Calls) -> None:
     public = call(client, {}, "GET", "/api/health", expect=200)
-        # v2 = B 的 seat_block_lifecycle（seats.maintenance_by_block）；随迁移新增而更新。
-    assert public.json()["data"]["db"]["schema_version"] == 2
+    assert public.json()["data"] == {"status": "ok"}
 
     headers = login(client, "S1")
     call(client, headers, "GET", "/api/meta", expect=200)

@@ -20,7 +20,14 @@ from ..errors import AppError
 from ..logging_setup import configure_logging, get_logger, request_id_var
 from ..security import constant_time_equals
 from ..service.container import AppContext
-from .routes import admin_routes, auth_routes, common_routes, resource_routes, student_routes
+from .routes import (
+    account_routes,
+    admin_routes,
+    auth_routes,
+    common_routes,
+    resource_routes,
+    student_routes,
+)
 
 logger = get_logger("seat_reservation.http")
 WEB_DIR = Path(__file__).resolve().parents[1] / "web"
@@ -188,8 +195,9 @@ def create_app(settings: Settings | None = None, *, context: AppContext | None =
     app.include_router(auth_routes.router, prefix="/api")
     app.include_router(student_routes.router, prefix="/api")
     app.include_router(admin_routes.router, prefix="/api")
-        # 资源治理（B）：封禁记录、按记录解封、批量建座、停用影响预览。
-    # 本文件由 B 唯一维护；A/D 的 router 注册请提交 SFCR 由 B 应用。
+    # 账号与个人中心（A）：创建/停用/重置/会话/资料。
+    app.include_router(account_routes.router, prefix="/api")
+    # 资源治理（B）：封禁记录、按记录解封、批量建座、停用影响预览。
     app.include_router(resource_routes.router, prefix="/api")
 
     if WEB_DIR.is_dir():

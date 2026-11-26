@@ -2079,7 +2079,8 @@ class SqliteRepository:
         """按导出类型返回表头与数据行；不校验权限、不做 CSV 转义。"""
         if kind == "reservations":
             page = self.list_reservations(
-                date_from=date_from, date_to=date_to, page=1, page_size=10000
+                # 多取 1 行作为超限探测，engine 拒绝而不静默截断。
+                date_from=date_from, date_to=date_to, page=1, page_size=10001
             )
             headers = ["预约号", "日期", "开始", "结束", "座位", "自习室", "学生", "状态", "来源", "结束原因"]
             return headers, [
@@ -2099,7 +2100,8 @@ class SqliteRepository:
             ]
         if kind == "violations":
             page = self.list_violations(
-                date_from=date_from, date_to=date_to, page=1, page_size=10000
+                # 多取 1 行作为超限探测，engine 拒绝而不静默截断。
+                date_from=date_from, date_to=date_to, page=1, page_size=10001
             )
             headers = ["违规号", "预约号", "学号", "类型", "扣分", "来源", "状态", "发生时间", "说明"]
             return headers, [
@@ -2118,7 +2120,8 @@ class SqliteRepository:
             ]
         if kind == "audit":
             page = self.list_audit(
-                date_from=date_from, date_to=date_to, page=1, page_size=10000
+                # 多取 1 行作为超限探测，engine 拒绝而不静默截断。
+                date_from=date_from, date_to=date_to, page=1, page_size=10001
             )
             headers = ["日志号", "操作人", "角色", "动作", "对象类型", "对象", "时间", "IP"]
             return headers, [

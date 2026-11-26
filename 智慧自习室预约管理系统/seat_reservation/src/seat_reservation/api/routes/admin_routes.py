@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse, Response
 
 from ...domain.engine import DomainEngine
 from ...domain.models import Actor, Role
-from ...errors import Forbidden
+from ...errors import AppError, Forbidden
 from ...service.container import AppContext
 from ..deps import (
     client_ip,
@@ -534,27 +534,64 @@ def scheduler_status(
 
 
 def _csv_safe(value):
-    """防止 CSV 公式注入：以公式起始符开头的文本加前导单引号。"""
-    if isinstance(value, str) and value.startswith(("=", "+", "-", "@", "\t", "\r")):
-        return "'" + value
-    return value
+    """L-04：统一清洗 7 类导出的 CSV 单元格。
+
+    先移除 NUL/BOM，再对首个可见字符为公式前缀的文本加单引号；保留正常
+    中文、日期、数字以及普通文本。换行由 csv.writer 负责引用。
+    """
+    if not isinstance(value, str):
+        return value
+    cleaned = value.replace("\x00", "").replace("\ufeff", "")
+    probe = cleaned.lstrip(" \t\r\n")
+    if probe.startswith(("=", "+", "-", "@")) or cleaned.startswith(("\t", "\r", "\n")):
+        return "'" + cleaned
+    return cleaned
 
 
 @router.get("/admin/export/{kind}.csv", summary="CSV 导出")
 def export_csv(
     kind: str,
+    request: Request,
     date_from: date | None = None,
     date_to: date | None = None,
     actor: Actor = Depends(get_actor),
-    engine: DomainEngine = Depends(read_engine),
+    engine: DomainEngine = Depends(write_engine),
 ) -> Response:
-    headers, rows = engine.export_rows(actor, kind, date_from=date_from, date_to=date_to)
+    now = datetime.now()
+    try:
+        headers, rows = engine.export_rows(
+            actor,
+            kind,
+            date_from=date_from,
+            date_to=date_to,
+            audit=True,
+            now=now,
+        )
+    except AppError as exc:
+        # 拒绝也必须留痕；捕获后正常返回，使 write_engine 提交该审计记录。
+        engine.audit_event(
+            actor,
+            "export_csv",
+            "export",
+            kind,
+            result="denied",
+            details={
+                "kind": kind,
+                "date_from": date_from.isoformat() if date_from else None,
+                "date_to": date_to.isoformat() if date_to else None,
+                "error": exc.code,
+                "status": exc.status_code,
+            },
+            now=now,
+            ip=client_ip(request),
+        )
+        return JSONResponse(exc.to_payload(), status_code=exc.status_code)
     buffer = io.StringIO()
     writer = csv.writer(buffer, lineterminator="\r\n")
-    writer.writerow(headers)
+    writer.writerow([_csv_safe(cell) for cell in headers])
     writer.writerows([[_csv_safe(cell) for cell in row] for row in rows])
     payload = "\ufeff" + buffer.getvalue()
-    filename = f"{kind}-{datetime.now():%Y%m%d-%H%M}.csv"
+    filename = f"{kind}-{now:%Y%m%d-%H%M}.csv"
     return Response(
         content=payload.encode("utf-8"),
         media_type="text/csv; charset=utf-8",

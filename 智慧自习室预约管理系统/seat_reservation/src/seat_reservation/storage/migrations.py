@@ -316,3 +316,9 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial_schema", _V1),
     Migration(2, "seat_block_lifecycle", _V2),
 )
+
+# 公共底座预留版本号（只增不减，后续迁移直接使用，不得复用）。
+# v3：共享层审计表/审计字段扩展；v4：B 模块资源/预约约束迁移。
+LATEST_MIGRATION_VERSION = 2
+AUDIT_MIGRATION_VERSION = 3
+RESOURCE_MIGRATION_VERSION = 4

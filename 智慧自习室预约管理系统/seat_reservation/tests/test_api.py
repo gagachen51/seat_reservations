@@ -35,9 +35,7 @@ def login(client: TestClient, username: str = "S1", password: str = PASSWORD):
 def test_health_is_public(client: TestClient) -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json()["data"]["status"] == "ok"
-        # v2 = B 的 seat_block_lifecycle（seats.maintenance_by_block）；随迁移新增而更新。
-    assert response.json()["data"]["db"]["schema_version"] == 2
+    assert response.json()["data"] == {"status": "ok"}
 
 
 def test_login_sets_httponly_session_and_readable_csrf(client: TestClient) -> None:
