@@ -8,7 +8,6 @@ from fastapi.responses import JSONResponse
 from ...errors import NotFound
 from ...service.auth import AuthSession
 from ...service.container import AppContext
-from ...storage.seed import DEMO_PASSWORD
 from ..deps import client_ip, get_context, get_session, success
 from ..schemas import ChangePasswordIn, LoginIn
 
@@ -74,9 +73,18 @@ def logout(request: Request, ctx: AppContext = Depends(get_context)) -> JSONResp
     return response
 
 
-@router.get("/demo-accounts", summary="演示账号（仅演示模式）")
+@router.get("/demo-accounts", summary="演示账号（仅演示数据可用时）")
 def demo_accounts(ctx: AppContext = Depends(get_context)) -> JSONResponse:
-    if not ctx.settings.demo_mode or ctx.settings.is_production:
+    """只返回演示账号的公开信息。
+
+    * 演示模式，或桌面版在「系统」页初始化过演示数据后可用；
+    * 生产环境始终不可用；
+    * 演示密码属于部署凭据，只能由初始化渠道一次性展示，
+      **不得**通过 HTTP 接口返回，避免任何访问者直接获得登录凭据。
+    """
+    if ctx.settings.is_production or not (
+        ctx.settings.demo_mode or ctx.demo_data_loaded()
+    ):
         raise NotFound("演示账号不可用")
     with ctx.db.read() as conn:
         rows = conn.execute(
@@ -91,7 +99,6 @@ def demo_accounts(ctx: AppContext = Depends(get_context)) -> JSONResponse:
                 "name": row["name"],
                 "role": row["role"],
                 "class_name": row["class_name"],
-                "password": DEMO_PASSWORD,
             }
             for row in rows
         ]

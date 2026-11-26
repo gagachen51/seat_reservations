@@ -6,6 +6,20 @@
   // 常量
   // ---------------------------------------------------------------------------
   const ROLE_TEXT = { student: '学生', teacher: '教师', room_admin: '自习室管理员', sys_admin: '系统管理员' };
+  // 新建账号的院系/班级联想：动态历史值（已有账号）会与这些常用预设合并。
+  // 只是建议，输入框始终允许自由输入任意文本。
+  const DEPARTMENT_PRESETS = [
+    '计算机科学与技术学院', '信息工程学院', '软件学院', '经济管理学院',
+    '外国语学院', '数学与统计学院', '电子信息学院', '机械工程学院',
+    // 兼容演示数据中的历史写法
+    '计算机学院', '后勤保障处', '信息化中心',
+  ];
+  const CLASS_PRESETS = [
+    '计科2301', '计科2302', '软工2301', '软工2302', '信管2301', '电商2301',
+    '英语2301', '数学2301',
+    // 兼容演示数据中的历史写法
+    '软件 2301', '软件 2302',
+  ];
   const RES_STATUS = {
     pending: ['待签到', 'orange'],
     in_use: ['使用中', 'blue'],
@@ -27,7 +41,7 @@
     overview: ['概览', '实时使用率与近 7 日趋势'],
     analytics: ['分析', '按日期区间查看运营指标'],
     floor: ['现场', '座位状态与现场处置'],
-    resources: ['资源', '自习室与座位的增改、启用/停用'],
+    resources: ['资源', '自习室与座位的增改、启用/停用、批量建座与封禁治理'],
     search: ['预约查询', '按状态、日期与关键词检索'],
     complaints: ['投诉', '处理学生反馈并留痕'],
     reviews: ['评价', '查看座位与环境评价并回复'],
@@ -96,12 +110,13 @@
     resourceRoom: '',
     roomsAdmin: [],
     seatsAdmin: [],
+    seatBlocks: [],
     page: 1,
+    accountDirectory: [],
     sheet: null,
     sheetTimer: null,
     refreshTimer: null,
     lastSnapshot: null,
-    lastLoginPassword: '',
   };
 
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -111,6 +126,23 @@
     return String(value == null ? '' : value).replace(/[&<>"']/g, (ch) => (
       { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
     ));
+  }
+
+  // 历史值优先，预设兜底；去空白、去重，保证空库也有下拉可选。
+  function mergeOptions(history, presets) {
+    const seen = new Set();
+    const merged = [];
+    [...(history || []), ...(presets || [])].forEach((value) => {
+      const text = String(value == null ? '' : value).trim();
+      if (!text || seen.has(text)) return;
+      seen.add(text);
+      merged.push(text);
+    });
+    return merged;
+  }
+
+  function datalistOptions(values) {
+    return values.map((value) => '<option value="' + esc(value) + '"></option>').join('');
   }
 
   function pad(n) { return String(n).padStart(2, '0'); }
@@ -342,31 +374,59 @@
   async function loadDemoAccounts() {
     const box = $('#demoBox');
     try {
-      const health = await api('/health');
-      if (!health || !health.demo) { box.hidden = true; return; }
+      // /api/health 按 L-02 只返回状态，不能再作为演示模式的判断依据；
+      // 演示账号接口自身会校验演示模式/演示数据，不可用时返回 404。
       const accounts = await api('/auth/demo-accounts');
       if (!Array.isArray(accounts) || !accounts.length) { box.hidden = true; return; }
       box.hidden = false;
       box.innerHTML = '<h3>演示账号</h3><div class="demo-grid">' + accounts.map((account) =>
-        '<button class="demo-btn" type="button" data-demo-user="' + esc(account.username) + '" data-demo-pass="' + esc(account.password) + '">' +
-        '<strong>' + esc(account.name) + '</strong><small>' + esc(ROLE_TEXT[account.role] || account.role) + ' · ' + esc(account.username) + '</small></button>').join('') + '</div>';
+        '<button class="demo-btn" type="button" data-demo-user="' + esc(account.username) + '">' +
+        '<strong>' + esc(account.name) + '</strong><small>' + esc(ROLE_TEXT[account.role] || account.role) + ' · ' + esc(account.username) + '</small></button>').join('') + '</div>' +
+        '<p class="demo-hint">点击选择账号后手动输入演示密码（由部署者在初始化时生成，不通过接口下发）。</p>';
     } catch (error) {
       box.hidden = true;
     }
   }
 
+  function clearLoginSecrets() {
+    const loginPassword = $('#password');
+    if (loginPassword) loginPassword.value = '';
+    if (typeof document.querySelectorAll === 'function') {
+      document.querySelectorAll('input[type="password"]').forEach((input) => {
+        input.value = '';
+      });
+    }
+  }
+
+  function resetClientState() {
+    state.user = null;
+    state.meta = null;
+    state.csrf = null;
+    state.sheet = null;
+    state.view = null;
+    state.page = 1;
+    state.accountDirectory = [];
+    state.selectedSeat = null;
+    state.seatCache = [];
+    state.roomsAdmin = [];
+    state.seatsAdmin = [];
+    state.seatBlocks = [];
+    state.lastSnapshot = null;
+  }
+
   function showLogin(message) {
     clearInterval(state.refreshTimer);
-    state.user = null; state.meta = null; state.csrf = null; state.sheet = null;
+    state.refreshTimer = null;
+    resetClientState();
+    clearLoginSecrets();
     $('#app').hidden = true;
     $('#login').hidden = false;
     $('#boot').hidden = true;
     const errorBox = $('#loginError');
     if (message) { errorBox.hidden = false; errorBox.textContent = message; } else { errorBox.hidden = true; }
-    if (!document.body.dataset.demoLoaded) {
-      document.body.dataset.demoLoaded = '1';
-      loadDemoAccounts();
-    }
+    // 每次回到登录页都重新探测：演示数据可能刚刚在「系统」页初始化完成，
+    // 不能沿用首次加载时的“不可用”结论。
+    loadDemoAccounts();
     setTimeout(() => $('#username').focus(), 50);
   }
 
@@ -375,7 +435,8 @@
     const button = $('#loginBtn');
     const errorBox = $('#loginError');
     const username = $('#username').value.trim();
-    const password = $('#password').value;
+    const passwordField = $('#password');
+    const password = passwordField.value;
     if (!username || !password) {
       errorBox.hidden = false;
       errorBox.textContent = '请输入账号与密码';
@@ -388,25 +449,23 @@
       const data = await api('/auth/login', { method: 'POST', body: { username, password } });
       state.csrf = data.csrf_token;
       state.user = data.user;
-      // 记在内存里，改密码时预填原密码；登出即清空，不落盘
-      state.lastLoginPassword = password;
-      state.meta = await api('/meta');
-      enterApp();
-      // 需求 §7.4：带 must_change_password 标记的账号（CLI 新建 / 重置过密码）登录后必须先改密
-      if (data.user && data.user.must_change_password) {
-        setTimeout(() => changePasswordSheet(true), 150);
-      }
+      await enterAuthenticatedApp(data.user);
     } catch (error) {
+      // 登录失败不保留任何可能来自上一次会话的账号上下文。
+      state.user = null;
+      state.meta = null;
+      state.csrf = null;
       errorBox.hidden = false;
       errorBox.textContent = error.message || '登录失败';
     } finally {
+      // 密码只在本次请求的局部变量中存在；请求结束立即清空 DOM。
+      if (passwordField) passwordField.value = '';
       button.disabled = false;
       button.textContent = '登录';
     }
   }
 
   async function logout() {
-    state.lastLoginPassword = '';
     try { await api('/auth/logout', { method: 'POST' }); } catch (error) { /* 会话已失效 */ }
     closeSheet();
     showLogin();
@@ -574,6 +633,8 @@
     };
     const data = await api('/seats', { params });
     state.seatCache = data.items || [];
+    // 分母来自后端“物理启用座位数”，不能用过滤后的数组长度。
+    const roomTotals = Object.fromEntries((data.rooms || []).map((room) => [room.id, Number(room.total_seats) || 0]));
     if (state.selectedSeat && !state.seatCache.some((seat) => seat.id === state.selectedSeat.id && seat.available)) {
       state.selectedSeat = null;
     }
@@ -629,8 +690,9 @@
     } else {
       body = grouped.map(({ room, seats }) => {
         const free = seats.filter((seat) => seat.available).length;
-        return '<section class="seat-room"><div class="seat-room-head"><div><h3>' + esc(room.name) + '</h3><p>' + esc(room.location || '') + ' · ' + free + ' / ' + seats.length + ' 空闲</p></div></div>' +
-          '<div class="seat-grid">' + seats.map(seatCard).join('') + '</div></section>';
+        const total = roomTotals[room.id] === undefined ? seats.length : roomTotals[room.id];
+        return '<section class="seat-room"><div class="seat-room-head"><div><h3>' + esc(room.name) + '</h3><p>' + esc(room.location || '') + ' · ' + free + ' / ' + total + ' 空闲</p></div></div>' +
+          '<div class="seat-grid">' + seats.map((seat) => seatCard(seat, { showState: true })).join('') + '</div></section>';
       }).join('');
     }
 
@@ -688,6 +750,18 @@
     }).join('') + '</div>';
   }
 
+  function reservationEnded(item) {
+    if (!item || !item.date || !item.end) return true;
+    const end = new Date(item.date + 'T' + item.end + ':00');
+    return Number.isNaN(end.getTime()) || end.getTime() <= Date.now();
+  }
+
+  function shiftClock(value, minutes) {
+    const parts = String(value || '00:00').split(':').map(Number);
+    const total = (parts[0] || 0) * 60 + (parts[1] || 0) + minutes;
+    return pad(Math.floor((total % 1440) / 60)) + ':' + pad(total % 60);
+  }
+
   async function openReservation(id) {
     const item = await api('/reservations/' + encodeURIComponent(id));
     const statusMeta = RES_STATUS[item.status] || [item.status, 'gray'];
@@ -715,15 +789,18 @@
         '<div class="detail-row"><dt>' + label + '</dt><dd>' + esc(value) + '</dd></div>').join('') + '</dl>';
 
     const actions = [];
+    const canExtend = ['in_use', 'away'].includes(item.status) && !reservationEnded(item);
     if (item.status === 'pending') {
       actions.push({ label: '出示凭证', kind: 'secondary', onClick: () => openCredential(item.id) });
       actions.push({ label: '签到', kind: 'primary', onClick: async () => { await quickCheckIn(item.id); } });
       actions.push({ label: '取消', kind: 'secondary', onClick: () => cancelReservation(item.id) });
     } else if (item.status === 'in_use') {
       actions.push({ label: '暂离', kind: 'secondary', onClick: async () => { await postAction('/reservations/' + item.id + '/away', '已进入暂离'); } });
+      if (canExtend) actions.push({ label: '延长时段', kind: 'secondary', onClick: () => extendReservation(item) });
       actions.push({ label: '签退', kind: 'primary', onClick: async () => { await postAction('/reservations/' + item.id + '/check-out', '已签退'); } });
     } else if (item.status === 'away') {
       actions.push({ label: '返座', kind: 'primary', onClick: async () => { await postAction('/reservations/' + item.id + '/resume', '已返座'); } });
+      if (canExtend) actions.push({ label: '延长时段', kind: 'secondary', onClick: () => extendReservation(item) });
       actions.push({ label: '签退', kind: 'secondary', onClick: async () => { await postAction('/reservations/' + item.id + '/check-out', '已签退'); } });
     } else if (item.status === 'completed' && !item.has_review) {
       actions.push({ label: '评价座位', kind: 'primary', onClick: () => openReview(item.id) });
@@ -790,6 +867,55 @@
         closeSheet();
         toast('预约已取消');
         renderView();
+      },
+    });
+  }
+
+  function extendReservation(item) {
+    const options = [30, 60];
+    let extra = options[0];
+    const maxMinutes = (state.meta && state.meta.rules && state.meta.rules.max_minutes) || 240;
+    const body =
+      '<p class="small muted extend-summary">当前结束时间 <strong>' + esc(item.end) + '</strong>，确认后座位时段立即更新。</p>' +
+      '<div class="segmented block" id="extendOptions">' +
+        options.map((minutes) =>
+          '<button type="button" data-extra="' + minutes + '" class="' + (minutes === extra ? 'active' : '') + '">+' + minutes + ' 分钟</button>').join('') +
+      '</div>' +
+      '<p class="extend-preview" id="extendPreview"></p>' +
+      '<p class="tiny tertiary extend-note">续约受单次最长 ' + esc(String(maxMinutes)) + ' 分钟、当日预约额度、座位维护封禁与后续预约限制；以系统校验为准。</p>';
+
+    openSheet({
+      title: '延长时段',
+      subtitle: item.seat_id + ' · ' + fmtDay(item.date),
+      body,
+      actions: [
+        { label: '取消', kind: 'secondary', onClick: closeSheet },
+        { label: '确认延长', kind: 'primary', onClick: async () => {
+            await api('/reservations/' + encodeURIComponent(item.id) + '/extend', {
+              method: 'POST',
+              body: { extra_minutes: extra },
+            });
+            closeSheet();
+            toast('已延长 ' + extra + ' 分钟');
+            renderView();
+          } },
+      ],
+      onMount: (wrap) => {
+        const buttons = $$('#extendOptions button', wrap);
+        const preview = $('#extendPreview', wrap);
+        const update = () => {
+          buttons.forEach((button) => {
+            button.classList.toggle('active', Number(button.dataset.extra) === extra);
+          });
+          preview.innerHTML = '新结束时间 <strong>' + esc(shiftClock(item.end, extra)) + '</strong> · ' + esc(item.date);
+        };
+        buttons.forEach((button) => {
+          button.addEventListener('click', () => {
+            extra = Number(button.dataset.extra);
+            update();
+          });
+        });
+        update();
       },
     });
   }
@@ -994,15 +1120,35 @@
     }).join('') + '</div>';
   }
 
-  function newComplaintSheet() {
+  async function newComplaintSheet() {
     const types = Object.entries(state.meta.complaint_types || {});
+    let seatOptions = '<option value="">不指定具体座位（选填）</option>';
+    let seatHint = '';
+    try {
+      // 每次打开都实时拉取最新座位（管理员新增房间/座位后立即可选）。
+      const data = await api('/seats', {
+        params: { date: state.meta.today, start: '08:00', end: '08:30' },
+      });
+      const seen = new Set();
+      const options = [];
+      (data.items || []).forEach((seat) => {
+        if (!seat || !seat.id || seen.has(seat.id)) return;
+        seen.add(seat.id);
+        options.push('<option value="' + esc(seat.id) + '">' + esc((seat.room_name || seat.room_id) + ' · ' + seat.id) + '</option>');
+      });
+      if (options.length) seatOptions += options.join('');
+      else seatHint = '<p class="tiny tertiary">当前没有可选的座位。</p>';
+    } catch (error) {
+      if (error && error.code === 'UNAUTHENTICATED') return;
+      seatHint = '<p class="tiny tertiary">座位列表暂时无法加载，可先提交不指定座位的投诉。</p>';
+    }
     openSheet({
       title: '新建投诉',
       subtitle: '管理员办结时必须填写反馈',
       body:
         '<label class="field"><span>类型</span><select id="complaintType">' + types.map(([value, label]) =>
           '<option value="' + esc(value) + '">' + esc(label) + '</option>').join('') + '</select></label>' +
-        '<label class="field"><span>座位（可选）</span><input id="complaintSeat" placeholder="例如 B201-003" maxlength="20"></label>' +
+        '<label class="field"><span>座位（可选）</span><select id="complaintSeat">' + seatOptions + '</select></label>' + seatHint +
         '<label class="field"><span>具体情况</span><textarea id="complaintContent" maxlength="1000" placeholder="说明时间、位置和现象，便于现场核查"></textarea></label>',
       actions: [
         { label: '取消', kind: 'secondary', onClick: closeSheet },
@@ -1012,7 +1158,7 @@
             await api('/complaints', { method: 'POST', body: {
               type: $('#complaintType').value,
               content,
-              seat_id: $('#complaintSeat').value.trim() || null,
+              seat_id: $('#complaintSeat').value || null,
             } });
             closeSheet();
             toast('投诉已提交');
@@ -1193,6 +1339,50 @@
     cancelled: '已取消',
   };
 
+  // 指标口径：只使用中文业务表述，不把后端状态字段名暴露给学生/管理员。
+  const ANALYTICS_METRIC_GUIDE = [
+    {
+      label: '预约时段利用率',
+      desc: '已预约时段占全部可用时段的比例，反映座位资源被预订的多少，不等同于实际坐下来的时长。',
+      formula: '非取消预约的时段数 ÷（座位数 × 每日开放时段数 × 天数）',
+    },
+    {
+      label: '签到率',
+      desc: '按预约实际签到的情况计算；签到后被释放仍算签到，签到前被释放不算。',
+      formula: '已签到预约 ÷（已签到 + 明确未签到）',
+    },
+    {
+      label: '完成率',
+      desc: '正常完成使用（含按时签退）的预约比例。',
+      formula: '正常完成预约 ÷（正常完成 + 爽约）',
+    },
+    {
+      label: '违约率',
+      desc: '预约后未在规定时间内签到（爽约）的比例。',
+      formula: '爽约预约 ÷（正常完成 + 爽约）',
+    },
+    {
+      label: '取消率',
+      desc: '主动取消的预约占全部预约的比例。',
+      formula: '已取消预约 ÷ 全部预约',
+    },
+    {
+      label: '投诉办结率',
+      desc: '已处理并给出反馈的投诉比例（含已评价）。',
+      formula: '已办结投诉 ÷ 投诉总数',
+    },
+    {
+      label: '候补确认率',
+      desc: '收到候补通知后成功确认补位的比例。',
+      formula: '已确认候补 ÷ 候补总数',
+    },
+    {
+      label: '平均预约时长',
+      desc: '已完成预约的平均时长，不等同于实际在座时长。',
+      formula: '已完成预约总时长 ÷ 已完成预约数',
+    },
+  ];
+
   let analyticsRange = '7d';
   let analyticsRoom = '';
 
@@ -1238,7 +1428,6 @@
     const ratings = data.ratings || { distribution: [] };
     const waitlist = data.waitlist || { by_status: [] };
     const complaints = data.complaints || {};
-    const notes = data.metric_notes || {};
     const metaRooms = (state.meta && state.meta.rooms) || [];
 
     const num = (value) => (value === null || value === undefined ? '—' : String(value));
@@ -1353,23 +1542,13 @@
       complaintRows.map(([label, value]) => '<div class="detail-row"><dt>' + esc(label) +
         '</dt><dd>' + esc(value) + '</dd></div>').join('') + '</dl></div>';
 
-    const noteKeys = [
-      ['booking_utilization', '预约时段利用率'],
-      ['checkin_rate', '签到率'],
-      ['completion_rate', '完成率'],
-      ['no_show_rate', '违约率'],
-      ['cancel_rate', '取消率'],
-      ['complaint_resolution_rate', '投诉办结率'],
-      ['waitlist.confirmed_rate', '候补确认率'],
-      ['avg_minutes', '平均预约时长'],
-    ];
-    const noteItems = noteKeys.filter(([key]) => notes[key]).map(([key, label]) =>
-      '<div class="analytics-note-item"><strong>' + esc(label) + '</strong><span>' +
-      esc(notes[key]) + '</span></div>').join('');
-    const metricNotes = noteItems
-      ? '<div class="section"><div class="section-head"><h2>指标口径</h2></div>' +
-        '<div class="card card-pad analytics-notes">' + noteItems + '</div></div>'
-      : '';
+    const metricNotes = '<div class="section"><div class="section-head"><h2>指标口径</h2>' +
+      '<span class="tiny tertiary">全部为中文业务口径，不展示数据库字段名</span></div>' +
+      '<div class="analytics-metric-grid">' + ANALYTICS_METRIC_GUIDE.map((item) =>
+        '<article class="analytics-metric-card"><h3>' + esc(item.label) + '</h3>' +
+        '<p>' + esc(item.desc) + '</p>' +
+        '<span class="analytics-formula">' + esc(item.formula) + '</span></article>').join('') +
+      '</div></div>';
 
     return toolbar + kpis + '<div class="dash-grid">' + trend + peak + roomRanking +
       violations + ratingBars + waitlistBars + complaintsCard + '</div>' + metricNotes;
@@ -1452,7 +1631,7 @@
       (isToday && start !== fromMinutes(Math.floor(toMinutes(nowHHMM()) / 30) * 30) ? '（非当前时段）' : '') +
       '。点击座位可查看占用详情、登记违约或强制释放；点击空闲座位可封禁。</div></div>';
 
-    const legend = '<div class="legend" style="margin:0 2px 12px"><span><i style="background:#34C759"></i>空闲</span><span><i style="background:#FF9500"></i>已预约</span><span><i style="background:#007AFF"></i>使用中</span><span><i style="background:#C77D00"></i>暂离</span><span><i style="background:#8E8E93"></i>维护</span></div>';
+    const legend = '<div class="legend" style="margin:0 2px 12px"><span><i style="background:#34C759"></i>空闲</span><span><i style="background:#FF9500"></i>已预约</span><span><i style="background:#007AFF"></i>使用中</span><span><i style="background:#C77D00"></i>暂离</span><span><i style="background:#8E8E93"></i>维护</span><span><i style="background:#B0B0B5"></i>停用</span></div>';
 
     const board = groups.map(({ room, seats: roomSeats }) =>
       '<section class="seat-room"><div class="seat-room-head"><div><h3>' + esc(room.name) + '</h3><p>' + esc(room.location || '') + '</p></div>' +
@@ -1475,12 +1654,28 @@
       try { reservation = await api('/reservations/' + encodeURIComponent(seat.holder_reservation_id)); } catch (error) { reservation = null; }
     }
 
+    // 未来封禁期间 admin_status 可能仍是 available，必须同时看封禁记录，否则会误判“可用”。
+    let blocks = [];
+    try {
+      const data = await api('/admin/seat-blocks', { params: { seat_id: seat.id, active_only: true, page_size: 20 } });
+      blocks = data.items || [];
+    } catch (error) { blocks = []; }
+    const activeBlock = blocks.find((item) => !item.released_at && blockPhase(item) === 'active');
+    const futureBlock = blocks.find((item) => !item.released_at && blockPhase(item) === 'future');
+
     const details = [
       ['座位', seat.id + ' · ' + seat.room_name],
       ['类型', seat.type_label + (seat.capacity > 1 ? ' · ' + seat.capacity + ' 人' : '')],
       ['状态', seat.state_label],
       ['属性', [seat.has_power ? '电源' : '', seat.is_window ? '靠窗' : ''].filter(Boolean).join(' / ') || '—'],
     ];
+    if (activeBlock) {
+      details.push(['封禁', '生效中：' + activeBlock.reason]);
+      details.push(['封禁到期', fmtDateTime(activeBlock.end_at)]);
+    } else if (futureBlock) {
+      details.push(['封禁', '未开始：' + futureBlock.reason]);
+      details.push(['封禁时段', fmtDateTime(futureBlock.start_at) + ' → ' + fmtDateTime(futureBlock.end_at)]);
+    }
     if (reservation) {
       details.push(['预约人', reservation.user_name + '（' + reservation.user_id + '）']);
       details.push(['时段', reservation.start + '–' + reservation.end]);
@@ -1494,12 +1689,13 @@
       actions.push({ label: '登记违约', kind: 'secondary', onClick: () => manualViolationSheet(reservation.id) });
       actions.push({ label: '强制释放', kind: 'danger', onClick: () => forceReleaseSheet(reservation.id) });
     } else if (seat.state === 'maintenance') {
+      actions.push({ label: '封禁记录', kind: 'secondary', onClick: () => seatBlocksSheet({ seatId: seat.id }) });
       actions.push({ label: '解除封禁', kind: 'primary', onClick: () => unblockSeat(seat.id) });
     } else if (seat.state === 'available' || seat.state === 'disabled') {
       actions.push({ label: '封禁座位', kind: 'danger', onClick: () => blockSeatSheet(seat.id) });
     }
     if (!actions.length) actions.push({ label: '关闭', kind: 'secondary', onClick: closeSheet });
-    openSheet({ title: '座位 ' + seat.id, subtitle: seat.room_name, body, actions });
+    openSheet({ title: '座位 ' + seat.id, subtitle: seat.room_name + (blocks.length ? ' · 封禁记录 ' + blocks.length + ' 条' : ''), body, actions });
   }
 
   function manualViolationSheet(reservationId) {
@@ -1555,7 +1751,18 @@
       body:
         '<label class="field"><span>原因</span><input id="blockReason" maxlength="200" placeholder="例如：桌面损坏，等待维修"></label>' +
         '<div class="row" style="gap:10px"><label class="field grow"><span>开始</span><input id="blockStart" type="datetime-local" value="' + localDateTimeValue(now) + '"></label>' +
-        '<label class="field grow"><span>结束</span><input id="blockEnd" type="datetime-local" value="' + localDateTimeValue(later) + '"></label></div>',
+        '<label class="field grow"><span>结束</span><input id="blockEnd" type="datetime-local" value="' + localDateTimeValue(later) + '"></label></div>' +
+        '<p class="tiny tertiary" style="margin:0 0 6px">封禁自「开始」起生效：未来封禁不会立刻停用座位；到期后自动关闭记录，只有“由封禁管理的维护”才恢复可预约，手工维护与停用座位保持原状态。</p>' +
+        '<p class="tiny tertiary" id="blockHint" style="margin:0">本次预计结束：' + esc(fmtDateTime(localDateTimeValue(later))) + '</p>',
+      onMount: (wrap) => {
+        const sync = () => {
+          const hint = wrap.querySelector('#blockHint');
+          const endValue = wrap.querySelector('#blockEnd').value;
+          if (hint) hint.textContent = endValue ? '本次预计结束：' + fmtDateTime(endValue) : '';
+        };
+        wrap.querySelector('#blockStart').addEventListener('change', sync);
+        wrap.querySelector('#blockEnd').addEventListener('change', sync);
+      },
       actions: [
         { label: '取消', kind: 'secondary', onClick: closeSheet },
         { label: '确认封禁', kind: 'danger', onClick: async () => {
@@ -1578,7 +1785,7 @@
   function unblockSeat(seatId) {
     confirmSheet({
       title: '解除封禁',
-      message: '解封后座位恢复可预约，历史封禁记录保留。',
+      message: '将关闭该座位全部未释放的封禁记录。只有“封禁管理导致的维护”会恢复为启用；手工维护与停用座位保持原状态。',
       confirmLabel: '解封',
       onConfirm: async () => {
         await api('/admin/seat-blocks/' + encodeURIComponent(seatId), { method: 'DELETE' });
@@ -1586,6 +1793,214 @@
         toast('已解封');
         renderView();
       },
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 封禁治理（v1.2 / FR-21）：封禁记录、按记录解封、批量建座、停用影响预览
+  // ---------------------------------------------------------------------------
+  function parseDateTime(value) {
+    if (!value) return null;
+    const text = String(value).replace('T', ' ').trim();
+    const [datePart, timePart = '00:00:00'] = text.split(' ');
+    const [y, m, d] = datePart.split('-').map(Number);
+    const [hh, mm, ss = 0] = timePart.split(':').map(Number);
+    if (!y || !m || !d) return null;
+    return new Date(y, m - 1, d, hh || 0, mm || 0, ss || 0);
+  }
+
+  function blockPhase(block) {
+    if (block.released_at) return 'released';
+    const start = parseDateTime(block.start_at);
+    const end = parseDateTime(block.end_at);
+    if (!start || !end) return 'unknown';
+    const now = new Date();
+    if (start > now) return 'future';
+    if (end <= now) return 'expired';
+    return 'active';
+  }
+
+  const BLOCK_PHASE = {
+    active: ['green', '生效中'],
+    future: ['blue', '未开始'],
+    expired: ['gray', '已到期'],
+    released: ['gray', '已释放'],
+    unknown: ['gray', '未解析'],
+  };
+
+  async function seatBlocksSheet(options = {}) {
+    const params = { page_size: 50 };
+    if (options.seatId) params.seat_id = options.seatId;
+    if (options.roomId) params.room_id = options.roomId;
+    if (options.activeOnly !== false) params.active_only = true;
+    let data;
+    try { data = await api('/admin/seat-blocks', { params }); } catch (error) { handleError(error); return; }
+    const items = data.items || [];
+    const rows = items.map((item) => {
+      const phase = blockPhase(item);
+      const meta = BLOCK_PHASE[phase] || BLOCK_PHASE.unknown;
+      const managed = item.seat_maintenance_by_block
+        ? '封禁管理的维护'
+        : item.seat_status === 'maintenance'
+          ? '手工维护'
+          : item.seat_status === 'disabled' ? '停用' : '启用';
+      const action = item.released_at
+        ? ''
+        : '<button class="btn btn-secondary btn-sm" type="button" data-action="release-block" data-id="' + esc(item.id) +
+          '" data-seat="' + esc(item.seat_id) + '" data-status="' + esc(item.seat_status) +
+          '" data-managed="' + (item.seat_maintenance_by_block ? '1' : '0') + '">按记录解封</button>';
+      return '<div class="block-row">' +
+        '<div class="row-main">' +
+          '<div class="row-title mono">' + esc(item.seat_id) + ' · ' + esc(item.room_name || item.room_id) + '</div>' +
+          '<div class="row-sub">' + esc(item.reason) + '</div>' +
+          '<div class="row-sub tiny tertiary">' + fmtDateTime(item.start_at) + ' → ' + fmtDateTime(item.end_at) +
+            (item.released_at ? ' · 已释放 ' + fmtDateTime(item.released_at) : '') +
+            ' · 座位当前：' + esc(managed) + '</div>' +
+        '</div>' +
+        '<div class="row-side block-side"><span class="pill ' + meta[0] + '">' + meta[1] + '</span>' + action + '</div>' +
+      '</div>';
+    }).join('');
+    openSheet({
+      title: '封禁记录',
+      subtitle: (options.seatId ? '座位 ' + options.seatId + ' · ' : '') + '共 ' + (data.total || 0) + ' 条，按开始时间倒序',
+      body: rows
+        ? '<div class="stack block-list">' + rows + '</div>'
+        : '<div class="card empty">' + icon('empty') + '<strong>没有封禁记录</strong><p>在现场页封禁座位后，记录会出现在这里。</p></div>' +
+          '<p class="tiny tertiary" style="margin:12px 2px 0">未来封禁不会立刻停用座位，维护态按封禁时间窗派生；到期自动关闭记录，只有“封禁管理的维护”才恢复可预约。</p>',
+      actions: [{ label: '关闭', kind: 'secondary', onClick: closeSheet }],
+    });
+  }
+
+  function releaseSeatBlockSheet(info) {
+    const managed = info.managed === '1';
+    const disabled = info.status === 'disabled';
+    const hint = disabled
+      ? '该座位当前是「停用」，解封不会恢复成可预约；需要启用请到「资源」页编辑座位。'
+      : managed
+        ? '该座位是由封禁管理的维护，可勾选“同时恢复座位”；不勾选则只关闭记录、保留维护状态。'
+        : '该座位不是封禁管理的维护状态，解封只关闭记录、不改动座位状态。';
+    openSheet({
+      title: '按记录解封',
+      subtitle: '座位 ' + info.seat,
+      body:
+        '<label class="field"><span>解封原因</span><textarea id="releaseBlockReason" maxlength="500" placeholder="例如：维修完成，现场确认可恢复使用"></textarea></label>' +
+        '<label class="row small" style="gap:8px"><input id="releaseBlockRestore" type="checkbox"' +
+          (managed && !disabled ? '' : ' disabled') + '> 同时恢复座位为「启用」</label>' +
+        '<p class="tiny tertiary" style="margin:8px 0 0">' + esc(hint) + '</p>',
+      actions: [
+        { label: '取消', kind: 'secondary', onClick: closeSheet },
+        { label: '确认解封', kind: 'primary', onClick: async () => {
+            const reason = $('#releaseBlockReason').value.trim();
+            if (reason.length < 2) { toast('请填写解封原因', { error: true }); return; }
+            try {
+              await api('/admin/seat-blocks/' + encodeURIComponent(info.id) + '/release', { method: 'POST', body: {
+                reason,
+                restore_seat: Boolean($('#releaseBlockRestore') && $('#releaseBlockRestore').checked),
+              } });
+              closeSheet();
+              toast('已按记录解封');
+              renderView();
+            } catch (error) { handleError(error); }
+          } },
+      ],
+    });
+  }
+
+  function bulkSeatSheet() {
+    const rooms = state.roomsAdmin.length ? state.roomsAdmin : (state.meta.rooms || []);
+    const roomOptions = rooms.map((room) =>
+      '<option value="' + esc(room.id) + '"' + (state.resourceRoom === room.id ? ' selected' : '') + '>' + esc(room.name) + '</option>').join('');
+    const typeOptions = Object.entries(state.meta.seat_types || {}).map(([value, label]) =>
+      '<option value="' + esc(value) + '">' + esc(label) + '</option>').join('');
+    openSheet({
+      title: '批量新增座位',
+      subtitle: '一次最多 100 个；任一条非法则整批回滚，不留半截数据',
+      body:
+        '<label class="field"><span>所属自习室</span><select id="bulkRoom">' + roomOptions + '</select></label>' +
+        '<label class="field"><span>编号前缀</span><input id="bulkPrefix" maxlength="24" value="' + esc((state.resourceRoom || '') + '-') + '" placeholder="例如：A101-"></label>' +
+        '<div class="row" style="gap:10px">' +
+          '<label class="field grow"><span>起始序号</span><input id="bulkStart" type="number" min="1" max="999" value="1"></label>' +
+          '<label class="field grow"><span>数量（≤100）</span><input id="bulkCount" type="number" min="1" max="100" value="10"></label>' +
+        '</div>' +
+        '<div class="row" style="gap:10px">' +
+          '<label class="field grow"><span>类型</span><select id="bulkType">' + typeOptions + '</select></label>' +
+          '<label class="field grow"><span>容量（普通位填 1，讨论间 4~8）</span><input id="bulkCapacity" type="number" min="1" max="20" value="1"></label>' +
+        '</div>' +
+        '<label class="field"><span>备注（可选）</span><input id="bulkNote" maxlength="200" placeholder="例如：2026 春季新自习室初始化"></label>' +
+        '<p class="tiny tertiary" id="bulkPreview" style="margin:0">编号示例：' + esc((state.resourceRoom || '') + '-001 ~ ……') + '</p>',
+      onMount: (wrap) => {
+        const sync = () => {
+          const prefix = wrap.querySelector('#bulkPrefix').value;
+          const start = Number(wrap.querySelector('#bulkStart').value) || 1;
+          const count = Number(wrap.querySelector('#bulkCount').value) || 1;
+          const first = prefix + String(start).padStart(3, '0');
+          const last = prefix + String(start + count - 1).padStart(3, '0');
+          const hint = wrap.querySelector('#bulkPreview');
+          if (hint) hint.textContent = '将创建 ' + count + ' 个座位：' + first + ' … ' + last;
+        };
+        ['#bulkPrefix', '#bulkStart', '#bulkCount'].forEach((sel) => {
+          const el = wrap.querySelector(sel);
+          if (el) el.addEventListener('input', sync);
+        });
+        sync();
+      },
+      actions: [
+        { label: '取消', kind: 'secondary', onClick: closeSheet },
+        { label: '批量创建', kind: 'primary', onClick: async () => {
+            const roomId = $('#bulkRoom').value;
+            const prefix = $('#bulkPrefix').value.trim();
+            const start = Number($('#bulkStart').value);
+            const count = Number($('#bulkCount').value);
+            if (!roomId) { toast('请选择自习室', { error: true }); return; }
+            if (!prefix) { toast('请填写编号前缀', { error: true }); return; }
+            if (!Number.isInteger(start) || start < 1) { toast('起始序号必须是不小于 1 的整数', { error: true }); return; }
+            if (!Number.isInteger(count) || count < 1 || count > 100) { toast('数量必须在 1~100 之间', { error: true }); return; }
+            const seats = Array.from({ length: count }, (_, index) => ({
+              id: prefix + String(start + index).padStart(3, '0'),
+              type: $('#bulkType').value,
+              capacity: Number($('#bulkCapacity').value) || 1,
+              note: $('#bulkNote').value.trim(),
+            }));
+            try {
+              const result = await api('/admin/seats/bulk', { method: 'POST', body: { room_id: roomId, seats } });
+              closeSheet();
+              toast('已新增 ' + (result.count || seats.length) + ' 个座位');
+              renderView();
+            } catch (error) { handleError(error); }
+          } },
+      ],
+    });
+  }
+
+  async function roomImpactSheet(roomId) {
+    let data;
+    try { data = await api('/admin/rooms/' + encodeURIComponent(roomId) + '/impact', { params: { status: 'closed' } }); }
+    catch (error) { handleError(error); return; }
+    const by = data.by_status || {};
+    const rows = [
+      ['自习室', (data.room_name || '') + '（' + data.room_id + '）'],
+      ['当前状态', data.current_status === 'open' ? '开放' : '停用'],
+      ['受影响预约', String(data.affected_count || 0)],
+      ['待签到', String(by.pending || 0)],
+      ['使用中', String(by.in_use || 0)],
+      ['暂离', String(by.away || 0)],
+    ];
+    const items = (data.items || []).map((item) =>
+      '<div class="block-row"><div class="row-main">' +
+        '<div class="row-title mono">' + esc(item.seat_id) + ' · ' + esc(item.user_name || item.user_id) + '</div>' +
+        '<div class="row-sub tiny tertiary">' + esc(item.date) + ' ' + esc(item.start) + '–' + esc(item.end) + '</div>' +
+      '</div><div class="row-side">' + statusPill(item.status) + '</div></div>').join('');
+    openSheet({
+      title: '停用影响预览',
+      subtitle: '只读预览，不会修改任何数据',
+      body:
+        '<dl class="detail-list">' + rows.map(([label, value]) =>
+          '<div class="detail-row"><dt>' + label + '</dt><dd>' + esc(value) + '</dd></div>').join('') + '</dl>' +
+        (items
+          ? '<div class="stack block-list" style="margin-top:12px">' + items + '</div>'
+          : '<p class="small muted" style="margin-top:12px">当前没有待签到/使用中/暂离的预约。</p>') +
+        '<p class="tiny tertiary" style="margin:10px 0 0">停用自习室只改状态、不自动取消已有预约；关闭后不能再新建预约与签到，请先与受影响学生沟通。</p>',
+      actions: [{ label: '关闭', kind: 'secondary', onClick: closeSheet }],
     });
   }
 
@@ -1979,6 +2394,8 @@
   async function usersView() {
     const data = await api('/admin/users', { params: { page: state.page, page_size: 20 } });
     const items = data.items || [];
+    // 供新建账号弹窗合并院系/班级历史值；后续打开弹窗时会再取一次完整目录。
+    state.accountDirectory = items;
     return '<div class="account-toolbar"><p class="small muted">创建和管理账号；停用与重置密码会退出该账号的所有设备。</p>' +
       '<button class="btn btn-primary" type="button" data-action="account-create">新建账号</button></div>' +
       (items.length ? '<div class="list">' + items.map((user) => {
@@ -2013,17 +2430,35 @@
     } else openSheet(config);
   }
 
-  function accountSheet() {
+  async function accountSheet() {
+    // 院系/班级联想值 = 已有账号历史值 + 常用预设；取数失败不阻断建号。
+    let directory = state.accountDirectory || [];
+    try {
+      const data = await api('/admin/users', { params: { page: 1, page_size: 100 } });
+      if (data && Array.isArray(data.items)) {
+        directory = data.items;
+        state.accountDirectory = directory;
+      }
+    } catch (error) {
+      if (error && error.code === 'UNAUTHENTICATED') return;
+    }
+    const departments = mergeOptions(directory.map((user) => user.department), DEPARTMENT_PRESETS);
+    const classes = mergeOptions(directory.map((user) => user.class_name), CLASS_PRESETS);
     openAccountPanel({
       title: '新建账号', subtitle: '新账号首次登录需要修改密码',
       body: '<form id="accountForm" class="account-form">' +
         '<label class="field"><span>账号</span><input id="accountId" required maxlength="64" autocomplete="off" placeholder="例如 S2026001"></label>' +
-        '<label class="field"><span>姓名</span><input id="accountName" required maxlength="100" autocomplete="off"></label>' +
+        '<label class="field"><span>姓名</span><input id="accountName" required maxlength="100" autocomplete="off" placeholder="例如 张三"></label>' +
         '<label class="field"><span>角色</span><select id="accountRole">' + Object.entries(ROLE_TEXT).map(([value, label]) =>
           '<option value="' + value + '">' + esc(label) + '</option>').join('') + '</select></label>' +
-        '<label class="field"><span>院系（可选）</span><input id="accountDepartment" maxlength="100"></label>' +
-        '<label class="field"><span>班级（可选）</span><input id="accountClass" maxlength="100"></label>' +
-        '<label class="field"><span>初始密码（留空自动生成）</span><input id="accountPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password"></label></form>',
+        '<label class="field"><span>院系（选填，可直接输入）</span>' +
+          '<input id="accountDepartment" maxlength="100" list="accountDepartmentOptions" autocomplete="off" placeholder="例如：计算机科学与技术学院">' +
+          '<datalist id="accountDepartmentOptions">' + datalistOptions(departments) + '</datalist></label>' +
+        '<label class="field"><span>班级（选填，可直接输入）</span>' +
+          '<input id="accountClass" maxlength="100" list="accountClassOptions" autocomplete="off" placeholder="例如：计科2301">' +
+          '<datalist id="accountClassOptions">' + datalistOptions(classes) + '</datalist></label>' +
+        '<label class="field"><span>初始密码（留空自动生成）</span><input id="accountPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password" placeholder="不填写则由系统生成"></label>' +
+        '<p class="tiny tertiary">院系与班级可留空；下拉项来自已有账号与常用预设，也可以直接输入任意文本。</p></form>',
       actions: [
         { label: '取消', kind: 'secondary', onClick: closeSheet },
         { label: '创建账号', kind: 'primary', onClick: async () => {
@@ -2084,7 +2519,6 @@
         { label: '取消', kind: 'secondary', onClick: closeSheet },
         { label: '确认重置', kind: 'danger', onClick: async () => {
           const data = await api('/admin/users/' + encodeURIComponent(config.id) + '/reset-password', { method: 'POST', body: {} });
-          if (config.id === state.user.id) state.lastLoginPassword = '';
           initialPasswordSheet(config.id, data.initial_password);
         } },
       ],
@@ -2256,25 +2690,69 @@
   // 视图：系统管理员 · 系统
   // ---------------------------------------------------------------------------
   async function systemView() {
-    const [health, scheduler] = await Promise.all([api('/health'), api('/admin/scheduler')]);
-    const summary = scheduler.last_summary || {};
+    // 系统状态来自管理端专用接口；/api/health 按 L-02 只返回 status。
+    // 任一接口或字段缺失都不能让「系统」页面整页崩溃：全部使用可选链 + 兜底。
+    let health = null;
+    let scheduler = null;
+    try {
+      health = await api('/admin/system');
+    } catch (error) {
+      if (error && error.code === 'UNAUTHENTICATED') throw error;
+    }
+    try {
+      scheduler = await api('/admin/scheduler');
+    } catch (error) {
+      if (error && error.code === 'UNAUTHENTICATED') throw error;
+    }
+
+    const db = health?.db || {};
+    const schemaVersion = db?.schema_version ?? health?.schema_version ?? 4;
+    const sizeBytes = Number(db?.size_bytes);
+    const sizeText = Number.isFinite(sizeBytes) ? (sizeBytes / 1024).toFixed(1) + ' KB' : '—';
+    const uptimeSeconds = Number(health?.uptime_seconds);
+    const uptimeText = Number.isFinite(uptimeSeconds) ? Math.floor(uptimeSeconds / 60) + ' 分钟' : '—';
+    const statusText = health?.status === 'ok' ? '正常' : health?.status === 'degraded' ? '降级' : '未知';
+    const demoData = health?.demo_data === true;
+    const modeText = health?.demo_data ? '演示数据已初始化' : health?.demo_mode ? '演示模式' : '正式数据';
+    const sched = scheduler || health?.scheduler || {};
+    const schedEnabled = sched?.enabled !== undefined ? Boolean(sched.enabled) : Boolean(health?.scheduler?.enabled);
+    const schedRunning = sched?.running === true;
+    const summary = sched?.last_summary || {};
     const rows = [
-      ['版本', health.version],
-      ['环境', health.env],
-      ['Schema', 'v' + health.db.schema_version],
-      ['数据库大小', (health.db.size_bytes / 1024).toFixed(1) + ' KB'],
-      ['运行时长', Math.floor(health.uptime_seconds / 60) + ' 分钟'],
-      ['调度器', scheduler.enabled ? (scheduler.running ? '运行中' : '未启动') : '已禁用'],
-      ['扫描间隔', (scheduler.interval_seconds || 0) + ' 秒'],
-      ['最近扫描', scheduler.last_run_at ? fmtDateTime(scheduler.last_run_at) : '—'],
-      ['最近结果', '未签到 ' + (summary.no_show || 0) + ' · 暂离超时 ' + (summary.away_timeout || 0) + ' · 超时未签退 ' + (summary.late_checkout || 0) + ' · 提醒 ' + (summary.reminders || 0)],
+      ['运行状态', statusText],
+      ['版本', health?.version || '—'],
+      ['环境', health?.env || '—'],
+      ['数据模式', modeText],
+      ['数据库版本', 'v' + (schemaVersion === null || schemaVersion === undefined ? 4 : schemaVersion)],
+      ['数据库大小', sizeText],
+      ['账号数量', db?.users === undefined || db?.users === null ? '—' : Number(db.users) + ' 个'],
+      ['运行时长', uptimeText],
+      ['调度器状态', schedEnabled ? (schedRunning ? '运行中' : '未启动') : '已禁用'],
+      ['扫描间隔', (Number(sched?.interval_seconds) || 0) + ' 秒'],
+      ['最近扫描', sched?.last_run_at ? fmtDateTime(sched.last_run_at) : '—'],
+      ['最近结果', '未签到 ' + (summary?.no_show || 0) + ' · 暂离超时 ' + (summary?.away_timeout || 0) + ' · 超时未签退 ' + (summary?.late_checkout || 0) + ' · 提醒 ' + (summary?.reminders || 0)],
     ];
-    return '<div class="card"><dl class="detail-list" style="padding:4px 16px">' + rows.map(([label, value]) =>
-      '<div class="detail-row"><dt>' + label + '</dt><dd>' + esc(value) + '</dd></div>').join('') + '</dl></div>' +
-      (scheduler.last_error ? '<div class="banner danger" style="margin-top:12px">' + icon('alert') + '<div>最近一次任务失败：' + esc(scheduler.last_error) + '</div></div>' : '') +
+    return (health === null ? '<div class="banner danger" style="margin-bottom:12px">' + icon('alert') + '<div>运行状态暂时无法获取，已显示可用的兜底信息；请稍后刷新或检查服务日志。</div></div>' : '') +
+      '<div class="card"><dl class="detail-list" style="padding:4px 16px">' + rows.map(([label, value]) =>
+        '<div class="detail-row"><dt>' + label + '</dt><dd>' + esc(value) + '</dd></div>').join('') + '</dl></div>' +
+      (sched?.last_error ? '<div class="banner danger" style="margin-top:12px">' + icon('alert') + '<div>最近一次任务失败：' + esc(sched.last_error) + '</div></div>' : '') +
+      '<div class="section"><div class="section-head"><h2>演示数据（课程演示与测试）</h2></div>' +
+        '<div class="card card-pad">' +
+          '<p class="small muted">' + (demoData
+            ? '当前库已包含标准演示数据。重新初始化会再次清空业务数据并生成新的统一演示密码。'
+            : '可在当前库中一键写入标准演示自习室、座位与四个角色账号，便于课程演示与验收。') + '</p>' +
+          '<ul class="small muted" style="margin:8px 0 12px;padding-left:18px">' +
+            '<li>会清空现有账号、预约、资源等业务数据，<strong>审计日志保留</strong>。</li>' +
+            '<li>写入 3 个自习室、24 个座位，以及 S2023001、T7001、A9001、Y0001 演示账号。</li>' +
+            '<li>所有演示账号使用<strong>同一个统一初始密码</strong>，密码只在成功提示中显示一次。</li>' +
+            '<li>初始化后当前登录会话会失效，需要使用演示账号重新登录。</li>' +
+          '</ul>' +
+          '<button class="btn btn-danger" type="button" data-action="system-init-demo">' +
+            (demoData ? '重新初始化演示数据' : '初始化演示数据') + '</button>' +
+        '</div></div>' +
       '<div class="section"><div class="section-head"><h2>数据导出</h2></div><div class="list">' +
         [['reservations', '预约记录'], ['violations', '违规记录'], ['audit', '审计日志'], ['complaints', '投诉记录'], ['blacklist', '黑名单记录'], ['credit_logs', '信用流水'], ['waitlist', '候补记录']].map(([kind, label]) =>
-          '<a class="list-row clickable" href="/api/admin/export/' + kind + '.csv"><div class="row-main"><div class="row-title">' + label + '</div><div class="row-sub">CSV · UTF-8 BOM · 可用 Excel 打开</div></div><div class="row-side">' + icon('download', 'row-chevron') + '</div></a>').join('') +
+          '<button class="list-row clickable" type="button" data-action="export-csv" data-kind="' + kind + '" data-label="' + label + '"><div class="row-main"><div class="row-title">' + label + '</div><div class="row-sub">CSV · UTF-8 BOM · 桌面版弹出另存为</div></div><div class="row-side">' + icon('download', 'row-chevron') + '</div></button>').join('') +
       '</div></div>' +
       '<div class="section"><div class="section-head"><h2>运维提示</h2></div><div class="card card-pad small muted">' +
         '<p>· 数据库为单机 SQLite（WAL），备份时请同时复制 <span class="mono">.db</span> 与 <span class="mono">-wal</span> 文件，或先停止服务再复制。</p>' +
@@ -2283,18 +2761,132 @@
       '</div></div>';
   }
 
+  function exportFilename(kind) {
+    const d = new Date();
+    const stamp = d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes());
+    return kind + '-' + stamp + '.csv';
+  }
+
+  async function exportAdminCsv(kind, label) {
+    const response = await fetch('/api/admin/export/' + encodeURIComponent(kind) + '.csv', {
+      credentials: 'same-origin',
+      headers: { Accept: 'text/csv' },
+    });
+    if (response.status === 401) {
+      showLogin();
+      throw new ApiError('登录状态已失效', 'UNAUTHENTICATED');
+    }
+    if (!response.ok) {
+      let message = '导出失败，请稍后重试';
+      try {
+        const payload = await response.json();
+        message = (payload && payload.error && payload.error.message) || message;
+      } catch (error) { /* 非 JSON 错误体 */ }
+      throw new ApiError(message, 'EXPORT_FAILED');
+    }
+    let content = await response.text();
+    // response.text() 可能吃掉 BOM；Excel 打开中文 CSV 需要 UTF-8 BOM。
+    if (!content.startsWith('\ufeff')) content = '\ufeff' + content;
+    const filename = exportFilename(kind);
+    const bridge = window.pywebview && window.pywebview.api;
+    if (bridge && typeof bridge.save_export_file === 'function') {
+      const result = await bridge.save_export_file(filename, content);
+      if (result && result.canceled) { toast('已取消保存'); return; }
+      if (!result || result.ok !== true) {
+        throw new ApiError((result && result.error) || '保存失败，请重试', 'EXPORT_SAVE_FAILED');
+      }
+      toast('已保存到 ' + result.path);
+      return;
+    }
+    // 网页版：标准 Blob 下载。
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    toast('已开始下载 ' + label + ' CSV');
+  }
+
+  function initDemoDataSheet() {
+    confirmSheet({
+      title: '初始化演示数据',
+      subtitle: '仅用于课程演示与测试',
+      message: '此操作会清空当前库中的账号、预约、资源等业务数据，写入标准演示数据（审计日志保留）。'
+        + '学生、教师、自习室管理员演示账号会使用统一初始密码；若已有活跃系统管理员，其原有密码与资料会保留。'
+        + '统一演示密码只显示一次；当前登录会话会立即失效。确认继续？',
+      confirmLabel: '确认初始化',
+      danger: true,
+      onConfirm: async () => {
+        const data = await api('/admin/system/demo-data', {
+          method: 'POST',
+          body: { confirm: 'INITIALIZE_DEMO_DATA' },
+        });
+        demoInitializedSheet(data || {});
+      },
+    });
+  }
+
+  function demoInitializedSheet(data) {
+    const accounts = Array.isArray(data.accounts) ? data.accounts : [];
+    const password = data.demo_password || '';
+    const preserved = data.admin_password_preserved === true;
+    const accountRows = accounts.map((account) =>
+      '<div class="detail-row"><dt>' + esc(account.role_label || ROLE_TEXT[account.role] || account.role) + '</dt>' +
+      '<dd><span class="mono">' + esc(account.username) + '</span> · ' + esc(account.name) +
+      (account.password_preserved ? ' <span class="pill gray">原密码保留</span>' : '') + '</dd></div>').join('');
+    openAccountPanel({
+      title: '演示数据已初始化',
+      subtitle: preserved ? '演示账号统一密码只显示这一次' : '统一演示密码只显示这一次',
+      body: '<p class="small muted">请立即记录以下统一初始密码。关闭本窗口后系统不再展示，遗忘只能重新初始化演示数据。</p>' +
+        '<label class="field account-secret"><span>演示账号统一初始密码</span><input id="demoInitialPassword" readonly autocomplete="off" value="' + esc(password) + '"></label>' +
+        (preserved
+          ? '<div class="banner" style="margin-top:12px;background:#f2f2f7;border-radius:10px;padding:10px 12px">' + icon('check') +
+            '<div>当前系统管理员原有密码已保留，请继续使用原密码登录；上方统一密码仅适用于学生、教师与自习室管理员演示账号。</div></div>'
+          : '') +
+        '<div class="card card-pad" style="margin-top:12px"><dl class="detail-list">' + accountRows + '</dl></div>' +
+        '<p class="tiny tertiary" style="margin-top:12px">演示数据已写入；当前登录会话已失效，请' +
+        (preserved ? '使用学生/教师/自习室管理员账号与统一密码，或使用系统管理员原密码' : '使用上述任一演示账号与统一密码') +
+        '重新登录。' +
+        (data.counts ? '（账号 ' + Number(data.counts.users || 0) + ' · 自习室 ' + Number(data.counts.rooms || 0) + ' · 座位 ' + Number(data.counts.seats || 0) + '）' : '') + '</p>',
+      actions: [
+        { label: '复制密码', kind: 'secondary', onClick: async () => {
+            const input = $('#demoInitialPassword');
+            try {
+              await navigator.clipboard.writeText(input ? input.value : password);
+              toast('统一演示密码已复制');
+            } catch (error) {
+              if (input) { input.focus(); input.select(); }
+              toast('请手动复制选中的密码');
+            }
+          } },
+        { label: '重新登录', kind: 'primary', onClick: () => {
+            closeSheet();
+            showLogin('演示数据已初始化，请使用演示账号与提示中的密码重新登录');
+          } },
+      ],
+    });
+  }
+
   // ---------------------------------------------------------------------------
   // 视图：管理员 · 资源管理（FR-21）
   // ---------------------------------------------------------------------------
   async function resourcesView() {
-    const [roomData, seatData] = await Promise.all([
+    const [roomData, seatData, blockData] = await Promise.all([
       api('/admin/rooms'),
       api('/admin/seats', { params: { room_id: state.resourceRoom || undefined } }),
+      api('/admin/seat-blocks', { params: { active_only: true, page_size: 1 } }),
     ]);
     state.roomsAdmin = roomData.items || [];
     state.seatsAdmin = seatData.items || [];
+    state.seatBlocks = blockData.items || [];
     const rooms = state.roomsAdmin;
     const seats = state.seatsAdmin;
+    const activeBlocks = blockData.total || 0;
     const roomOptions = '<option value="">全部自习室</option>' + rooms.map((room) =>
       '<option value="' + esc(room.id) + '"' + (state.resourceRoom === room.id ? ' selected' : '') + '>' + esc(room.name) + '</option>').join('');
     const roomRows = rooms.length ? rooms.map((room) =>
@@ -2304,12 +2896,18 @@
         '<td class="nowrap">' + esc(room.open_time) + '–' + esc(room.close_time) + '</td>' +
         '<td><span class="pill ' + (room.status === 'open' ? 'green' : 'gray') + '">' + (room.status === 'open' ? '开放' : '停用') + '</span></td>' +
         '<td>' + (room.seat_count || 0) + '</td>' +
-        '<td><button class="btn btn-secondary btn-sm" type="button" data-action="edit-room" data-id="' + esc(room.id) + '">编辑</button></td>' +
+        '<td class="nowrap">' +
+          '<button class="btn btn-secondary btn-sm" type="button" data-action="edit-room" data-id="' + esc(room.id) + '">编辑</button> ' +
+          '<button class="btn btn-secondary btn-sm" type="button" data-action="room-impact" data-id="' + esc(room.id) + '">停用影响</button>' +
+        '</td>' +
       '</tr>').join('') : '<tr><td colspan="6" class="tiny tertiary">暂无自习室</td></tr>';
     const seatRows = seats.length ? seats.map((seat) => {
+      // 维护来源要区分：封禁管理的维护会随到期/解封自动恢复，手工维护不会。
       const status = seat.admin_status === 'available'
         ? ['green', '启用']
-        : seat.admin_status === 'maintenance' ? ['orange', '维护中'] : ['gray', '停用'];
+        : seat.admin_status === 'maintenance'
+          ? (seat.maintenance_by_block ? ['orange', '维护 · 封禁'] : ['orange', '维护 · 手工'])
+          : ['gray', '停用'];
       const attrs = [seat.has_power ? '电源' : '', seat.is_window ? '靠窗' : ''].filter(Boolean).join(' / ') || '—';
       return '<tr>' +
         '<td class="mono">' + esc(seat.id) + '</td>' +
@@ -2317,7 +2915,10 @@
         '<td>' + esc(seat.type_label || seat.type) + (seat.capacity > 1 ? ' · ' + seat.capacity + ' 人' : '') + '</td>' +
         '<td><span class="pill ' + status[0] + '">' + status[1] + '</span></td>' +
         '<td class="tiny tertiary">' + attrs + '</td>' +
-        '<td><button class="btn btn-secondary btn-sm" type="button" data-action="edit-seat" data-id="' + esc(seat.id) + '">编辑</button></td>' +
+        '<td class="nowrap">' +
+          '<button class="btn btn-secondary btn-sm" type="button" data-action="edit-seat" data-id="' + esc(seat.id) + '">编辑</button> ' +
+          '<button class="btn btn-secondary btn-sm" type="button" data-action="seat-blocks" data-id="' + esc(seat.id) + '">封禁记录</button>' +
+        '</td>' +
       '</tr>';
     }).join('') : '<tr><td colspan="6" class="tiny tertiary">暂无座位</td></tr>';
     return '<div class="section">' +
@@ -2325,8 +2926,14 @@
         '<div class="card table-wrap"><table class="data"><thead><tr><th>编号</th><th>名称 / 位置</th><th>开放时间</th><th>状态</th><th>座位数</th><th>操作</th></tr></thead><tbody>' + roomRows + '</tbody></table></div>' +
       '</div>' +
       '<div class="section">' +
-        '<div class="section-head"><h2>座位</h2><div class="row"><select class="select-compact" data-action-select="resource-room">' + roomOptions + '</select><button class="btn btn-primary btn-sm" type="button" data-action="new-seat">新增座位</button></div></div>' +
-        '<p class="small muted" style="margin:0 0 10px">停用/维护只影响新预约；已有预约请到「现场」页处理。封禁/解封仍走现场页。</p>' +
+        '<div class="section-head"><h2>座位</h2><div class="row">' +
+          '<span class="pill ' + (activeBlocks ? 'orange' : 'gray') + ' plain">生效封禁 ' + activeBlocks + '</span>' +
+          '<select class="select-compact" data-action-select="resource-room">' + roomOptions + '</select>' +
+          '<button class="btn btn-secondary btn-sm" type="button" data-action="seat-blocks">封禁记录</button>' +
+          '<button class="btn btn-secondary btn-sm" type="button" data-action="bulk-seat">批量新增</button>' +
+          '<button class="btn btn-primary btn-sm" type="button" data-action="new-seat">新增座位</button>' +
+        '</div></div>' +
+        '<p class="small muted" style="margin:0 0 10px">停用/维护只影响新预约；已有预约请到「现场」页处理。封禁与按记录解封可在本页「封禁记录」或现场页完成。</p>' +
         '<div class="card table-wrap"><table class="data"><thead><tr><th>编号</th><th>自习室</th><th>类型 / 容量</th><th>状态</th><th>属性</th><th>操作</th></tr></thead><tbody>' + seatRows + '</tbody></table></div>' +
       '</div>';
   }
@@ -2357,11 +2964,13 @@
               status: $('#roomStatus').value,
             };
             try {
-              if (editing) await api('/admin/rooms/' + encodeURIComponent(room.id), { method: 'PUT', body: payload });
+              let updated = null;
+              if (editing) updated = await api('/admin/rooms/' + encodeURIComponent(room.id), { method: 'PUT', body: payload });
               else await api('/admin/rooms', { method: 'POST', body: { id: $('#roomId').value.trim(), ...payload } });
               state.meta = await api('/meta');
               closeSheet();
-              toast(editing ? '自习室已更新' : '自习室已创建');
+              const released = (updated && updated.released_reservations) || [];
+              toast((editing ? '自习室已更新' : '自习室已创建') + (released.length ? '，已取消 ' + released.length + ' 条受影响预约' : ''));
               renderView();
             } catch (error) { handleError(error); }
           } },
@@ -2402,15 +3011,17 @@
               note: $('#seatNote').value.trim(),
             };
             try {
+              let updated = null;
               if (editing) {
                 payload.admin_status = $('#seatStatus').value;
-                await api('/admin/seats/' + encodeURIComponent(seat.id), { method: 'PUT', body: payload });
+                updated = await api('/admin/seats/' + encodeURIComponent(seat.id), { method: 'PUT', body: payload });
               } else {
                 await api('/admin/seats', { method: 'POST', body: { id: $('#seatId').value.trim(), ...payload } });
               }
               state.meta = await api('/meta');
               closeSheet();
-              toast(editing ? '座位已更新' : '座位已创建');
+              const released = (updated && updated.released_reservations) || [];
+              toast((editing ? '座位已更新' : '座位已创建') + (released.length ? '，已取消 ' + released.length + ' 条受影响预约' : ''));
               renderView();
             } catch (error) { handleError(error); }
           } },
@@ -2474,14 +3085,16 @@
   // 动作
   // ---------------------------------------------------------------------------
   const ACTIONS = {
-    'account-create': () => accountSheet(),
-    'account-status': (el) => accountStatusSheet({ id: el.dataset.id, name: el.dataset.name, status: el.dataset.status }),
-    'account-reset': (el) => accountResetSheet({ id: el.dataset.id, name: el.dataset.name }),
-    'account-sessions': (el) => sessionSheet({ id: el.dataset.id, name: el.dataset.name }),
     nav: (el) => go(el.dataset.view),
     refresh: () => renderView(),
     'analytics-range': (el) => setAnalyticsRange(el.dataset.range),
     'analytics-room': (el) => setAnalyticsRoom(el.dataset.room),
+    'account-create': () => accountSheet(),
+    'system-init-demo': () => initDemoDataSheet(),
+    'export-csv': (el) => exportAdminCsv(el.dataset.kind, el.dataset.label || '').catch(handleError),
+    'account-status': (el) => accountStatusSheet({ id: el.dataset.id, name: el.dataset.name, status: el.dataset.status }),
+    'account-reset': (el) => accountResetSheet({ id: el.dataset.id, name: el.dataset.name }),
+    'account-sessions': (el) => sessionSheet({ id: el.dataset.id, name: el.dataset.name }).catch(handleError),
     'close-sheet': () => closeSheet(),
     logout: () => logout(),
     'user-menu': () => openUserMenu(),
@@ -2514,6 +3127,11 @@
     'mark-all-read': async () => { await api('/notifications/read', { method: 'POST', body: { ids: null } }); toast('已全部标记为已读'); refreshBadge(); renderView(); },
     'block-seat': (el) => blockSeatSheet(el.dataset.id),
     'unblock-seat': (el) => unblockSeat(el.dataset.id),
+    // 封禁治理（B / FR-21）：封禁记录、按记录解封、批量建座、停用影响预览
+    'seat-blocks': (el) => seatBlocksSheet({ seatId: el.dataset.id || undefined, roomId: el.dataset.room || undefined }),
+    'release-block': (el) => releaseSeatBlockSheet({ id: el.dataset.id, seat: el.dataset.seat, status: el.dataset.status, managed: el.dataset.managed }),
+    'bulk-seat': () => bulkSeatSheet(),
+    'room-impact': (el) => roomImpactSheet(el.dataset.id),
     'manual-violation': (el) => manualViolationSheet(el.dataset.id),
     'force-release': (el) => forceReleaseSheet(el.dataset.id),
     'resolve-complaint': (el) => resolveComplaintSheet(el.dataset.id),
@@ -2574,17 +3192,31 @@
   }
 
   function openSeatInfo(seat) {
+    const occupied = ['reserved', 'occupied', 'held'].includes(seat.state);
+    const reason = seat.state === 'maintenance'
+      ? '该座位正在维护中，暂不支持预约。'
+      : seat.state === 'disabled'
+        ? '该座位已停用，暂不支持预约。'
+        : '该座位在当前时段已被预约，可以加入候补队列。';
     const body = '<dl class="detail-list">' +
       [['座位', seat.id], ['自习室', seat.room_name], ['类型', seat.type_label], ['状态', seat.state_label], ['属性', [seat.has_power ? '电源' : '', seat.is_window ? '靠窗' : ''].filter(Boolean).join(' / ') || '—']]
-        .map(([label, value]) => '<div class="detail-row"><dt>' + label + '</dt><dd>' + esc(value) + '</dd></div>').join('') + '</dl>';
+        .map(([label, value]) => '<div class="detail-row"><dt>' + label + '</dt><dd>' + esc(value) + '</dd></div>').join('') + '</dl>' +
+      '<p class="small muted" style="margin-top:12px">' + esc(reason) + '</p>';
+    const actions = [{ label: '关闭', kind: 'secondary', onClick: closeSheet }];
+    if (occupied) actions.push({ label: '加入候补', kind: 'primary', onClick: async () => { await joinWaitlist(seat.id); } });
     openSheet({
       title: seat.id,
       subtitle: seat.room_name,
       body,
-      actions: [
-        { label: '关闭', kind: 'secondary', onClick: closeSheet },
-        { label: '加入候补', kind: 'primary', onClick: async () => { await joinWaitlist(seat.id); } },
-      ],
+      actions,
+    });
+  }
+
+  function openNoticeSheet(title, message) {
+    openSheet({
+      title,
+      body: '<p class="small muted" style="margin:2px 0 6px">' + esc(message) + '</p>',
+      actions: [{ label: '知道了', kind: 'primary', onClick: closeSheet }],
     });
   }
 
@@ -2599,13 +3231,20 @@
       state.selectedSeat = null;
       go('reservations');
     } catch (error) {
-      if (error.rule === 'BR-11') {
+      const code = error && error.code;
+      if (code === 'SEAT_OCCUPIED') {
         confirmSheet({
           title: '该时段已被占用',
           message: '可以加入候补队列，有人取消时按顺序通知你。',
           confirmLabel: '加入候补',
           onConfirm: async () => { await joinWaitlist(seat.id); },
         });
+      } else if (code === 'USER_TIME_CONFLICT') {
+        openNoticeSheet('您在当前时段已有预约', '您在当前时段已有预约，每人同时段仅限预约 1 个座位。如需换座，请先取消原预约。');
+      } else if (code === 'SEAT_DISABLED' || code === 'SEAT_UNAVAILABLE') {
+        openNoticeSheet('座位不可预约', '该座位已停用维护，暂不支持预约。请选择其他空闲座位。');
+      } else if (code === 'ROOM_UNAVAILABLE') {
+        openNoticeSheet('自习室不可预约', '该自习室已停用，暂不支持预约。请选择其他自习室。');
       } else {
         handleError(error);
       }
@@ -2642,21 +3281,16 @@
   }
 
   function changePasswordSheet(forced) {
-    // 原密码框预填本次登录用的密码：初始密码是系统生成的，
-    // 用户多半没记住，让他手输只会卡在这一步。
-    const known = state.lastLoginPassword || '';
     let hint = '';
     if (forced) {
       hint = '<p class="tiny tertiary" style="margin-bottom:12px">该账号要求首次登录修改密码，完成后需要用新密码重新登录。</p>';
-    } else if (known) {
-      hint = '<p class="tiny tertiary" style="margin-bottom:12px">已将本次登录的密码填入下方，直接设置新密码即可。</p>';
     }
 
     openSheet({
       title: forced ? '首次登录需修改密码' : '修改密码',
       body:
         hint +
-        '<label class="field"><span>原密码</span><input id="oldPassword" type="password" value="' + esc(known) + '" autocomplete="current-password"></label>' +
+        '<label class="field"><span>原密码</span><input id="oldPassword" type="password" autocomplete="current-password"></label>' +
         '<label class="field"><span>新密码（至少 8 位）</span><input id="newPassword" type="password" autocomplete="new-password"></label>' +
         '<p class="tiny tertiary">修改成功后所有设备都需要重新登录。</p>',
       actions: [
@@ -2669,13 +3303,44 @@
                 new_password: $('#newPassword').value,
               },
             });
-            state.lastLoginPassword = '';
             closeSheet();
             showLogin('密码已修改，请重新登录');
             toast('密码已修改');
           } },
       ],
     });
+  }
+
+  // 需求 §7.4：首次登录/密码重置后必须先改密。此状态下后端只放行
+  // /auth/me、/auth/change-password、/auth/logout，/meta 会返回 403
+  // PASSWORD_CHANGE_REQUIRED；因此进入应用前先判断标记，避免把 403
+  // 当成登录失败而清空会话，陷入“密码正确却进不去”的死锁。
+  function passwordChangeRequired(user) {
+    return Boolean(user && user.must_change_password);
+  }
+
+  function promptForcedPasswordChange() {
+    $('#app').hidden = true;
+    $('#login').hidden = false;
+    $('#boot').hidden = true;
+    changePasswordSheet(true);
+  }
+
+  async function enterAuthenticatedApp(user) {
+    if (passwordChangeRequired(user)) {
+      promptForcedPasswordChange();
+      return false;
+    }
+    state.meta = await api('/meta');
+    enterApp();
+    return true;
+  }
+
+  async function restoreSession() {
+    const me = await api('/auth/me');
+    state.csrf = me.csrf_token;
+    state.user = me.user;
+    return enterAuthenticatedApp(me.user);
   }
 
   async function openNotifications() {
@@ -2709,8 +3374,8 @@
     const demo = event.target.closest('[data-demo-user]');
     if (demo) {
       $('#username').value = demo.dataset.demoUser;
-      $('#password').value = demo.dataset.demoPass;
-      $('#loginBtn').focus();
+      $('#password').value = '';
+      $('#password').focus();
       return;
     }
     const actionEl = event.target.closest('[data-action]');
@@ -2789,11 +3454,7 @@
   // ---------------------------------------------------------------------------
   async function boot() {
     try {
-      const me = await api('/auth/me');
-      state.csrf = me.csrf_token;
-      state.user = me.user;
-      state.meta = await api('/meta');
-      enterApp();
+      await restoreSession();
     } catch (error) {
       showLogin();
     } finally {

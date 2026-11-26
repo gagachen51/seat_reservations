@@ -1,7 +1,10 @@
-"""演示种子数据。
+"""演示种子数据与正式库的首次管理员初始化。
 
 * 相对 ``now`` 生成，保证任何时间打开系统都有“今天”的数据可看。
-* 仅通过仓储写入，不绕过约束；演示账号统一密码见 ``DEMO_PASSWORD``。
+* 仅通过仓储写入，不绕过约束。
+* 演示密码**不再硬编码**：默认随机生成，只能通过 ``SEAT_DEMO_PASSWORD``
+  或调用方显式传入；调用方只在初始化渠道展示一次。
+* 正式库首次初始化用 ``bootstrap_admin``：随机密码 + 强制首次登录改密。
 * 历史信用补差使用一条显式 ``credit_logs``（原因含“演示数据”），避免伪造违规记录。
 """
 
@@ -9,6 +12,8 @@ from __future__ import annotations
 
 import os
 from datetime import date, datetime, time, timedelta
+from pathlib import Path
+from typing import Any
 
 from ..domain.models import (
     AuditLog,
@@ -39,12 +44,21 @@ from ..domain.models import (
 )
 from ..domain.params import ParamSet
 from ..domain.timeutil import add_minutes, datetime_at, fmt_datetime, slot_of_time
-from ..security import hash_password
+from ..security import generate_initial_password, hash_password
 from .database import Database
 from .repository import SqliteRepository
 
-# 演示账号统一密码。可用 SEAT_DEMO_PASSWORD 覆盖；生产环境不要使用演示数据。
-DEMO_PASSWORD = os.environ.get("SEAT_DEMO_PASSWORD") or "-".join(("Seat", "Demo", "2026"))
+
+def resolve_demo_password(explicit: str | None = None) -> str:
+    """演示密码的解析顺序：调用方显式值 → ``SEAT_DEMO_PASSWORD`` → 随机生成。
+
+    返回值只能交给初始化渠道（命令行输出 / 桌面首次启动提示）展示一次，
+    不得写入日志、源码或长期明文文件，也不得通过 HTTP 接口返回。
+    """
+    if explicit:
+        return explicit
+    configured = os.environ.get("SEAT_DEMO_PASSWORD", "").strip()
+    return configured or generate_initial_password()
 
 ROOMS = [
     ("A101", "第一教学楼 A101", "一楼东侧", 8),
@@ -52,8 +66,18 @@ ROOMS = [
     ("C301", "图书馆 C301", "三楼静音区", 7),
 ]
 
+# 判断库内是否已经写入标准演示数据：四个角色各取一个标志账号。
+# 只有同时存在这三个非系统管理员账号，才认为演示数据完整。
+DEMO_USER_IDS = ("S2023001", "T7001", "A9001")
+
 
 def _reset(conn) -> None:
+    """清空业务表后重新写入演示数据。
+
+    ``audit_logs`` 必须保留：审计表是 append-only（数据库触发器禁止 UPDATE /
+    DELETE），既不能删，也不应该在演示数据初始化时抹掉历史审计。重复初始化
+    会追加一条新的 ``seed_demo`` 审计，而不是覆盖旧记录。
+    """
     for table in (
         "reservation_slots",
         "reviews",
@@ -64,7 +88,6 @@ def _reset(conn) -> None:
         "notifications",
         "blacklist",
         "seat_blocks",
-        "audit_logs",
         "sessions",
         "reservations",
         "seats",
@@ -73,10 +96,36 @@ def _reset(conn) -> None:
         "sequences",
         "system_params",
     ):
+        if table == "sequences":
+            # 审计编号序列必须保留，否则重新初始化会从 A-0000001 重号，
+            # 与保留下来的历史审计主键冲突。
+            conn.execute("DELETE FROM sequences WHERE name <> 'audit'")
+            continue
         conn.execute(f"DELETE FROM {table}")
 
+    # 兼容“有审计记录但序列缺失/落后”的旧库：把 audit 序列推进到当前最大值。
+    sequence = conn.execute(
+        "SELECT value FROM sequences WHERE name = 'audit'"
+    ).fetchone()
+    maximum = conn.execute(
+        "SELECT MAX(CAST(substr(id, 3) AS INTEGER)) AS m FROM audit_logs"
+    ).fetchone()
+    target = max(int(sequence["value"]) if sequence else 0, int(maximum["m"] or 0))
+    if target:
+        conn.execute(
+            "INSERT INTO sequences(name, value) VALUES ('audit', ?) "
+            "ON CONFLICT(name) DO UPDATE SET value = excluded.value",
+            (target,),
+        )
 
-def _make_users(now: datetime, password: str, iterations: int) -> list[User]:
+
+def _make_users(
+    now: datetime,
+    password: str,
+    iterations: int,
+    *,
+    include_default_admin: bool = True,
+) -> list[User]:
     encoded = hash_password(password, iterations=iterations)
     base = [
         ("S2023001", "张伟", Role.STUDENT, "计算机学院", "软件 2301", 100),
@@ -91,6 +140,8 @@ def _make_users(now: datetime, password: str, iterations: int) -> list[User]:
     ]
     users = []
     for user_id, name, role, department, class_name, credit in base:
+        if not include_default_admin and role == Role.SYS_ADMIN:
+            continue
         users.append(
             User(
                 id=user_id,
@@ -180,25 +231,47 @@ def seed_demo(
     db: Database,
     now: datetime,
     *,
-    password: str = DEMO_PASSWORD,
+    password: str | None = None,
     reset: bool = True,
     hash_iterations: int = 260_000,
-) -> dict[str, int]:
-    """写入演示数据，返回各表行数摘要。"""
+) -> dict[str, Any]:
+    """写入演示数据，返回各表行数摘要。
+
+    ``password`` 为空时随机生成，调用方需要展示时先用 ``resolve_demo_password``
+    取得同一份值再传入。
+
+    **保留现有系统管理员**：若库中已有活跃 ``sys_admin``（如 Y0001），重复初始化
+    不会覆盖其密码、强制改密标记和个人资料，只重置学生/教师/自习室管理员演示
+    账号与演示资源。只有完全没有活跃系统管理员时才创建默认 Y0001。
+    """
+    password = password or generate_initial_password()
     db.migrate()
     params = ParamSet()
-    counts: dict[str, int] = {}
+    counts: dict[str, Any] = {}
 
     with db.transaction() as conn:
         repo = SqliteRepository(conn)
+        preserved_admins = [
+            user
+            for user in repo.list_users(role=Role.SYS_ADMIN.value, page_size=1000).items
+            if user.status == "active"
+        ]
         if reset:
             _reset(conn)
         repo.save_params({k: v for k, v in params.snapshot().items()}, "SYSTEM", now)
 
-        users = _make_users(now, password, hash_iterations)
+        users = _make_users(
+            now,
+            password,
+            hash_iterations,
+            include_default_admin=not preserved_admins,
+        )
         for user in users:
             repo.save_user(user)
-        counts["users"] = len(users)
+        for admin in preserved_admins:
+            # 原样写回：password_hash / must_change_password / 资料 / 状态全部保留。
+            repo.save_user(admin)
+        counts["users"] = len(users) + len(preserved_admins)
 
         rooms = [
             Room(
@@ -460,18 +533,158 @@ def seed_demo(
         counts["reservations"] = conn.execute(
             "SELECT COUNT(*) AS c FROM reservations"
         ).fetchone()["c"]
-        counts["users"] = len(users)
+        counts["users"] = len(users) + len(preserved_admins)
         counts["seats"] = len(seats)
         counts["rooms"] = len(rooms)
+        counts["admin_preserved"] = len(preserved_admins)
+        # 仅用于初始化成功提示展示账号；不是表计数，调用方返回前会剥离。
+        counts["preserved_admins"] = [
+            {
+                "username": admin.id,
+                "name": admin.name,
+                "role": Role.SYS_ADMIN.value,
+                "role_label": "系统管理员",
+                "password_preserved": True,
+            }
+            for admin in preserved_admins
+        ]
 
     return counts
 
 
-def seed_if_empty(db: Database, now: datetime) -> bool:
+def seed_if_empty(db: Database, now: datetime, *, password: str | None = None) -> bool:
     db.migrate()
     with db.read() as conn:
         row = conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()
         if row["c"]:
             return False
-    seed_demo(db, now)
+    seed_demo(db, now, password=password)
     return True
+
+
+INITIAL_CREDENTIALS_FILENAME = "initial_admin_credentials.txt"
+BOOTSTRAP_ADMIN_ID = "Y0001"
+
+
+def initial_admin_credentials_path(db: Database) -> Path:
+    """一次性初始凭据文件：与数据库同级的运行期数据目录，绝不进入 Git。"""
+    return db.path.parent / INITIAL_CREDENTIALS_FILENAME
+
+
+def write_initial_admin_credentials(
+    db: Database, *, user_id: str, name: str, password: str, created_at: datetime
+) -> Path:
+    """把首次初始化的管理员凭据写入本地数据目录，便于部署者复制随机密码。
+
+    文件包含明文密码，属于一次性运行期凭据：首次改密成功后由
+    ``AuthService.change_password`` 自动删除，调用方不得写入仓库或日志。
+    """
+    target = initial_admin_credentials_path(db)
+    body = "\n".join(
+        [
+            "智慧自习室预约管理系统 · 初始管理员凭据",
+            "=" * 40,
+            "",
+            f"账号 ID：{user_id}",
+            f"姓名：{name}",
+            f"初始密码：{password}",
+            f"生成时间：{created_at.strftime('%Y-%m-%d %H:%M:%S')}",
+            "",
+            "安全提示：",
+            "1. 首次登录后系统将强制要求修改密码。",
+            "2. 改密完成后请删除此文件以防凭据残留（系统会自动删除）。",
+            "3. 请勿将本文件提交到版本库或发送给无关人员。",
+            "",
+        ]
+    )
+    target.write_text(body, encoding="utf-8")
+    try:
+        os.chmod(target, 0o600)
+    except OSError:  # pragma: no cover - Windows 对权限位支持有限
+        pass
+    return target
+
+
+def remove_initial_admin_credentials(db: Database) -> bool:
+    """删除一次性初始凭据文件；文件不存在时返回 False。"""
+    try:
+        initial_admin_credentials_path(db).unlink()
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def bootstrap_admin(
+    db: Database,
+    now: datetime,
+    *,
+    user_id: str = BOOTSTRAP_ADMIN_ID,
+    name: str = "系统管理员",
+    department: str = "信息化中心",
+    password: str | None = None,
+) -> str | None:
+    """正式库首次初始化：创建一个随机密码的系统管理员。
+
+    * 只在 ``users`` 为空时执行；重复调用是幂等的（返回 ``None``）。
+    * 密码随机生成（或调用方显式传入），不在源码/日志中留痕。
+    * 首次创建时在数据库同级的运行期数据目录写入一次性凭据文件
+      （``initial_admin_credentials.txt``，已被 ``.gitignore`` 排除），
+      首次改密成功后自动删除。
+    * ``must_change_password=True``：首次登录后必须先修改密码。
+    * 建号、默认参数与审计记录在**同一个写事务**中，失败不会留下半初始化数据。
+
+    返回值仅在本次真正创建时返回明文密码，供初始化渠道一次性展示。
+    """
+    password = password or generate_initial_password()
+    # 密码策略与 hash_password 一致，提前失败，避免事务内才抛错。
+    if len(password) < 8:
+        raise ValueError("初始密码至少 8 位")
+
+    db.migrate()
+    with db.read() as conn:
+        if conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"]:
+            return None
+
+    with db.transaction() as conn:
+        repo = SqliteRepository(conn)
+        # 写事务内再次确认：并发首启时只有一个进程能建号。
+        if conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"]:
+            return None
+        repo.save_params(ParamSet().snapshot(), "SYSTEM", now)
+        repo.save_user(
+            User(
+                id=user_id,
+                name=name,
+                role=Role.SYS_ADMIN.value,
+                department=department,
+                class_name="",
+                credit=100,
+                password_hash=hash_password(password),
+                must_change_password=True,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        repo.insert_audit(
+            AuditLog(
+                id=repo.next_id("audit", "A-", 7),
+                actor_id="SYSTEM",
+                actor_role="system",
+                action="bootstrap_admin",
+                target_type="user",
+                target_id=user_id,
+                before=None,
+                after={"role": Role.SYS_ADMIN.value, "must_change_password": True},
+                ip="127.0.0.1",
+                created_at=now,
+            )
+        )
+    try:
+        write_initial_admin_credentials(
+            db, user_id=user_id, name=name, password=password, created_at=now
+        )
+    except OSError:
+        # 凭据文件写失败不阻断初始化：密码仍由启动器弹窗/命令行展示一次。
+        pass
+    return password
+

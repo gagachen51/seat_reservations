@@ -1,9 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
+import sys
+from pathlib import Path
+
 from PyInstaller.utils.hooks import collect_submodules
 from PyInstaller.utils.hooks import collect_all
 
 datas = [('src/seat_reservation/web', 'seat_reservation/web')]
 binaries = []
+# Conda 环境把 sqlite3/ffi/lzma/bz2/expat 的 DLL 放在 Library/bin，
+# PyInstaller 默认只扫描 DLLs，打包后会因缺 sqlite3.dll 启动失败。
+for name in ("sqlite3.dll", "ffi.dll", "liblzma.dll", "libbz2.dll", "libexpat.dll"):
+    for root in (Path(sys.base_prefix), Path(sys.prefix)):
+        candidate = root / "Library" / "bin" / name
+        if candidate.is_file():
+            binaries.append((str(candidate), "."))
+            break
 hiddenimports = ['clr', 'webview.platforms.edgechromium', 'uvicorn.logging', 'uvicorn.loops.auto', 'uvicorn.loops.asyncio', 'uvicorn.protocols.http.auto', 'uvicorn.protocols.http.h11_impl', 'uvicorn.lifespan.on']
 hiddenimports += collect_submodules('seat_reservation')
 tmp_ret = collect_all('webview')

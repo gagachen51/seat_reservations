@@ -26,7 +26,7 @@ from pathlib import Path
 
 APP_NAME = "SeatReservation"
 APP_TITLE = "自习室预约"
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.0.2"
 PUBLISHER = "校内信息化"
 UNINSTALL_KEY = rf"Software\Microsoft\Windows\CurrentVersion\Uninstall\{APP_NAME}"
 

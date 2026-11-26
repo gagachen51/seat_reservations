@@ -100,9 +100,15 @@ def check_api() -> bool:
     import urllib.request
 
     port = 8177
+    sys.path.insert(0, str(SRC))
+    from seat_reservation.storage.seed import resolve_demo_password
+
+    demo_password = resolve_demo_password()
+    child_env = {**os.environ, "SEAT_DEMO_PASSWORD": demo_password}
     proc = subprocess.Popen(
         [sys.executable, "run.py", "--db", "var/verify.db", "init-db", "--demo"],
         cwd=ROOT,
+        env=child_env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
@@ -128,9 +134,7 @@ def check_api() -> bool:
             return False
 
         sys.path.insert(0, str(SRC))
-        from seat_reservation.storage.seed import DEMO_PASSWORD
-
-        body = json.dumps({"username": "Y0001", "password": DEMO_PASSWORD}).encode()
+        body = json.dumps({"username": "Y0001", "password": demo_password}).encode()
         req = urllib.request.Request(
             base + "/api/auth/login", data=body, method="POST"
         )
@@ -215,19 +219,30 @@ def check_exe_window() -> bool:
     return record("打包版能弹出窗口", ok, "" if ok else "30 秒内未出现窗口")
 
 
-def check_account_card() -> bool:
-    print("\n6. 账号清单")
+def check_no_plaintext_credentials() -> bool:
+    print("\n6. 明文凭据")
     sys.path.insert(0, str(SRC))
-    from seat_reservation.storage.seed import DEMO_PASSWORD
+    from seat_reservation.storage import seed as seed_module
 
-    card = ROOT / "初始账号与密码.txt"
-    if not record("清单文件存在", card.exists(), str(card)):
-        return False
-    text = card.read_text(encoding="utf-8-sig")
-    has_pwd = DEMO_PASSWORD in text
-    record("清单密码与代码一致", has_pwd, DEMO_PASSWORD)
-    has_users = all(u in text for u in ("S2023001", "T7001", "A9001", "Y0001"))
-    return record("四个角色账号都在清单里", has_users)
+    # 账号说明文件允许存在，但不得出现明文密码；旧文件名仅用于兼容检查。
+    cards = [
+        ROOT.parent / "初始账号说明.txt",
+        ROOT.parent / "初始账号与密码.txt",
+        ROOT / "初始账号说明.txt",
+        ROOT / "初始账号与密码.txt",
+    ]
+    found = [path for path in cards if path.exists()]
+    ok = record("初始账号说明文件存在", bool(found), "、".join(str(p) for p in found))
+    import re
+
+    leaked = []
+    for path in found:
+        text = path.read_text(encoding="utf-8-sig")
+        if "Seat-Demo-2026" in text or re.search(r"密码[:：]\s*\S+", text):
+            leaked.append(str(path))
+    ok &= record("说明文件不含明文密码", not leaked, "、".join(leaked))
+    ok &= record("代码中不内置固定演示密码", not hasattr(seed_module, "DEMO_PASSWORD"))
+    return ok
 
 
 def main() -> int:
@@ -249,7 +264,7 @@ def main() -> int:
         ok &= check_source_window()
     if ok and not args.skip_exe:
         ok &= check_exe_window()
-    ok &= check_account_card()
+    ok &= check_no_plaintext_credentials()
 
     total = len(results)
     passed = sum(1 for _, good, _ in results if good)

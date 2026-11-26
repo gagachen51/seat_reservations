@@ -281,6 +281,7 @@ svg { display: block; }
 .demo-btn:hover { background: #fff; border-color: var(--separator-strong); }
 .demo-btn strong { display: block; font-size: 13.5px; font-weight: 600; }
 .demo-btn small { display: block; color: var(--tertiary); font-size: 11.5px; margin-top: 1px; }
+.demo-hint { margin: 8px 2px 0; color: var(--tertiary); font-size: 11.5px; line-height: 1.5; }
 
 .login-foot {
   text-align: center;
@@ -1775,6 +1776,60 @@ body.shell .sidebar { padding-top: 14px; }
    会被整条盖住、完全看不到。这里下移到标题栏下方，与 topbar 的让位保持一致。 */
 body.shell .toast { top: 58px; }
 
+/* ==========================================================================
+   资源与座位治理（成员 B / FR-21 / PR-05 / PR-06）
+   仅追加本模块样式：封禁记录列表、按记录解封、批量建座、停用影响预览
+   ========================================================================== */
+.block-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.block-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.block-row .row-main { min-width: 0; flex: 1 1 auto; }
+.block-row .row-title { font-weight: 600; font-size: 14px; }
+.block-row .row-sub { font-size: 13px; color: var(--secondary); word-break: break-word; }
+.block-row .row-sub + .row-sub { margin-top: 2px; }
+
+.block-row .row-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.block-row .block-side .btn { white-space: nowrap; }
+
+.block-hint {
+  font-size: 12px;
+  color: var(--tertiary);
+  margin: 0;
+}
+
+.seat-block-form .row { flex-wrap: wrap; }
+
+@media (max-width: 640px) {
+  .block-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .block-row .row-side {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
 
 /* A：账号、登录设备与个人候补 */
 .account-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
@@ -1860,8 +1915,63 @@ body.shell .toast { top: 58px; }
   font-weight: 600;
 }
 
+/* 指标口径：4×2 独立子卡片，公式用浅蓝胶囊高亮 */
+.analytics-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.analytics-metric-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 14px 12px;
+  border: 1px solid var(--separator, rgba(60, 60, 67, 0.14));
+  border-radius: 12px;
+  background: var(--card, #fff);
+}
+
+.analytics-metric-card h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--label);
+}
+
+.analytics-metric-card p {
+  margin: 0;
+  flex: 1;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--secondary);
+}
+
+.analytics-formula {
+  align-self: flex-start;
+  display: inline-block;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: #eaf4ff;
+  color: #0b63c9;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+@media (max-width: 1200px) {
+  .analytics-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 920px) {
   .analytics-notes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .analytics-metric-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -1878,4 +1988,37 @@ body.shell .toast { top: 58px; }
   .analytics-table-wrap table.data {
     min-width: 700px;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   C · 预约续约弹窗
+   --------------------------------------------------------------------------- */
+.extend-summary {
+  margin: 2px 0 14px;
+  line-height: 1.55;
+}
+
+.extend-summary strong {
+  color: var(--label);
+  font-weight: 650;
+}
+
+.extend-preview {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--gray-soft);
+  color: var(--label-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.extend-preview strong {
+  color: var(--blue);
+  font-weight: 650;
+}
+
+.extend-note {
+  margin: 10px 0 0;
+  line-height: 1.55;
 }

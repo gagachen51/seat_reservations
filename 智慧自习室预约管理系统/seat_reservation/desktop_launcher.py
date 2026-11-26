@@ -13,7 +13,6 @@ from __future__ import annotations
 import ctypes
 import ctypes.wintypes
 import os
-import secrets
 import socket
 import sys
 import threading
@@ -108,75 +107,86 @@ def pick_port(preferred: int = 8010, span: int = 20) -> int:
     raise RuntimeError(f"{preferred}–{preferred + span - 1} 端口均被占用")
 
 
-def create_accounts(ctx) -> str | None:
-    """首次启动写入完整的演示数据，返回统一的初始密码。
+def create_accounts(ctx, *, demo: bool) -> tuple[str | None, bool]:
+    """首次启动初始化账号，返回 ``(一次性初始密码, 是否新建)``。
 
-    直接用种子数据而不是只建管理员：种子里已经包含学生、教师、
-    自习室管理员、系统管理员四种角色，以及房间、座位和若干预约，
-    交作业时打开就能演示各角色各自的视图。
+    * 非 Demo：只创建一个系统管理员，密码随机生成，标记首次登录必须改密。
+    * Demo：写入完整演示数据，密码同样随机（可用 ``SEAT_DEMO_PASSWORD`` 指定）。
 
-    只在库为空时写入，已有数据不会被动。
+    正式模式首次初始化会在数据库同级数据目录写入一次性凭据文件；
+    Demo 模式不写文件，密码只在首次启动时通过窗口提示展示一次。
+    已有数据的库不会被改动（``seed_if_empty`` / ``bootstrap_admin`` 都是幂等的）。
     """
-    from seat_reservation.storage.seed import DEMO_PASSWORD, seed_if_empty
+    from seat_reservation.storage.seed import resolve_demo_password, seed_if_empty
 
-    created = seed_if_empty(ctx.db, datetime.now())
-    return DEMO_PASSWORD if created else None
+    password = resolve_demo_password()
+    if demo:
+        created = seed_if_empty(ctx.db, datetime.now(), password=password)
+        return (password if created else None), created
+    created_password = ctx.bootstrap_admin(password)
+    return (created_password, created_password is not None)
 
 
-def write_account_card(root: Path, password: str) -> Path:
-    """首次启动在程序目录写一份账号清单。
+def show_initial_credentials(
+    password: str | None, *, demo: bool, credentials_path: Path | None = None
+) -> None:
+    """首次初始化后展示凭据；正式模式同时提示本地凭据文件路径。"""
+    if not password:
+        return
+    if demo:
+        body = (
+            "已写入演示数据。\n\n"
+            "演示账号（密码相同）：\n"
+            "  S2023001 张伟（学生） / T7001 刘明（教师）\n"
+            "  A9001 王丽（自习室管理员） / Y0001 陈刚（系统管理员）\n\n"
+            f"演示密码：{password}\n\n"
+            "该密码只显示这一次，请自行记录；如需重新生成，"
+            "可设置环境变量 SEAT_DEMO_PASSWORD 后重建演示库。"
+        )
+    else:
+        location = (
+            "凭据文件已保存到：\n"
+            f"{credentials_path}\n\n"
+            "可直接打开该文件复制密码；首次改密成功后系统会自动删除该文件。\n\n"
+            if credentials_path
+            else ""
+        )
+        body = (
+            "已完成首次初始化。\n\n"
+            "系统管理员账号：Y0001\n"
+            f"初始密码：{password}\n\n"
+            f"{location}"
+            "首次登录后必须先修改密码。请妥善保管，勿提交到版本库或发送给无关人员。\n\n"
+            "需要课程演示数据时，登录后进入「系统」页，点击"
+            "「初始化演示数据」即可，无需使用命令行参数。"
+        )
+    try:
+        ctypes.windll.user32.MessageBoxW(None, body, APP_TITLE, 0x40)
+    except Exception:  # noqa: BLE001 - 无桌面会话时不能阻断启动
+        pass
 
-    一份可见、可转发的文本更实用：交作业时可以直接发给老师，
-    也知道每个角色对应哪个账号。
 
-    注意：桌面版登录框**不会**自动填入账号（换身份时反而要先删掉），
-    所以这里的说明必须与代码行为一致——写"手动输入"。
-    """
-    lines = [
-        "智慧自习室预约管理系统 · 初始账号",
-        "",
-        "四种角色各一个账号，初始密码相同（演示模式）。",
-        "演示模式不强制改密，登录后可在右上角「修改密码」自行修改；",
-        "用命令行新建或重置密码的账号会带「首次登录必须改密」标记。",
-        "",
-        "----------------------------------------",
-        "角色              账号        姓名",
-        "----------------------------------------",
-        "学生              S2023001    张伟",
-        "学生              S2023002    李娜",
-        "教师              T7001       刘明",
-        "自习室管理员      A9001       王丽",
-        "系统管理员        Y0001       陈刚",
-        "----------------------------------------",
-        "",
-        f"初始密码：{password}",
-        "",
-        "使用方法：",
-        "  1. 启动后在登录框手动输入上表中的账号与初始密码（不会自动填入）。",
-        "  2. 想以其他身份登录，把上表中的对应账号填进「学号 / 工号」框，",
-        "     密码仍用上面的初始密码，系统会按账号进入该角色的界面。",
-        "  3. 本文件首次启动时自动生成，可以随时删除；",
-        "     删掉不影响系统运行，账号与密码也不会变。",
-        "",
-    ]
-    target = Path(root) / "初始账号与密码.txt"
-    # 记事本需要 BOM 才能正确识别 UTF-8 中文
-    target.write_text("\r\n".join(lines), encoding="utf-8-sig")
-    return target
+def demo_mode_requested(argv: list[str] | None = None) -> bool:
+    """是否以演示模式启动：``--demo`` 参数或 ``SEAT_DEMO_MODE=true``。"""
+    args = sys.argv[1:] if argv is None else argv
+    if "--demo" in args:
+        return True
+    return os.environ.get("SEAT_DEMO_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 class Service:
     """把 uvicorn 跑在后台线程，并能被窗口关闭事件停止。"""
 
-    def __init__(self, settings, port: int) -> None:
+    def __init__(self, settings, port: int, context=None) -> None:
         from seat_reservation.api.app import create_app
         from seat_reservation.service.container import AppContext
 
         self.settings = settings
         self.port = port
-        self.context = AppContext(settings)
-        self.context.initialize(demo=False)
-        self.app = create_app(settings)
+        # 复用启动器已经初始化过的上下文，避免同一进程里出现两套
+        # Database / AuthService 与重复迁移（初始化统一由 create_app 的 lifespan 兜底）。
+        self.context = context if context is not None else AppContext(settings)
+        self.app = create_app(settings, context=self.context)
         self.server = None
         self.thread: threading.Thread | None = None
 
@@ -245,6 +255,54 @@ class Bridge:
                 self._window.resize(*WINDOW_SIZE)
             except Exception:  # noqa: BLE001 - 部分后端不支持运行期改尺寸
                 pass
+
+    # ---- 数据导出：原生另存为 ----
+    def save_export_file(self, suggested_name: str = "export.csv", content: str = "") -> dict:
+        """把前端导出的 CSV/JSON 内容写入用户选择的本地路径。
+
+        pywebview 的窗口内点击普通 ``<a download>`` 不会弹出保存框，因此由前端
+        通过桥接调用本方法。返回值必须是可 JSON 序列化的字典：
+        ``{"ok": True, "path": ...}`` 或 ``{"ok": False, "canceled": True}``。
+        """
+        import webview
+
+        if self._window is None:
+            return {"ok": False, "error": "窗口尚未就绪"}
+        raw_name = Path(str(suggested_name or "export.csv")).name
+        safe_name = "".join(
+            ch for ch in raw_name if ch not in '\\/:*?"<>|\r\n\t'
+        ).strip() or "export.csv"
+        suffix = Path(safe_name).suffix.lower()
+        if suffix == ".json":
+            file_types = ("JSON 文件 (*.json)",)
+        elif suffix == ".csv":
+            file_types = ("CSV 文件 (*.csv)",)
+        else:
+            file_types = ("所有文件 (*.*)",)
+        downloads = Path.home() / "Downloads"
+        directory = downloads if downloads.is_dir() else Path.home()
+        try:
+            selection = self._window.create_file_dialog(
+                webview.SAVE_DIALOG,
+                directory=str(directory),
+                save_filename=safe_name,
+                file_types=file_types,
+            )
+        except Exception as exc:  # noqa: BLE001 - 对话框失败要回传给前端
+            return {"ok": False, "error": f"无法打开保存对话框：{exc}"}
+        if not selection:
+            return {"ok": False, "canceled": True}
+        selected = selection[0] if isinstance(selection, (list, tuple)) else selection
+        target = Path(str(selected))
+        if target.suffix == "" and suffix:
+            target = target.with_suffix(suffix)
+        payload = content if content.startswith("\ufeff") else "\ufeff" + content
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(payload, encoding="utf-8")
+        except OSError as exc:
+            return {"ok": False, "error": f"写入文件失败：{exc}"}
+        return {"ok": True, "path": str(target)}
 
     # ---- 窗口控制 ----
     def _handle(self):
@@ -317,12 +375,11 @@ def start_stack_watchdog(log_path: Path, interval: float = 3.0) -> None:
         pass
 
 
-def run_window(url: str, admin_password: str | None, service: Service) -> None:
+def run_window(url: str, service: Service) -> None:
     """打开主窗口。
 
-    不在登录框预填账号。预填了反而要先删掉才能换身份；
-    账号与密码统一写在程序目录的「初始账号与密码.txt」里，
-    用户看一眼就能知道自己想用哪个。
+    不在登录框预填账号。初始凭据只在首次初始化时通过一次性提示展示，
+    不写入程序目录，也不注入页面。
     """
     import webview
 
@@ -395,9 +452,8 @@ def main() -> int:
             "  2. 在本目录执行：\n"
             "     python -m pip install -r requirements.txt\n"
             "     python desktop_launcher.py\n\n"
-            "如果只装了网页版依赖，也可以用浏览器访问：\n"
-            "     python run.py --db var/web.db init-db --demo\n"
-            "     python run.py --db var/web.db serve --port 8010 --demo"
+            "桌面版安装包（setup.exe）已完成安装时，双击桌面快捷方式即可；"
+            "演示数据可在登录后的「系统」页一键初始化。"
         )
         try:
             ctypes.windll.user32.MessageBoxW(None, message, APP_TITLE, 0x10)
@@ -420,13 +476,31 @@ def main() -> int:
             ) from exc
 
         port = pick_port()
+        if demo_mode_requested():
+            # --demo 等价于 SEAT_DEMO_MODE=true，让 Settings 与后端看到同一套配置。
+            os.environ["SEAT_DEMO_MODE"] = "true"
         settings = Settings.from_env().with_db(root / "data" / "seat_reservation.db")
-        service = Service(settings, port)
-        create_accounts(service.context)
+
+        from seat_reservation.service.container import AppContext
+
+        context = AppContext(settings)
+        context.initialize()  # 迁移 + 可写自检；不在这里写业务数据
+        password, created = create_accounts(context, demo=settings.demo_mode)
+
+        service = Service(settings, port, context)
         service.start()
         if not service.wait_ready():
             raise RuntimeError("服务启动超时，请查看日志")
-        run_window(f"http://127.0.0.1:{port}", None, service)
+        if created:
+            credentials_path = None
+            if not settings.demo_mode:
+                from seat_reservation.storage.seed import initial_admin_credentials_path
+
+                credentials_path = initial_admin_credentials_path(context.db)
+            show_initial_credentials(
+                password, demo=settings.demo_mode, credentials_path=credentials_path
+            )
+        run_window(f"http://127.0.0.1:{port}", service)
         return 0
     except Exception as exc:  # noqa: BLE001 - 顶层兜底
         with log_path.open("a", encoding="utf-8") as handle:

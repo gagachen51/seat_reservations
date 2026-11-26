@@ -67,6 +67,7 @@ def complaint_rows(
         JOIN users u ON u.id = c.user_id
         WHERE {where}
         ORDER BY c.created_at DESC, c.id DESC
+        LIMIT 10001
         """,
         params,
     ).fetchall()
@@ -100,6 +101,7 @@ def blacklist_rows(
         JOIN users u ON u.id = b.user_id
         WHERE {where}
         ORDER BY b.created_at DESC, b.id DESC
+        LIMIT 10001
         """,
         params,
     ).fetchall()
@@ -132,6 +134,7 @@ def credit_log_rows(
         JOIN users u ON u.id = cl.user_id
         WHERE {where}
         ORDER BY cl.created_at DESC, cl.id DESC
+        LIMIT 10001
         """,
         params,
     ).fetchall()
@@ -165,6 +168,7 @@ def waitlist_rows(
         JOIN rooms r ON r.id = s.room_id
         WHERE {where}
         ORDER BY w.date DESC, w.start_slot, w.seq, w.id
+        LIMIT 10001
         """,
         params,
     ).fetchall()

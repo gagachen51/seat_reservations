@@ -24,7 +24,7 @@ from .network import print_access_addresses
 from .security import hash_password
 from .service.container import AppContext
 from .storage.repository import SqliteRepository
-from .storage.seed import DEMO_PASSWORD
+from .storage.seed import resolve_demo_password, seed_if_empty
 
 
 def _settings(args: argparse.Namespace) -> Settings:
@@ -35,7 +35,17 @@ def _settings(args: argparse.Namespace) -> Settings:
         from dataclasses import replace
 
         settings = replace(settings, demo_mode=args.demo)
+        # 覆盖 demo_mode 后重新校验，确保生产环境不会误启用演示数据。
+        settings.validate()
     return settings
+
+
+def _announce_demo_password(password: str) -> None:
+    """演示密码只在一个初始化渠道展示一次；由环境变量指定时不回显。"""
+    if os.environ.get("SEAT_DEMO_PASSWORD"):
+        print("演示密码：使用 SEAT_DEMO_PASSWORD 指定的值（不回显）")
+    else:
+        print(f"演示密码（仅本次显示，请立即记录）：{password}")
 
 
 def _ctx(args: argparse.Namespace) -> AppContext:
@@ -58,17 +68,20 @@ def cmd_init_db(args: argparse.Namespace) -> int:
     print(f"数据库：{ctx.settings.db_path}")
     print(f"迁移完成，新增版本：{applied or '无（已是最新）'}")
     if args.demo:
-        counts = ctx.seed_demo(datetime.now())
-        print(f"演示数据：{json.dumps(counts, ensure_ascii=False)}，密码 {DEMO_PASSWORD}")
+        password = resolve_demo_password()
+        counts = ctx.seed_demo(datetime.now(), password=password)
+        print(f"演示数据：{json.dumps(counts, ensure_ascii=False)}")
+        _announce_demo_password(password)
     return 0
 
 
 def cmd_seed(args: argparse.Namespace) -> int:
     ctx = _ctx(args)
     now = parse_datetime(args.at) if args.at else datetime.now()
-    counts = ctx.seed_demo(now)
+    password = resolve_demo_password()
+    counts = ctx.seed_demo(now, password=password)
     print(f"演示数据已写入：{json.dumps(counts, ensure_ascii=False)}")
-    print(f"演示密码：{DEMO_PASSWORD}")
+    _announce_demo_password(password)
     return 0
 
 
@@ -81,6 +94,16 @@ def cmd_serve(args: argparse.Namespace) -> int:
     if args.db:
         os.environ["SEAT_DB_PATH"] = str(Path(args.db))
     os.environ["SEAT_DEMO_MODE"] = "true" if args.demo else "false"
+    if args.demo:
+        # 在启动服务前完成演示库初始化，把随机密码展示在本次启动输出里，
+        # 而不是让 lifespan 在后台悄悄生成一个无人知晓的密码。
+        ctx = _ctx(args)
+        password = resolve_demo_password()
+        created = seed_if_empty(ctx.db, datetime.now(), password=password)
+        if created:
+            _announce_demo_password(password)
+        else:
+            print("演示库已有数据，沿用既有账号；如需重置演示数据请执行 seed 命令")
     print_access_addresses(host, port)
     uvicorn.run(
         "seat_reservation.api.app:app",

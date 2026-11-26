@@ -2,7 +2,7 @@
 
 > 需求基线：《需求规格说明书》v1.2（2026-10-15）
 > 实现形态：FastAPI + SQLite + 原生前端；桌面窗口与安装包共用同一套业务代码
-> 规模：9,300 行 Python，62 个接口，17 张业务表（另有 1 张迁移记录表），测试 115 通过 / 1 跳过
+> 规模：9,300 行 Python，62 个接口，17 张业务表（另有 1 张迁移记录表），测试 493 通过 / 1 跳过（另有 Node 前端测试 43 通过）
 
 ## 1. 交付物
 
@@ -14,22 +14,31 @@
 | **系统说明** | [`系统说明.md`](系统说明.md) |
 | **完整项目文件** | [`seat_reservation/`](seat_reservation/) |
 
-项目可直接运行，也可直接安装：
+项目可直接安装，也可从源码运行：
+
+```bat
+:: 推荐：双击本目录的 setup.exe 安装桌面版，安装完成后双击桌面「自习室预约」
+:: 首次启动自动创建系统管理员 Y0001，随机初始密码在启动提示中只显示一次
+```
+
+从源码运行（开发/验收）：
 
 ```bat
 cd seat_reservation
 python -m pip install -r requirements.txt
-python run.py --db var/web.db init-db --demo
-python run.py --db var/web.db serve --port 8010 --demo
+python run.py --db var/web.db serve --port 8010
 ```
 
-浏览器打开 <http://127.0.0.1:8010/>。已打包的安装包在 `seat_reservation/dist/setup.exe`。
+浏览器打开 <http://127.0.0.1:8010/>。安装包为 `智慧自习室预约管理系统/setup.exe`（唯一发布产物）。
+演示数据不再需要命令行参数：用系统管理员登录后进入「系统」页，点击「初始化演示数据」并二次确认即可。
 
 ## 2. 目录说明
 
 ```text
-熟悉业务系统/
+智慧自习室预约管理系统/
 ├── README.md            本文件：提交入口与运行步骤
+├── setup.exe            ★ 唯一发布产物：桌面版安装包
+├── 初始账号说明.txt      账号说明（不含任何明文密码）
 ├── 环境清单.md            操作系统、依赖版本、命令、存储位置、限制
 ├── 系统说明.md            架构、状态机、规则映射、验收覆盖
 └── seat_reservation/    ★ 完整可运行项目
@@ -49,13 +58,10 @@ python run.py --db var/web.db serve --port 8010 --demo
     ├── docs/技术文档.md          部署、备份恢复、安全、验收
     ├── scripts/                 运维脚本（在线备份）
     ├── assets/                  应用图标
-    ├── dist/                    ★ 打包产物
-    │   ├── setup.exe            安装包（32MB，双击安装）
-    │   └── 自习室预约/           绿色版（38MB，解压即用）
     └── var/                     运行期数据，自动创建，可随时删除
 ```
 
-`src/seat_reservation/` 两层同名是 Python 的 src 布局：测试运行时导入的是安装后的包，避免「本地能跑、换机器就崩」。`dist/自习室预约/_internal/` 是打包工具的产物结构，不要改动。
+`src/seat_reservation/` 两层同名是 Python 的 src 布局：测试运行时导入的是安装后的包，避免「本地能跑、换机器就崩」。
 
 ## 3. 环境要求
 
@@ -71,47 +77,34 @@ python run.py --db var/web.db serve --port 8010 --demo
 ## 4. 快速开始
 
 ```bat
+:: 推荐：安装桌面版
+setup.exe   :: 用户级安装，无需管理员权限；安装完成后双击桌面「自习室预约」
+```
+
+首次启动自动创建系统管理员 `Y0001`，随机初始密码在启动提示中**只显示一次**，
+并写入数据目录的 `initial_admin_credentials.txt`；首次登录必须改密，改密成功后该文件自动删除。
+
+演示数据已融入桌面版：登录后进入「系统」页，点击「初始化演示数据」并二次确认。
+系统会写入 3 个自习室、24 个座位与四个角色账号，统一演示密码只在成功提示中显示一次；
+初始化会清空业务数据（审计日志保留），并使当前会话失效。
+
+从源码运行（开发/验收）：
+
+```bat
 cd seat_reservation
 python -m pip install -r requirements.txt
-
-:: 建库并写入演示数据（会输出演示密码）
-python run.py --db var/web.db init-db --demo
-
-:: 启动网页版
-python run.py --db var/web.db serve --port 8010 --demo
+python run.py --db var/web.db serve --port 8010
 ```
 
-启动后浏览器访问 <http://127.0.0.1:8010/>，登录页会列出四个演示账号，点一下自动填入。
+浏览器访问 <http://127.0.0.1:8010/>。直接双击 `desktop_launcher.py` 若报缺少依赖，
+用 `启动.bat` 或先执行 `python -m pip install -r requirements.txt`。
 
-桌面窗口模式（不使用浏览器地址栏），两种方式任选：
-
-```bat
-:: 方式一：双击这个文件，自动检查依赖并启动
-启动.bat
-
-:: 方式二：命令行
-python desktop_launcher.py
-```
-
-> 直接双击 `desktop_launcher.py` 若报 `No module named 'fastapi'`，是因为系统 Python 还没装依赖，
-> 用 `启动.bat` 或先执行 `python -m pip install -r requirements.txt` 即可。
-
-首次启动会自动建库并写入演示数据（四种角色账号 + 自习室/座位/预约），
-初始密码统一 `Seat-Demo-2026`，**需要手动输入**，账号清单写在程序目录的「初始账号与密码.txt」。
-
-演示模式不强制改密，登录后可在右上角「修改密码」。
-命令行路径（`user create` / `user passwd` 不指定 `--password`）会由系统生成随机密码，
-该账号首次登录时前端直接弹出改密弹窗，改完需重新登录。
-
-生产环境不要带 `--demo`：
-
-```bat
-SEAT_ENV=production SEAT_COOKIE_SECURE=true python run.py serve --host 0.0.0.0 --port 8010
-```
+> `--demo` / `SEAT_DEMO_MODE=true` 仅保留给自动化测试与命令行验收；日常使用不再需要。
 
 ## 5. 演示账号
 
-演示模式下登录页直接列出，点选即填。
+在「系统」页初始化演示数据后，登录页会列出四个账号，点选只填入账号；
+密码为初始化成功提示中**一次性显示**的统一演示密码。
 
 | 角色 | 账号 | 姓名 | 可看内容 |
 |---|---|---|---|
@@ -140,21 +133,33 @@ python run.py --help
 
 ## 7. 配置
 
-全部通过环境变量注入，启动时校验，非法值直接拒绝启动。
+配置读取优先级：**进程环境变量 > `.env` 文件 > 代码默认值**。
+`.env` 从项目根目录读取（可用 `SEAT_ENV_FILE` 指定其他路径），已存在的进程环境变量不会被覆盖；
+`.env` 已被 `.gitignore` 忽略。启动时校验，非法值直接拒绝启动。
+
+`SEAT_ENV` 只接受 `development` / `dev` / `test` / `production` / `prod`（自动去空白、转小写），
+未知值会直接启动失败，不会静默回退为开发环境。
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `SEAT_ENV` | `development` | `production` 时强制要求 HTTPS Cookie |
-| `SEAT_DB_PATH` | `var/seat_reservation.db` | 数据库文件路径 |
+| `SEAT_ENV` | `development` | 未知值启动失败；`production` 强制 Secure Cookie 且禁止 Demo |
+| `SEAT_DB_PATH` | `var/seat_reservation.db` | 数据库文件路径；演示模式未显式指定时用 `var/seat_demo.db` |
 | `SEAT_HOST` / `SEAT_PORT` | `127.0.0.1` / `8010` | 监听地址与端口 |
 | `SEAT_LOG_LEVEL` | `INFO` | 日志级别 |
 | `SEAT_LOG_JSON` | `false` | 结构化日志，便于日志系统采集 |
 | `SEAT_SESSION_IDLE_MINUTES` | `30` | 空闲超时（5～720） |
 | `SEAT_SESSION_ABSOLUTE_HOURS` | `8` | 会话绝对有效期（1～72） |
-| `SEAT_COOKIE_SECURE` | `false` | 生产环境必须为 `true` |
+| `SEAT_COOKIE_SECURE` | `false` | 生产环境必须为 `true`，否则启动失败 |
+| `SEAT_DEMO_MODE` | `false` | 演示模式，仅 `development`/`test` 可用；生产环境开启会启动失败 |
+| `SEAT_DEMO_PASSWORD` | 空 | 演示密码，仅在初始化前可选指定；留空则随机生成并只显示一次 |
+| `SEAT_TRUST_PROXY` | `false` | 仅在可信反向代理后开启（读取 `X-Forwarded-For`） |
+| `SEAT_ENV_FILE` | 项目根 `.env` | 指定 `.env` 路径 |
 | `SEAT_SCHEDULER_ENABLED` | `true` | 是否启用内部定时扫描 |
 | `SEAT_SCHEDULER_INTERVAL_SECONDS` | `60` | 扫描间隔（10～3600） |
 | `SEAT_ACS_TOKEN` | 空 | 闸机令牌，留空则关闭 ACS 端点 |
+
+生产环境额外行为：`/docs` 与 `/openapi.json` 关闭；启动日志只输出脱敏配置摘要
+（不含令牌、密码与数据库完整路径）。
 
 ## 8. 测试
 
@@ -162,7 +167,16 @@ python run.py --help
 python -m pytest -q
 ```
 
-预期：**115 passed, 1 skipped**（未安装 playwright 的口径；装上后为 115 通过 / 3 跳过）。端到端浏览器测试需 `SEAT_E2E=1` 才会执行。
+除需要浏览器驱动的 `tests/test_e2e.py`（设置 `SEAT_E2E=1` 且安装 playwright 后才执行）外，其余用例应全部通过。
+未安装 playwright 时会跳过 1 个端到端用例，属预期行为。
+
+当前结果：`493 passed, 1 skipped`。前端视图测试不依赖第三方包：
+
+```bat
+node --test tests/account_frontend.test.cjs tests/system_demo_ui.test.cjs tests/desktop_ux.test.cjs
+```
+
+结果：`43 pass / 0 fail`。
 
 | 测试文件 | 覆盖 |
 |---|---|
@@ -177,6 +191,8 @@ python -m pytest -q
 | `test_resource_api.py` | 自习室/座位接口、PR-05 权限、审计 IP |
 | `test_jobs.py` | 调度器、超时扫描、候补顺延 |
 | `test_concurrency.py` | 并发预约不超卖 |
+| `test_system_demo_api.py` | 系统状态接口、演示数据初始化与审计只增不删 |
+| `test_desktop_ux_api.py` | 座位分母、冲突分类、管理员密码保留、桌面导出桥接 |
 | `test_e2e.py` | 真实浏览器端到端（默认跳过） |
 
 ## 9. 文档
