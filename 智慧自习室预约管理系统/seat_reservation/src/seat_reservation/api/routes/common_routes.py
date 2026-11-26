@@ -6,7 +6,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ...domain.models import (
     COMPLAINT_TYPE_LABELS,
@@ -26,14 +26,16 @@ router = APIRouter(tags=["common"])
 
 
 class NotificationsReadIn(BaseModel):
-    ids: list[str] | None = None
+    # L-10：单次最多标记 100 条，避免无界 SQL 占位符/请求体。
+    ids: list[str] | None = Field(default=None, max_length=100)
 
 
 @router.get("/health", summary="健康检查")
 def health(ctx: AppContext = Depends(get_context)) -> JSONResponse:
-    data = ctx.health()
-    status_code = 200 if data["status"] == "ok" else 503
-    return JSONResponse({"ok": data["status"] == "ok", "data": data}, status_code=status_code)
+    # L-02：公开健康检查只暴露可用性，不披露环境、数据库、调度器错误。
+    status = ctx.health()["status"]
+    status_code = 200 if status == "ok" else 503
+    return JSONResponse({"ok": status == "ok", "data": {"status": status}}, status_code=status_code)
 
 
 @router.get("/meta", summary="界面元数据")

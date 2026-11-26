@@ -1,6 +1,9 @@
 """认证与会话。
 
 * 密码校验使用 PBKDF2（见 ``security``），登录失败按 IP+账号限流。
+* 用户名在**认证入口统一规范化**（NFKC → strip → casefold），查询与限流 key 使用同一结果，
+  避免空白/大小写/全角变体绕过限流。
+* PBKDF2 只在**只读事务**中取哈希，验证在事务外完成，写事务只负责建会话。
 * 会话令牌只把 SHA-256 摘要落库；Cookie 为 HttpOnly，CSRF 令牌单独放在可读 Cookie。
 * 空闲 30 分钟 / 绝对 8 小时过期（NFR-04），可在 ``Settings`` 调整。
 """
@@ -8,6 +11,7 @@
 from __future__ import annotations
 
 import threading
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -17,6 +21,7 @@ from ..domain.models import Role, User
 from ..errors import Forbidden, RateLimited, Unauthenticated
 from ..logging_setup import get_logger
 from ..security import (
+    generate_initial_password,
     hash_password,
     hash_token,
     new_csrf_token,
@@ -29,6 +34,19 @@ from ..storage.repository import SqliteRepository
 logger = get_logger(__name__)
 
 
+def normalize_username(value: str) -> str:
+    """登录标识的唯一规范化入口。
+
+    NFKC 先把全角等兼容字符折叠为常规形式，再去除首尾空白（含 Tab/换行）并
+    做 Unicode 大小写折叠。查询与限流 key 必须都使用本函数，不能各写一套。
+    """
+    return unicodedata.normalize("NFKC", value or "").strip().casefold()
+
+
+# 未知账号也执行一次同强度 PBKDF2，避免用响应时间差判断账号是否存在。
+_DUMMY_PASSWORD_HASH = hash_password(generate_initial_password(16))
+
+
 @dataclass(slots=True)
 class AuthSession:
     user: User
@@ -39,31 +57,69 @@ class AuthSession:
 
 
 class LoginRateLimiter:
-    """进程内滑动窗口限流；多实例部署时应替换为 Redis 实现。"""
+    """进程内滑动窗口限流。
 
-    def __init__(self, max_attempts: int = 5, window_seconds: int = 300, lock_seconds: int = 300) -> None:
+    容量与清理策略
+    --------------
+    * 锁到期、失败窗口过期的记录由 ``sweep`` 定期清理，不会无限增长。
+    * key 总数有上限 ``max_keys``；每个 key 的失败时间戳最多保留 ``max_attempts`` 条。
+    * 达到容量且没有可回收记录时，对**新 key** 直接返回 429（fail-closed）：
+      宁可拒绝新的登录尝试，也不丢弃已有计数或提前解除有效锁定。
+    * 每个进程独立计数；多实例部署时无法共享，需要时再替换为外部存储。
+    """
+
+    def __init__(
+        self,
+        max_attempts: int = 5,
+        window_seconds: int = 300,
+        lock_seconds: int = 300,
+        *,
+        max_keys: int = 10_000,
+        sweep_every: int = 256,
+    ) -> None:
+        if max_attempts < 1 or max_keys < 1:
+            raise ValueError("max_attempts / max_keys 必须为正数")
         self.max_attempts = max_attempts
         self.window = timedelta(seconds=window_seconds)
         self.lock = timedelta(seconds=lock_seconds)
+        self.max_keys = max_keys
+        self.sweep_every = max(1, sweep_every)
         self._failures: dict[str, list[datetime]] = {}
         self._locked_until: dict[str, datetime] = {}
         self._mutex = threading.Lock()
+        self._ops = 0
+
+    # -- 查询 ---------------------------------------------------------
+    def size(self) -> int:
+        """当前占用的 key 数量（用于监控与测试）。"""
+        with self._mutex:
+            return self._size_locked()
 
     def check(self, key: str, now: datetime) -> None:
         with self._mutex:
+            self._tick(now)
             locked = self._locked_until.get(key)
-            if locked and now < locked:
+            if locked is None:
+                return
+            if now < locked:
                 raise RateLimited(
                     f"尝试次数过多，请在 {int((locked - now).total_seconds() // 60) + 1} 分钟后重试"
                 )
-            if locked and now >= locked:
-                self._locked_until.pop(key, None)
-                self._failures.pop(key, None)
+            self._drop_locked(key)
 
     def fail(self, key: str, now: datetime) -> None:
         with self._mutex:
-            attempts = [item for item in self._failures.get(key, []) if now - item < self.window]
+            self._tick(now)
+            if key not in self._failures and key not in self._locked_until:
+                if self._size_locked() >= self.max_keys:
+                    # 先尝试回收过期记录；仍满则拒绝新 key，保持已有计数与锁定不变。
+                    self._sweep_locked(now)
+                    if self._size_locked() >= self.max_keys:
+                        raise RateLimited("登录尝试过于频繁，请稍后重试")
+            attempts = [t for t in self._failures.get(key, ()) if now - t < self.window]
             attempts.append(now)
+            if len(attempts) > self.max_attempts:
+                attempts = attempts[-self.max_attempts :]
             self._failures[key] = attempts
             if len(attempts) >= self.max_attempts:
                 self._locked_until[key] = now + self.lock
@@ -72,6 +128,38 @@ class LoginRateLimiter:
         with self._mutex:
             self._failures.pop(key, None)
             self._locked_until.pop(key, None)
+
+    # -- 清理 ---------------------------------------------------------
+    def sweep(self, now: datetime) -> None:
+        """立即清理过期记录（测试与运维可直接调用）。"""
+        with self._mutex:
+            self._sweep_locked(now)
+
+    def _tick(self, now: datetime) -> None:
+        self._ops += 1
+        if self._ops % self.sweep_every == 0:
+            self._sweep_locked(now)
+
+    def _sweep_locked(self, now: datetime) -> None:
+        # 只清理“已到期”的锁定，未到期的锁定绝不移除。
+        for key in [key for key, until in self._locked_until.items() if now >= until]:
+            del self._locked_until[key]
+            self._failures.pop(key, None)
+        for key, attempts in list(self._failures.items()):
+            if key in self._locked_until:
+                continue
+            fresh = [t for t in attempts if now - t < self.window]
+            if fresh:
+                self._failures[key] = fresh
+            else:
+                del self._failures[key]
+
+    def _drop_locked(self, key: str) -> None:
+        self._locked_until.pop(key, None)
+        self._failures.pop(key, None)
+
+    def _size_locked(self) -> int:
+        return len(self._failures.keys() | self._locked_until.keys())
 
 
 class AuthService:
@@ -91,19 +179,30 @@ class AuthService:
         now: datetime | None = None,
     ) -> tuple[str, str, User]:
         now = now or datetime.now()
-        key = f"{ip}|{username.lower()}"
+        normalised = normalize_username(username)
+        key = f"{ip}|{normalised}"
         self.limiter.check(key, now)
 
+        # 1) 只读事务：取用户与密码哈希（不占写锁）。
+        with self.db.transaction(write=False) as conn:
+            user = SqliteRepository(conn).get_user_by_login(normalised)
+            stored_hash = user.password_hash if user is not None else _DUMMY_PASSWORD_HASH
+            active_at_read = bool(user and user.is_active)
+
+        # 2) 事务外做 PBKDF2，避免把 260k 轮哈希放进 SQLite 写锁。
+        password_ok = verify_password(password, stored_hash)
+        if user is None or not password_ok:
+            self.limiter.fail(key, now)
+            raise Unauthenticated("账号或密码不正确")
+        if not active_at_read:
+            raise Forbidden("账号已停用，请联系系统管理员")
+
+        # 3) 写事务：复核账号状态后建会话，保证状态变化不会被绕过。
         with self.db.transaction() as conn:
             repo = SqliteRepository(conn)
-            user = repo.get_user(username.strip())
-            if user is None or not verify_password(password, user.password_hash):
-                self.limiter.fail(key, now)
-                raise Unauthenticated("账号或密码不正确")
-            if not user.is_active:
+            fresh = repo.get_user(user.id)
+            if fresh is None or not fresh.is_active:
                 raise Forbidden("账号已停用，请联系系统管理员")
-            self.limiter.reset(key)
-
             token = new_session_token()
             csrf = new_csrf_token()
             expires_at = now + timedelta(hours=self.settings.session_absolute_hours)
@@ -114,7 +213,7 @@ class AuthService:
                 """,
                 (
                     hash_token(token),
-                    user.id,
+                    fresh.id,
                     now.strftime("%Y-%m-%d %H:%M:%S"),
                     expires_at.strftime("%Y-%m-%d %H:%M:%S"),
                     now.strftime("%Y-%m-%d %H:%M:%S"),
@@ -130,10 +229,11 @@ class AuthService:
                     SELECT token_hash FROM sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 5
                 )
                 """,
-                (user.id, user.id),
+                (fresh.id, fresh.id),
             )
-            logger.info("login user=%s role=%s ip=%s", user.id, user.role, ip)
-            return token, csrf, user
+            self.limiter.reset(key)
+            logger.info("login user=%s role=%s ip=%s", fresh.id, fresh.role, ip)
+            return token, csrf, fresh
 
     def authenticate(self, token: str | None, *, now: datetime | None = None) -> AuthSession | None:
         if not token:

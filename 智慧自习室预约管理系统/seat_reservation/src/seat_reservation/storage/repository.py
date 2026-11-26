@@ -32,6 +32,7 @@ from ..domain.models import (
     SEAT_STATE_LABELS,
 )
 from ..domain.params import ParamSet
+from ..domain.resource_rules import derived_seat_state
 from ..domain.rules import seat_state_from_reservation
 from ..domain.timeutil import DATETIME_FMT, fmt_datetime, hhmm, minutes_of_slots
 from ..errors import SlotConflict
@@ -107,6 +108,7 @@ class SqliteRepository:
             has_power=bool(row["has_power"]),
             is_window=bool(row["is_window"]),
             note=row["note"],
+            maintenance_by_block=bool(row["maintenance_by_block"]),
             created_at=_dt(row["created_at"]),
         )
 
@@ -217,6 +219,16 @@ class SqliteRepository:
         row = self.conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
         return self._user(row) if row else None
 
+    def get_user_by_login(self, normalised_id: str) -> User | None:
+        """按“登录标识”查询：调用方已完成 strip/casefold/NFKC 规范化。
+
+        仅用于认证入口，避免改变 ``get_user`` 对内部 ID 的精确匹配语义。
+        """
+        row = self.conn.execute(
+            "SELECT * FROM users WHERE id = ? COLLATE NOCASE LIMIT 1", (normalised_id,)
+        ).fetchone()
+        return self._user(row) if row else None
+
     def save_user(self, user: User) -> None:
         now = fmt_datetime(user.updated_at or datetime.now())
         self.conn.execute(
@@ -300,6 +312,28 @@ class SqliteRepository:
         ).fetchall()
         return [self._user(row) for row in rows]
 
+    def list_sessions(self, user_id: str) -> list[dict[str, Any]]:
+        """仅在内部携带摘要，用于标识当前设备；不得直接作为 HTTP 响应。"""
+        rows = self.conn.execute(
+            "SELECT token_hash, created_at, last_seen_at, expires_at, ip, user_agent "
+            "FROM sessions WHERE user_id = ? ORDER BY created_at DESC, token_hash",
+            (user_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def delete_sessions(self, user_id: str, except_token_hash: str | None = None) -> int:
+        sql = "DELETE FROM sessions WHERE user_id = ?"
+        params = [user_id]
+        if except_token_hash is not None:
+            sql += " AND token_hash != ?"
+            params.append(except_token_hash)
+        return self.conn.execute(sql, params).rowcount
+
+    def delete_session(self, token_hash: str) -> int:
+        return self.conn.execute(
+            "DELETE FROM sessions WHERE token_hash = ?", (token_hash,)
+        ).rowcount
+
     # ------------------------------------------------------------------
     # 自习室 / 座位
     # ------------------------------------------------------------------
@@ -352,12 +386,13 @@ class SqliteRepository:
     def save_seat(self, seat: Seat) -> None:
         self.conn.execute(
             """
-            INSERT INTO seats(id, room_id, seat_type, capacity, admin_status, has_power, is_window, note, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO seats(id, room_id, seat_type, capacity, admin_status, has_power, is_window, note, maintenance_by_block, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 room_id=excluded.room_id, seat_type=excluded.seat_type, capacity=excluded.capacity,
                 admin_status=excluded.admin_status, has_power=excluded.has_power,
-                is_window=excluded.is_window, note=excluded.note
+                is_window=excluded.is_window, note=excluded.note,
+                maintenance_by_block=excluded.maintenance_by_block
             """,
             (
                 seat.id,
@@ -368,6 +403,7 @@ class SqliteRepository:
                 int(seat.has_power),
                 int(seat.is_window),
                 seat.note,
+                int(seat.maintenance_by_block),
                 fmt_datetime(seat.created_at or datetime.now()),
             ),
         )
@@ -383,6 +419,7 @@ class SqliteRepository:
         has_power: bool | None = None,
         is_window: bool | None = None,
         only_available: bool = False,
+        include_holder: bool = True,
     ) -> list[SeatView]:
         where, params = ["1=1"], []
         if room_id:
@@ -399,7 +436,7 @@ class SqliteRepository:
             params.append(int(is_window))
         rows = self.conn.execute(
             f"""
-            SELECT s.*, r.name AS room_name
+            SELECT s.*, r.name AS room_name, r.status AS room_status
             FROM seats s JOIN rooms r ON r.id = s.room_id
             WHERE {' AND '.join(where)}
             ORDER BY s.room_id, s.id
@@ -437,17 +474,17 @@ class SqliteRepository:
         views: list[SeatView] = []
         for row in rows:
             seat = self._seat(row)
-            if seat.admin_status == "disabled":
-                state = "disabled"
-                holder = None
-            elif seat.admin_status == "maintenance" or seat.id in blocked:
-                state = "maintenance"
-                holder = None
-            elif seat.id in occupied:
-                status, holder = occupied[seat.id]
-                state = seat_state_from_reservation(status).value
-            else:
-                state, holder = "available", None
+            occupied_status, occupied_holder = occupied.get(seat.id, (None, None))
+            # L-08：房间关闭时一律不可用，绝不显示 available
+            state = derived_seat_state(
+                row["room_status"],
+                seat.admin_status,
+                blocked=seat.id in blocked,
+                reservation_status=occupied_status,
+            )
+            holder = None
+            if include_holder and occupied_holder and state in {"reserved", "occupied", "held"}:
+                holder = occupied_holder
             view = SeatView(
                 seat=seat,
                 room_name=row["room_name"],
@@ -519,6 +556,129 @@ class SqliteRepository:
             (seat_id, fmt_datetime(end), fmt_datetime(start)),
         ).fetchone()
         return row is not None
+
+    # -- 封禁记录生命周期（v2 / FR-21，PR-06）--------------------------------
+    # 本区只做 SQL：状态迁移（是否恢复座位）由 domain/resource_rules.py 决定，
+    # 仓储不猜测维护来源，也不写业务规则。
+    @staticmethod
+    def _seat_block(row: sqlite3.Row) -> SeatBlock:
+        return SeatBlock(
+            id=row["id"],
+            seat_id=row["seat_id"],
+            reason=row["reason"],
+            start_at=_dt(row["start_at"]) or datetime.min,
+            end_at=_dt(row["end_at"]) or datetime.min,
+            created_by=row["created_by"],
+            created_at=_dt(row["created_at"]),
+            released_at=_dt(row["released_at"]),
+        )
+
+    def get_seat_block(self, block_id: str) -> SeatBlock | None:
+        row = self.conn.execute(
+            "SELECT * FROM seat_blocks WHERE id = ?", (block_id,)
+        ).fetchone()
+        return self._seat_block(row) if row else None
+
+    def get_seat_blocks(self, seat_id: str) -> list[SeatBlock]:
+        """某座位的全部封禁记录（含已释放），按开始时间倒序。"""
+        rows = self.conn.execute(
+            "SELECT * FROM seat_blocks WHERE seat_id = ? ORDER BY start_at DESC",
+            (seat_id,),
+        ).fetchall()
+        return [self._seat_block(row) for row in rows]
+
+    def list_seat_blocks(
+        self,
+        *,
+        seat_id: str | None = None,
+        room_id: str | None = None,
+        block_id: str | None = None,
+        active_only: bool = False,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> Page:
+        """封禁记录分页查询（管理员封禁列表）。
+
+        ``active_only`` 只过滤“未释放”，是否此刻生效（时间窗）由领域层判定，
+        避免把“未来的封禁”从列表里漏掉。
+        """
+        where, params = ["1=1"], []
+        if block_id:
+            where.append("b.id = ?")
+            params.append(block_id)
+        if seat_id:
+            where.append("b.seat_id = ?")
+            params.append(seat_id)
+        if room_id:
+            where.append("s.room_id = ?")
+            params.append(room_id)
+        if active_only:
+            where.append("b.released_at IS NULL")
+        clause = " AND ".join(where)
+        base = """
+            FROM seat_blocks b
+            JOIN seats s ON s.id = b.seat_id
+            JOIN rooms rm ON rm.id = s.room_id
+        """
+        total = int(
+            self.conn.execute(
+                f"SELECT COUNT(*) AS c {base} WHERE {clause}", params
+            ).fetchone()["c"]
+        )
+        rows = self.conn.execute(
+            f"""
+            SELECT b.*, s.room_id AS room_id, s.admin_status AS seat_status,
+                   s.maintenance_by_block AS seat_maintenance_by_block,
+                   rm.name AS room_name
+            {base} WHERE {clause}
+            ORDER BY b.start_at DESC, b.id DESC LIMIT ? OFFSET ?
+            """,
+            [*params, page_size, (page - 1) * page_size],
+        ).fetchall()
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            data = self._seat_block(row).as_dict()
+            data.update(
+                {
+                    "room_id": row["room_id"],
+                    "room_name": row["room_name"],
+                    "seat_status": row["seat_status"],
+                    "seat_maintenance_by_block": bool(row["seat_maintenance_by_block"]),
+                }
+            )
+            items.append(data)
+        return Page(items, total, page, page_size)
+
+    def expire_seat_blocks(self, now: datetime) -> list[SeatBlock]:
+        """关闭所有已到期且未释放的封禁记录，返回被关闭的记录（不修改座位）。"""
+        rows = self.conn.execute(
+            """
+            SELECT * FROM seat_blocks
+            WHERE released_at IS NULL AND end_at <= ?
+            ORDER BY end_at, id
+            """,
+            (fmt_datetime(now),),
+        ).fetchall()
+        expired: list[SeatBlock] = []
+        for row in rows:
+            block = self._seat_block(row)
+            self.close_seat_block(block.id, now)
+            block.released_at = now
+            expired.append(block)
+        return expired
+
+    def release_seat_block(self, block_id: str, now: datetime) -> SeatBlock | None:
+        """按记录解封：只关闭指定的未释放封禁，返回该记录（已释放也原样返回）。
+
+        是否恢复座位由调用方（领域层）依据 ``maintenance_by_block`` 决定，
+        仓储不在这里做状态猜测。
+        """
+        block = self.get_seat_block(block_id)
+        if block is None or block.released_at is not None:
+            return block
+        self.close_seat_block(block.id, now)
+        block.released_at = now
+        return block
 
     # ------------------------------------------------------------------
     # 预约
@@ -614,6 +774,74 @@ class SqliteRepository:
             ),
         )
 
+    def delete_reservation(self, reservation_id: str) -> None:
+        """删除预约及其全部时段占用（仅用于同事务内的失败清理）。
+
+        典型场景：候补确认先 ``insert_reservation`` 再 ``occupy``，后者抛出
+        ``SlotConflict`` 时必须显式清除已插入的预约，避免留下无 slot 的孤儿行。
+        """
+        self.conn.execute(
+            "DELETE FROM reservation_slots WHERE reservation_id = ?", (reservation_id,)
+        )
+        self.conn.execute("DELETE FROM reservations WHERE id = ?", (reservation_id,))
+
+    def update_credential(
+        self,
+        reservation: Reservation,
+        code: str,
+        issued_at: datetime,
+        expected_version: int,
+    ) -> bool:
+        """按版本号条件更新凭证；并发下只有一个写者能成功。
+
+        ``WHERE status='pending'`` 保证预约已进入使用/取消后不会再被写凭证；
+        ``version`` 条件保证后写者不会覆盖先写者已返回的凭证。
+        """
+        cursor = self.conn.execute(
+            """
+            UPDATE reservations
+            SET credential_code = ?, credential_issued_at = ?, credential_used = 0,
+                updated_at = ?, version = version + 1
+            WHERE id = ? AND version = ? AND status = 'pending'
+            """,
+            (
+                code,
+                fmt_datetime(issued_at),
+                fmt_datetime(reservation.updated_at),
+                reservation.id,
+                expected_version,
+            ),
+        )
+        return cursor.rowcount == 1
+
+    def extend_reservation(
+        self,
+        reservation: Reservation,
+        new_end_slot: int,
+        new_end_at: datetime,
+        expected_version: int,
+    ) -> bool:
+        """按版本号乐观更新结束时段；版本不匹配返回 ``False``。
+
+        调用方必须已在同一事务内先写入新增时段（``occupy_extension``）。
+        失败时由外层事务回滚，不会留下半截时段。
+        """
+        cursor = self.conn.execute(
+            """
+            UPDATE reservations
+            SET end_slot = ?, end_at = ?, updated_at = ?, version = version + 1
+            WHERE id = ? AND version = ?
+            """,
+            (
+                new_end_slot,
+                fmt_datetime(new_end_at),
+                fmt_datetime(reservation.updated_at),
+                reservation.id,
+                expected_version,
+            ),
+        )
+        return cursor.rowcount == 1
+
     def occupy(self, reservation: Reservation) -> None:
         rows = [
             (
@@ -632,6 +860,36 @@ class SqliteRepository:
             )
         except sqlite3.IntegrityError as exc:
             raise SlotConflict("该座位或本人时段已被占用，请刷新后重试", rule="BR-11") from exc
+
+    def occupy_extension(
+        self,
+        reservation: Reservation,
+        new_start_slot: int,
+        new_end_slot: int,
+    ) -> None:
+        """只占用本次新增的 ``[new_start_slot, new_end_slot)`` 时段。
+
+        唯一约束（座位/本人）是并发底线：与已有预约冲突时抛 ``SlotConflict``。
+        """
+        rows = [
+            (
+                reservation.id,
+                reservation.seat_id,
+                reservation.user_id,
+                reservation.day.isoformat(),
+                slot,
+            )
+            for slot in range(new_start_slot, new_end_slot)
+        ]
+        try:
+            self.conn.executemany(
+                "INSERT INTO reservation_slots(reservation_id, seat_id, user_id, date, slot) VALUES (?, ?, ?, ?, ?)",
+                rows,
+            )
+        except sqlite3.IntegrityError as exc:
+            raise SlotConflict(
+                "该座位或本人延长时段已被占用，请刷新后重试", rule="BR-11"
+            ) from exc
 
     def release(self, reservation_id: str) -> None:
         self.conn.execute("DELETE FROM reservation_slots WHERE reservation_id = ?", (reservation_id,))
@@ -757,6 +1015,31 @@ class SqliteRepository:
         ).fetchall()
         return [self._reservation(row) for row in rows]
 
+    def list_active_reservations(
+        self, *, room_id: str | None = None, seat_id: str | None = None
+    ) -> list[Reservation]:
+        """列出所有仍占用座位的预约（pending/in_use/away）。
+
+        供 C 的超时扫描与 B 的资源变更 helper 复用：房间关闭/座位停用后，
+        必须能一次性找到该资源下所有仍有效的预约，而不是只处理某个时间点
+        恰好到期的预约。
+        """
+        sql = f"""
+            SELECT r.* FROM reservations r
+            JOIN seats s ON s.id = r.seat_id
+            WHERE r.status IN ({_placeholders(len(OCCUPYING_STATUSES))})
+        """
+        params: list[Any] = [*sorted(OCCUPYING_STATUSES)]
+        if room_id:
+            sql += " AND s.room_id = ?"
+            params.append(room_id)
+        if seat_id:
+            sql += " AND r.seat_id = ?"
+            params.append(seat_id)
+        sql += " ORDER BY r.start_at, r.id"
+        rows = self.conn.execute(sql, params).fetchall()
+        return [self._reservation(row) for row in rows]
+
     def list_due_pending(self, now: datetime) -> list[Reservation]:
         rows = self.conn.execute(
             "SELECT * FROM reservations WHERE status='pending' AND checkin_deadline < ? ORDER BY start_at",
@@ -856,6 +1139,18 @@ class SqliteRepository:
     def get_violation(self, violation_id: str) -> Violation | None:
         row = self.conn.execute("SELECT * FROM violations WHERE id = ?", (violation_id,)).fetchone()
         return self._violation(row) if row else None
+
+    def list_violations_of_reservation(
+        self, reservation_id: str, *, violation_type: str | None = None
+    ) -> list[Violation]:
+        """某条预约的全部违规记录（M-05 现场违约幂等判重用）。"""
+        sql = "SELECT * FROM violations WHERE reservation_id = ?"
+        params: list[Any] = [reservation_id]
+        if violation_type:
+            sql += " AND type = ?"
+            params.append(violation_type)
+        rows = self.conn.execute(sql + " ORDER BY created_at", params).fetchall()
+        return [self._violation(row) for row in rows]
 
     def list_violations(
         self,
@@ -1607,10 +1902,26 @@ class SqliteRepository:
             [today.isoformat(), *room_params],
         ).fetchone()["c"]
         open_complaints = self.conn.execute(
-            "SELECT COUNT(*) AS c FROM complaints WHERE status='pending'"
+            """
+            SELECT COUNT(*) AS c
+            FROM complaints c
+            LEFT JOIN seats cs ON cs.id = c.seat_id
+            LEFT JOIN reservations cr ON cr.id = c.reservation_id
+            LEFT JOIN seats rs ON rs.id = cr.seat_id
+            WHERE c.status='pending'
+              AND (? IS NULL OR COALESCE(cs.room_id, rs.room_id) = ?)
+            """,
+            (room_id, room_id),
         ).fetchone()["c"]
         waitlist_waiting = self.conn.execute(
-            "SELECT COUNT(*) AS c FROM waitlist WHERE status IN ('queued','notified')"
+            """
+            SELECT COUNT(*) AS c
+            FROM waitlist w
+            JOIN seats s ON s.id = w.seat_id
+            WHERE w.status IN ('queued','notified')
+              AND (? IS NULL OR s.room_id = ?)
+            """,
+            (room_id, room_id),
         ).fetchone()["c"]
         avg_rating = self.average_rating(room_id)
 
@@ -1701,6 +2012,23 @@ class SqliteRepository:
             "rooms": rooms,
             "hourly": hourly,
         }
+
+    def analytics_range(
+        self,
+        *,
+        date_from: date,
+        date_to: date,
+        room_id: str | None = None,
+    ) -> dict[str, Any]:
+        """按日期区间/自习室返回运营分析数据（只查询，不校验权限）。"""
+        from .analytics_queries import build_range_summary
+
+        return build_range_summary(
+            self.conn,
+            date_from=date_from,
+            date_to=date_to,
+            room_id=room_id,
+        )
 
     def teacher_stats(self, class_name: str, now: datetime) -> dict[str, Any]:
         today = now.date()
@@ -1819,6 +2147,92 @@ class SqliteRepository:
             "month_credit_delta": int(row["month_credit_delta"] or 0),
             "active_violations": int(row["active_violations"] or 0),
         }
+
+    def export_rows(
+        self,
+        kind: str,
+        *,
+        date_from: date | None = None,
+        date_to: date | None = None,
+    ) -> tuple[list[str], list[list[Any]]]:
+        """按导出类型返回表头与数据行；不校验权限、不做 CSV 转义。"""
+        if kind == "reservations":
+            page = self.list_reservations(
+                # 多取 1 行作为超限探测，engine 拒绝而不静默截断。
+                date_from=date_from, date_to=date_to, page=1, page_size=10001
+            )
+            headers = ["预约号", "日期", "开始", "结束", "座位", "自习室", "学生", "状态", "来源", "结束原因"]
+            return headers, [
+                [
+                    item.reservation.id,
+                    item.reservation.day.isoformat(),
+                    item.reservation.start_time,
+                    item.reservation.end_time,
+                    item.seat_id,
+                    item.room_name,
+                    item.user_name,
+                    item.reservation.status,
+                    item.reservation.source,
+                    item.reservation.end_reason or "",
+                ]
+                for item in page.items
+            ]
+        if kind == "violations":
+            page = self.list_violations(
+                # 多取 1 行作为超限探测，engine 拒绝而不静默截断。
+                date_from=date_from, date_to=date_to, page=1, page_size=10001
+            )
+            headers = ["违规号", "预约号", "学号", "类型", "扣分", "来源", "状态", "发生时间", "说明"]
+            return headers, [
+                [
+                    item.id,
+                    item.reservation_id,
+                    item.user_id,
+                    item.violation_type,
+                    item.points,
+                    item.source,
+                    item.status,
+                    fmt_datetime(item.occurred_at) or "",
+                    item.note,
+                ]
+                for item in page.items
+            ]
+        if kind == "audit":
+            page = self.list_audit(
+                # 多取 1 行作为超限探测，engine 拒绝而不静默截断。
+                date_from=date_from, date_to=date_to, page=1, page_size=10001
+            )
+            headers = ["日志号", "操作人", "角色", "动作", "对象类型", "对象", "时间", "IP"]
+            return headers, [
+                [
+                    item.id,
+                    item.actor_id,
+                    item.actor_role,
+                    item.action,
+                    item.target_type,
+                    item.target_id,
+                    fmt_datetime(item.created_at) or "",
+                    item.ip,
+                ]
+                for item in page.items
+            ]
+        if kind == "complaints":
+            from .export_queries import complaint_rows
+
+            return complaint_rows(self.conn, date_from=date_from, date_to=date_to)
+        if kind == "blacklist":
+            from .export_queries import blacklist_rows
+
+            return blacklist_rows(self.conn, date_from=date_from, date_to=date_to)
+        if kind == "credit_logs":
+            from .export_queries import credit_log_rows
+
+            return credit_log_rows(self.conn, date_from=date_from, date_to=date_to)
+        if kind == "waitlist":
+            from .export_queries import waitlist_rows
+
+            return waitlist_rows(self.conn, date_from=date_from, date_to=date_to)
+        raise ValueError(f"不支持的导出类型：{kind}")
 
     def today_active_seat_ids(self, day: date, now: datetime) -> set[str]:
         rows = self.conn.execute(

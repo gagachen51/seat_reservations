@@ -6,6 +6,7 @@ from datetime import date, datetime, time
 
 from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from ...domain.engine import DomainEngine
 from ...domain.models import Actor
@@ -33,6 +34,12 @@ from ..schemas import (
 )
 
 router = APIRouter(tags=["student"])
+
+
+class ReservationExtendIn(BaseModel):
+    """续约请求：业务规则（30 分钟粒度/上限）由领域引擎校验。"""
+
+    extra_minutes: int = Field(ge=1, le=1440)
 
 
 @router.get("/seats", summary="查询座位")
@@ -168,6 +175,20 @@ def cancel_reservation(
     return render(engine.cancel_reservation(actor, reservation_id, datetime.now()))
 
 
+@router.post("/reservations/{reservation_id}/extend", summary="延长预约时段")
+def extend_reservation(
+    reservation_id: str,
+    payload: ReservationExtendIn,
+    actor: Actor = Depends(get_actor),
+    engine: DomainEngine = Depends(write_engine),
+) -> JSONResponse:
+    return render(
+        engine.extend_reservation(
+            actor, reservation_id, payload.extra_minutes, datetime.now()
+        )
+    )
+
+
 @router.get("/waitlist", summary="我的候补")
 def list_waitlist(
     status: str | None = None,
@@ -198,6 +219,15 @@ def confirm_waitlist(
     engine: DomainEngine = Depends(write_engine),
 ) -> JSONResponse:
     return render(engine.confirm_waitlist(actor, entry_id, datetime.now()))
+
+
+@router.post("/waitlist/{entry_id}/cancel", summary="取消候补")
+def cancel_waitlist(
+    entry_id: str,
+    actor: Actor = Depends(get_actor),
+    engine: DomainEngine = Depends(write_engine),
+) -> JSONResponse:
+    return render(engine.cancel_waitlist(actor, entry_id, datetime.now()))
 
 
 @router.get("/me/dashboard", summary="个人中心")

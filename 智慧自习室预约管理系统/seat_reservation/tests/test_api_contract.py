@@ -96,7 +96,7 @@ def busy_seat(client: TestClient, headers: dict[str, str], day: str) -> str:
 
 def test_common_and_auth_routes(client: TestClient, call: Calls) -> None:
     public = call(client, {}, "GET", "/api/health", expect=200)
-    assert public.json()["data"]["db"]["schema_version"] == 1
+    assert public.json()["data"] == {"status": "ok"}
 
     headers = login(client, "S1")
     call(client, headers, "GET", "/api/meta", expect=200)
@@ -118,7 +118,9 @@ def test_demo_accounts_available_in_demo_mode(client: TestClient, call: Calls) -
         "room_admin",
         "sys_admin",
     }
-    assert all(item["password"] for item in items)
+    assert all(item["username"] and item["name"] for item in items)
+    # 演示密码属于部署凭据，只能由初始化渠道一次性展示，接口不得下发。
+    assert all("password" not in item for item in items)
 
 
 def test_demo_accounts_unavailable_when_disabled(ctx) -> None:

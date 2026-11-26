@@ -1,7 +1,10 @@
-"""演示种子数据。
+"""演示种子数据与正式库的首次管理员初始化。
 
 * 相对 ``now`` 生成，保证任何时间打开系统都有“今天”的数据可看。
-* 仅通过仓储写入，不绕过约束；演示账号统一密码见 ``DEMO_PASSWORD``。
+* 仅通过仓储写入，不绕过约束。
+* 演示密码**不再硬编码**：默认随机生成，只能通过 ``SEAT_DEMO_PASSWORD``
+  或调用方显式传入；调用方只在初始化渠道展示一次。
+* 正式库首次初始化用 ``bootstrap_admin``：随机密码 + 强制首次登录改密。
 * 历史信用补差使用一条显式 ``credit_logs``（原因含“演示数据”），避免伪造违规记录。
 """
 
@@ -39,12 +42,21 @@ from ..domain.models import (
 )
 from ..domain.params import ParamSet
 from ..domain.timeutil import add_minutes, datetime_at, fmt_datetime, slot_of_time
-from ..security import hash_password
+from ..security import generate_initial_password, hash_password
 from .database import Database
 from .repository import SqliteRepository
 
-# 演示账号统一密码。可用 SEAT_DEMO_PASSWORD 覆盖；生产环境不要使用演示数据。
-DEMO_PASSWORD = os.environ.get("SEAT_DEMO_PASSWORD") or "-".join(("Seat", "Demo", "2026"))
+
+def resolve_demo_password(explicit: str | None = None) -> str:
+    """演示密码的解析顺序：调用方显式值 → ``SEAT_DEMO_PASSWORD`` → 随机生成。
+
+    返回值只能交给初始化渠道（命令行输出 / 桌面首次启动提示）展示一次，
+    不得写入日志、源码或长期明文文件，也不得通过 HTTP 接口返回。
+    """
+    if explicit:
+        return explicit
+    configured = os.environ.get("SEAT_DEMO_PASSWORD", "").strip()
+    return configured or generate_initial_password()
 
 ROOMS = [
     ("A101", "第一教学楼 A101", "一楼东侧", 8),
@@ -180,11 +192,16 @@ def seed_demo(
     db: Database,
     now: datetime,
     *,
-    password: str = DEMO_PASSWORD,
+    password: str | None = None,
     reset: bool = True,
     hash_iterations: int = 260_000,
 ) -> dict[str, int]:
-    """写入演示数据，返回各表行数摘要。"""
+    """写入演示数据，返回各表行数摘要。
+
+    ``password`` 为空时随机生成，调用方需要展示时先用 ``resolve_demo_password``
+    取得同一份值再传入。
+    """
+    password = password or generate_initial_password()
     db.migrate()
     params = ParamSet()
     counts: dict[str, int] = {}
@@ -467,11 +484,77 @@ def seed_demo(
     return counts
 
 
-def seed_if_empty(db: Database, now: datetime) -> bool:
+def seed_if_empty(db: Database, now: datetime, *, password: str | None = None) -> bool:
     db.migrate()
     with db.read() as conn:
         row = conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()
         if row["c"]:
             return False
-    seed_demo(db, now)
+    seed_demo(db, now, password=password)
     return True
+
+
+def bootstrap_admin(
+    db: Database,
+    now: datetime,
+    *,
+    user_id: str = "Y0001",
+    name: str = "系统管理员",
+    department: str = "信息化中心",
+    password: str | None = None,
+) -> str | None:
+    """正式库首次初始化：创建一个随机密码的系统管理员。
+
+    * 只在 ``users`` 为空时执行；重复调用是幂等的（返回 ``None``）。
+    * 密码随机生成（或调用方显式传入），不在源码/日志/文件中留痕。
+    * ``must_change_password=True``：首次登录后必须先修改密码。
+    * 建号、默认参数与审计记录在**同一个写事务**中，失败不会留下半初始化数据。
+
+    返回值仅在本次真正创建时返回明文密码，供初始化渠道一次性展示。
+    """
+    password = password or generate_initial_password()
+    # 密码策略与 hash_password 一致，提前失败，避免事务内才抛错。
+    if len(password) < 8:
+        raise ValueError("初始密码至少 8 位")
+
+    db.migrate()
+    with db.read() as conn:
+        if conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"]:
+            return None
+
+    with db.transaction() as conn:
+        repo = SqliteRepository(conn)
+        # 写事务内再次确认：并发首启时只有一个进程能建号。
+        if conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"]:
+            return None
+        repo.save_params(ParamSet().snapshot(), "SYSTEM", now)
+        repo.save_user(
+            User(
+                id=user_id,
+                name=name,
+                role=Role.SYS_ADMIN.value,
+                department=department,
+                class_name="",
+                credit=100,
+                password_hash=hash_password(password),
+                must_change_password=True,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        repo.insert_audit(
+            AuditLog(
+                id=repo.next_id("audit", "A-", 7),
+                actor_id="SYSTEM",
+                actor_role="system",
+                action="bootstrap_admin",
+                target_type="user",
+                target_id=user_id,
+                before=None,
+                after={"role": Role.SYS_ADMIN.value, "must_change_password": True},
+                ip="127.0.0.1",
+                created_at=now,
+            )
+        )
+    return password
+

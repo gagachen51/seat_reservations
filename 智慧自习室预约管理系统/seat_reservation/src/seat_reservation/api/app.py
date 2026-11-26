@@ -20,7 +20,14 @@ from ..errors import AppError
 from ..logging_setup import configure_logging, get_logger, request_id_var
 from ..security import constant_time_equals
 from ..service.container import AppContext
-from .routes import admin_routes, auth_routes, common_routes, student_routes
+from .routes import (
+    account_routes,
+    admin_routes,
+    auth_routes,
+    common_routes,
+    resource_routes,
+    student_routes,
+)
 
 logger = get_logger("seat_reservation.http")
 WEB_DIR = Path(__file__).resolve().parents[1] / "web"
@@ -96,16 +103,23 @@ class RequestMiddleware(BaseHTTPMiddleware):
         return not constant_time_equals(cookie, header)
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, *, context: AppContext | None = None) -> FastAPI:
+    """应用工厂。
+
+    ``context`` 允许调用方（桌面启动器）复用已初始化的上下文，
+    避免同一进程内重复创建数据库连接池与重复执行初始化。
+    """
     settings = settings or Settings.from_env()
+    # 防止调用方用 Settings(...) 绕过 from_env 的校验（生产 Cookie / Demo 互斥等）。
+    settings.validate()
     configure_logging(settings.log_level, settings.log_json)
-    context = AppContext(settings)
+    context = context or AppContext(settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
         context.initialize(demo=settings.demo_mode)
         context.start_background_jobs()
-        logger.info("service started env=%s db=%s", settings.env, settings.db_path)
+        logger.info("service started %s", settings.public_summary())
         try:
             yield
         finally:
@@ -181,6 +195,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_routes.router, prefix="/api")
     app.include_router(student_routes.router, prefix="/api")
     app.include_router(admin_routes.router, prefix="/api")
+    # 账号与个人中心（A）：创建/停用/重置/会话/资料。
+    app.include_router(account_routes.router, prefix="/api")
+    # 资源治理（B）：封禁记录、按记录解封、批量建座、停用影响预览。
+    app.include_router(resource_routes.router, prefix="/api")
 
     if WEB_DIR.is_dir():
         app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")

@@ -281,6 +281,7 @@ svg { display: block; }
 .demo-btn:hover { background: #fff; border-color: var(--separator-strong); }
 .demo-btn strong { display: block; font-size: 13.5px; font-weight: 600; }
 .demo-btn small { display: block; color: var(--tertiary); font-size: 11.5px; margin-top: 1px; }
+.demo-hint { margin: 8px 2px 0; color: var(--tertiary); font-size: 11.5px; line-height: 1.5; }
 
 .login-foot {
   text-align: center;
@@ -1775,3 +1776,194 @@ body.shell .sidebar { padding-top: 14px; }
    会被整条盖住、完全看不到。这里下移到标题栏下方，与 topbar 的让位保持一致。 */
 body.shell .toast { top: 58px; }
 
+/* ==========================================================================
+   资源与座位治理（成员 B / FR-21 / PR-05 / PR-06）
+   仅追加本模块样式：封禁记录列表、按记录解封、批量建座、停用影响预览
+   ========================================================================== */
+.block-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.block-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.block-row .row-main { min-width: 0; flex: 1 1 auto; }
+.block-row .row-title { font-weight: 600; font-size: 14px; }
+.block-row .row-sub { font-size: 13px; color: var(--secondary); word-break: break-word; }
+.block-row .row-sub + .row-sub { margin-top: 2px; }
+
+.block-row .row-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.block-row .block-side .btn { white-space: nowrap; }
+
+.block-hint {
+  font-size: 12px;
+  color: var(--tertiary);
+  margin: 0;
+}
+
+.seat-block-form .row { flex-wrap: wrap; }
+
+@media (max-width: 640px) {
+  .block-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .block-row .row-side {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+/* A：账号、登录设备与个人候补 */
+.account-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.account-toolbar p { margin: 0; }
+.account-toolbar > .btn { flex-shrink: 0; }
+.account-tags, .account-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.account-tags { margin-top: 8px; }
+.account-actions { justify-content: flex-end; flex-shrink: 0; max-width: 310px; }
+.account-note { margin-bottom: 14px; }
+.account-session { padding: 14px 0; border-bottom: 1px solid var(--separator); }
+.account-session:last-child { border-bottom: 0; }
+.account-agent { color: var(--secondary); font-size: 12px; overflow-wrap: anywhere; margin-top: 8px; }
+.account-secret { margin-top: 20px; }
+.account-secret input { font-family: Consolas, monospace; letter-spacing: 1px; }
+.sheet-actions:has(.btn:nth-child(4)) { flex-wrap: wrap; }
+.sheet-actions:has(.btn:nth-child(4)) .btn { flex-basis: 40%; }
+@media (max-width: 680px) {
+  .account-row, .account-waitlist-row { flex-wrap: wrap; }
+  .account-row .row-main { min-width: calc(100% - 70px); }
+  .account-actions { width: 100%; max-width: none; justify-content: flex-start; }
+  .account-toolbar { align-items: flex-start; }
+}
+
+/* ---------- 运营分析（D 模块） ---------- */
+.analytics-toolbar {
+  padding: 16px;
+}
+
+.analytics-toolbar .toolbar-row {
+  align-items: center;
+}
+
+.analytics-toolbar .segmented {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.analytics-kpi-grid {
+  margin-top: 12px;
+}
+
+.analytics-room-card {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.analytics-table-wrap {
+  margin-top: 2px;
+}
+
+.analytics-table-wrap table.data {
+  min-width: 760px;
+}
+
+.analytics-table-note {
+  margin-top: 10px;
+  line-height: 1.5;
+}
+
+.analytics-detail-list {
+  padding: 0 2px;
+}
+
+.analytics-notes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 24px;
+}
+
+.analytics-note-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--secondary);
+}
+
+.analytics-note-item strong {
+  color: var(--label-2);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+@media (max-width: 920px) {
+  .analytics-notes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .analytics-toolbar {
+    padding: 13px;
+  }
+
+  .analytics-toolbar .segmented {
+    width: 100%;
+  }
+
+  .analytics-table-wrap table.data {
+    min-width: 700px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   C · 预约续约弹窗
+   --------------------------------------------------------------------------- */
+.extend-summary {
+  margin: 2px 0 14px;
+  line-height: 1.55;
+}
+
+.extend-summary strong {
+  color: var(--label);
+  font-weight: 650;
+}
+
+.extend-preview {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--gray-soft);
+  color: var(--label-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.extend-preview strong {
+  color: var(--blue);
+  font-weight: 650;
+}
+
+.extend-note {
+  margin: 10px 0 0;
+  line-height: 1.55;
+}

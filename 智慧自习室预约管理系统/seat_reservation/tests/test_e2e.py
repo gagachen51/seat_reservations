@@ -34,6 +34,8 @@ from seat_reservation.config import Settings  # noqa: E402
 from seat_reservation.service.container import AppContext  # noqa: E402
 
 DB = Path(__file__).resolve().parents[1] / "var" / "e2e" / "e2e.db"
+# 演示密码不再通过接口下发；e2e 在初始化时显式指定，页面手动输入。
+DEMO_PASSWORD = "E2E-Demo-Pass-2026"
 
 
 def _free_port() -> int:
@@ -60,7 +62,7 @@ def base_url():
 
     settings = Settings.for_tests(db)
     ctx = AppContext(settings)
-    ctx.initialize(demo=True)
+    ctx.initialize(demo=True, demo_password=DEMO_PASSWORD)
 
     app = create_app(settings)
     port = _free_port()
@@ -105,6 +107,7 @@ def test_student_booking_flow(base_url: str) -> None:
         assert page.locator("[data-demo-user]").count() == 4
 
         page.click(f'[data-demo-user="{student["username"]}"]')
+        page.fill("#password", DEMO_PASSWORD)
         page.click("#loginBtn")
         page.wait_for_selector("#app:not([hidden])", timeout=10000)
 
@@ -149,6 +152,7 @@ def test_admin_overview_renders(base_url: str) -> None:
         page.goto(base_url, wait_until="networkidle")
 
         page.click(f'[data-demo-user="{admin["username"]}"]')
+        page.fill("#password", DEMO_PASSWORD)
         page.click("#loginBtn")
         page.wait_for_selector("#app:not([hidden])", timeout=10000)
         page.wait_for_timeout(1200)
@@ -187,6 +191,7 @@ def test_mobile_viewport_switches_to_tab_bar(base_url: str) -> None:
         page.goto(base_url, wait_until="networkidle")
 
         page.click(f'[data-demo-user="{student["username"]}"]')
+        page.fill("#password", DEMO_PASSWORD)
         page.click("#loginBtn")
         page.wait_for_selector("#app:not([hidden])", timeout=10000)
         page.wait_for_timeout(900)

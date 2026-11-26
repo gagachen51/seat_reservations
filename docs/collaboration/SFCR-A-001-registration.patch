@@ -1,0 +1,70 @@
+--- a/智慧自习室预约管理系统/seat_reservation/src/seat_reservation/api/app.py
++++ b/智慧自习室预约管理系统/seat_reservation/src/seat_reservation/api/app.py
+@@ -21,6 +21,7 @@
+ from ..security import constant_time_equals
+ from ..service.container import AppContext
+ from .routes import admin_routes, auth_routes, common_routes, student_routes
++from .routes import account_routes
+ 
+ logger = get_logger("seat_reservation.http")
+ WEB_DIR = Path(__file__).resolve().parents[1] / "web"
+@@ -181,6 +182,7 @@
+     app.include_router(auth_routes.router, prefix="/api")
+     app.include_router(student_routes.router, prefix="/api")
+     app.include_router(admin_routes.router, prefix="/api")
++    app.include_router(account_routes.router, prefix="/api")
+ 
+     if WEB_DIR.is_dir():
+         app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
+--- a/智慧自习室预约管理系统/seat_reservation/src/seat_reservation/domain/ports.py
++++ b/智慧自习室预约管理系统/seat_reservation/src/seat_reservation/domain/ports.py
+@@ -44,6 +44,9 @@
+     ) -> Page: ...
+     def count_sys_admins(self, exclude: str | None = None) -> int: ...
+     def students_of_class(self, class_name: str) -> list[User]: ...
++    def list_sessions(self, user_id: str) -> list[dict[str, Any]]: ...
++    def delete_sessions(self, user_id: str, except_token_hash: str | None = None) -> int: ...
++    def delete_session(self, token_hash: str) -> int: ...
+ 
+     # -- 自习室 / 座位 -----------------------------------------------------
+     def get_room(self, room_id: str) -> Room | None: ...
+--- a/智慧自习室预约管理系统/seat_reservation/src/seat_reservation/web/app.js
++++ b/智慧自习室预约管理系统/seat_reservation/src/seat_reservation/web/app.js
+@@ -21,6 +21,7 @@
+   const VIEW_META = {
+     seats: ['找座位', '按日期与时段查看空闲座位'],
+     reservations: ['我的预约', '凭证、签到、暂离与签退'],
++    waitlist: ['我的候补', '排队进度、补位确认与取消'],
+     credit: ['信用', '违规记录与信用分明细'],
+     feedback: ['反馈', '投诉建议与处理结果'],
+     messages: ['消息', '预约提醒与处理通知'],
+@@ -417,7 +418,7 @@
+   // ---------------------------------------------------------------------------
+   const NAV = {
+     student: [
+-      { title: '预约', items: [['seats', '找座位', 'seats'], ['reservations', '我的预约', 'calendar']] },
++      { title: '预约', items: [['seats', '找座位', 'seats'], ['reservations', '我的预约', 'calendar'], ['waitlist', '我的候补', 'calendar']] },
+       { title: '账户', items: [['credit', '信用', 'credit'], ['feedback', '反馈', 'feedback'], ['messages', '消息', 'bell']] },
+     ],
+     room_admin: [
+@@ -2227,6 +2228,7 @@
+   const VIEWS = {
+     seats: seatsView,
+     reservations: reservationsView,
++    waitlist: waitlistView,
+     credit: creditView,
+     feedback: feedbackView,
+     messages: messagesView,
+@@ -2276,6 +2278,12 @@
+   // 动作
+   // ---------------------------------------------------------------------------
+   const ACTIONS = {
++    'account-create': () => accountSheet(),
++    'account-status': (el) => accountStatusSheet({ id: el.dataset.id, name: el.dataset.name, status: el.dataset.status }),
++    'account-reset': (el) => accountResetSheet({ id: el.dataset.id, name: el.dataset.name }),
++    'account-sessions': (el) => sessionSheet({ id: el.dataset.id, name: el.dataset.name }),
++    'account-waitlist-confirm': (el) => accountConfirmWaitlist(el),
++    'account-waitlist-cancel': (el) => accountCancelWaitlist(el.dataset.id),
+     nav: (el) => go(el.dataset.view),
+     refresh: () => renderView(),
+     'close-sheet': () => closeSheet(),
