@@ -32,6 +32,7 @@ from ..domain.models import (
     SEAT_STATE_LABELS,
 )
 from ..domain.params import ParamSet
+from ..domain.resource_rules import derived_seat_state
 from ..domain.rules import seat_state_from_reservation
 from ..domain.timeutil import DATETIME_FMT, fmt_datetime, hhmm, minutes_of_slots
 from ..errors import SlotConflict
@@ -418,6 +419,7 @@ class SqliteRepository:
         has_power: bool | None = None,
         is_window: bool | None = None,
         only_available: bool = False,
+        include_holder: bool = True,
     ) -> list[SeatView]:
         where, params = ["1=1"], []
         if room_id:
@@ -434,7 +436,7 @@ class SqliteRepository:
             params.append(int(is_window))
         rows = self.conn.execute(
             f"""
-            SELECT s.*, r.name AS room_name
+            SELECT s.*, r.name AS room_name, r.status AS room_status
             FROM seats s JOIN rooms r ON r.id = s.room_id
             WHERE {' AND '.join(where)}
             ORDER BY s.room_id, s.id
@@ -472,17 +474,17 @@ class SqliteRepository:
         views: list[SeatView] = []
         for row in rows:
             seat = self._seat(row)
-            if seat.admin_status == "disabled":
-                state = "disabled"
-                holder = None
-            elif seat.admin_status == "maintenance" or seat.id in blocked:
-                state = "maintenance"
-                holder = None
-            elif seat.id in occupied:
-                status, holder = occupied[seat.id]
-                state = seat_state_from_reservation(status).value
-            else:
-                state, holder = "available", None
+            occupied_status, occupied_holder = occupied.get(seat.id, (None, None))
+            # L-08：房间关闭时一律不可用，绝不显示 available
+            state = derived_seat_state(
+                row["room_status"],
+                seat.admin_status,
+                blocked=seat.id in blocked,
+                reservation_status=occupied_status,
+            )
+            holder = None
+            if include_holder and occupied_holder and state in {"reserved", "occupied", "held"}:
+                holder = occupied_holder
             view = SeatView(
                 seat=seat,
                 room_name=row["room_name"],
@@ -1137,6 +1139,18 @@ class SqliteRepository:
     def get_violation(self, violation_id: str) -> Violation | None:
         row = self.conn.execute("SELECT * FROM violations WHERE id = ?", (violation_id,)).fetchone()
         return self._violation(row) if row else None
+
+    def list_violations_of_reservation(
+        self, reservation_id: str, *, violation_type: str | None = None
+    ) -> list[Violation]:
+        """某条预约的全部违规记录（M-05 现场违约幂等判重用）。"""
+        sql = "SELECT * FROM violations WHERE reservation_id = ?"
+        params: list[Any] = [reservation_id]
+        if violation_type:
+            sql += " AND type = ?"
+            params.append(violation_type)
+        rows = self.conn.execute(sql + " ORDER BY created_at", params).fetchall()
+        return [self._violation(row) for row in rows]
 
     def list_violations(
         self,
