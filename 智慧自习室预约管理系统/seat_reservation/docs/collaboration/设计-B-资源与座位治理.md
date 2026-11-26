@@ -3,7 +3,9 @@
 > 版本：v1.2（对应《四人协作分工与开发计划-v1.2》第 6.2、8.9 节）
 > 责任人：成员 B（资源与座位治理 + 架构牵头 + 共享文件守门）
 > 代码基线：`智慧自习室预约管理系统/seat_reservation/`
+> 当前集成基线：`integration/v1.2` @ `be8f2de`；迁移 **v4**（`resource_constraints`）；全量 **470 passed, 1 skipped**
 > 适用范围：`domain/engine.py` 资源区、`storage/repository.py` 座位/封禁区、`domain/resource_rules.py`、`api/routes/resource_routes.py`、`web/app.js` 的资源/现场视图
+> 说明：本文第 2～6 节的 v2/138 passed 为 B 模块首次交付的设计历史；后续 M-04/M-05/L-07/L-08 整改已升至 v4，最终测试与契约以《B模块安全整改报告.md》为准。
 
 ---
 

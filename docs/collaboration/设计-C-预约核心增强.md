@@ -2,6 +2,8 @@
 
 ## 1. 范围与交付状态
 
+> 当前集成状态：C 的续约/候补功能与安全整改已合入 `integration/v1.2` @ `be8f2de`；数据库迁移 **v4**，全量 **470 passed, 1 skipped**。本文保留首次交付的设计说明，M-04/M-06/M-07/L-07 的最终实现以《C模块安全整改报告.md》和 `tests/test_security_remediation_c.py` 为准。
+
 本模块基于 `integration/v1.2`（基线提交 `397bddd`）创建 `feature/reservation-module`，
 实现 v1.2 计划中成员 C 的预约核心增强：
 
