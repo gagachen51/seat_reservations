@@ -10,9 +10,9 @@
 | 模块 | **B**（资源与座位治理：自习室/座位、封禁生命周期、批量建座、停用影响预览、现场处置） |
 | 负责人 | 待填（B 模块负责人） |
 | 协作人 | C（预约状态/扫描契约）、A（账号停用）、D（统计/导出）、共享层（审计） |
-| 分支 | 本地工作副本，基于 `integration/v1.2`；整改尚未提交（见第 8 节） |
-| 基线 commit | `2589354`（`integration/v1.2`）。任务书写的 `D:\seat_clean_baseline` 在本机不存在，本地以集成分支为基线 |
-| 整改 commit | 待提交（工作区改动，文件清单见第 3 节） |
+| 分支 | `feature/resource-b-remediation`（基于 `integration/v1.2` `483fb78`，已推送到 GitHub） |
+| 基线 commit | `483fb78`（`integration/v1.2` head）。任务书写的 `D:\seat_clean_baseline` 在本机不存在，本地以集成分支为基线 |
+| 整改 commit | 分支 head `874bdd6`（含：`9b11eec` 规则、`7ada8e3` 引擎、`9124251` 仓储、`0bbfe3f` 迁移、`b78cf21` 路由、`9604f8c` 前端、`8650f04` 测试、`4545f75`/`874bdd6` 报告与模板） |
 | 报告日期 | 2026-11-26 |
 
 ## 2. 问题完成清单
@@ -135,11 +135,11 @@ python -m pytest -q -p no:cacheprovider
 
 ## 8. 分支与集成
 
-- [ ] 从最新 `integration/v1.2` 创建/更新分支。**（当前：本地工作副本已基于 `integration/v1.2` `2589354`，尚未创建远程分支）**
+- [x] 从最新 `integration/v1.2` 创建/更新分支。**（已创建 `feature/resource-b-remediation`，基于 `483fb78`）**
 - [ ] 共享文件已走 SFCR 并由共享层/B 应用。**（当前：B 为 engine/repository/migrations/admin_routes/app.js 的既定修改人，按任务书 §2.1 白名单直接修改，未开 SFCR；如需补登记请共享层确认）**
 - [x] 未直接修改 `app.py`/`auth.py`/`deps.py`/`app.js` 共享注册表等禁止文件。**（已逐文件哈希比对确认）**
-- [x] 已解决与集成分支的冲突。**（以 `integration/v1.2` 为基线直接实现，无冲突）**
-- [ ] PR 目标为 `integration/v1.2`，未直接推 `main`。**（尚未提交；提交时按此规则）**
+- [x] 已解决与集成分支的冲突。**（以 `integration/v1.2` `483fb78` 为基线直接实现，无冲突）**
+- [ ] PR 目标为 `integration/v1.2`，未直接推 `main`。**（分支已推送；PR 待创建：`https://github.com/gagachen51/seat_reservations/compare/integration/v1.2...feature/resource-b-remediation?expand=1`，未推 `main`）**
 
 ## 9. 负责人签字
 
