@@ -31,6 +31,12 @@ class CheckInIn(BaseModel):
     code: str | None = None
 
 
+class QrCheckInIn(BaseModel):
+    """座位桌贴二维码令牌。"""
+
+    token: str = Field(min_length=8, max_length=200)
+
+
 class WaitlistIn(BaseModel):
     seat_id: str
     date: date

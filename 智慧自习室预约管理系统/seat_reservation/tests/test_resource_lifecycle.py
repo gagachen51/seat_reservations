@@ -600,7 +600,7 @@ def test_seat_blocks_listing_fields_and_filters(env: Env) -> None:
 def test_v2_migration_is_idempotent_and_keeps_existing_rows(env: Env) -> None:
     assert env.ctx.db.migrate() == []  # 重复执行不报错、不重复应用
     # v1 初始结构 + v2 封禁生命周期 + v4 资源/预约约束（L-07；v3 保留给共享层审计）
-    assert env.ctx.db.schema_version() == 4
+    assert env.ctx.db.schema_version() == 5
     with env.ctx.db.read() as conn:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(seats)")}
         seats = int(conn.execute("SELECT COUNT(*) AS c FROM seats").fetchone()["c"])
@@ -1236,7 +1236,7 @@ def test_b_sec_021_bulk_rollback(client: TestClient, env: Env) -> None:
 
 # ---- B-SEC-022 数据库约束与迁移 ----------------------------------------------
 def test_b_sec_022_db_constraints_and_migration(env: Env) -> None:
-    assert env.ctx.db.schema_version() == 4
+    assert env.ctx.db.schema_version() == 5
     with env.ctx.db.read() as conn:
         seats = int(conn.execute("SELECT COUNT(*) AS c FROM seats").fetchone()["c"])
         reservations = int(conn.execute("SELECT COUNT(*) AS c FROM reservations").fetchone()["c"])
@@ -1267,7 +1267,7 @@ def test_b_sec_022_db_constraints_and_migration(env: Env) -> None:
 
 
 # ---- B-SEC-022b 旧 v2 库升级到 v4（数据保留 + 历史脏数据清理）----------------
-def test_b_sec_022b_existing_v2_database_upgrades_to_v4(env: Env, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_b_sec_022b_existing_v2_database_upgrades_to_latest(env: Env, monkeypatch: pytest.MonkeyPatch) -> None:
     import uuid
     from pathlib import Path
 
@@ -1297,10 +1297,10 @@ def test_b_sec_022b_existing_v2_database_upgrades_to_v4(env: Env, monkeypatch: p
             "VALUES ('C-9', 'S9', 'MISSING', 'noise', '历史孤儿投诉', 'pending', '2026-05-11 00:00:00')"
         )
 
-    # ② 恢复完整迁移链，升级到 v4
+    # ② 恢复完整迁移链，升级到最新版本（v5）
     monkeypatch.setattr(database_module, "MIGRATIONS", MIGRATIONS)
-    assert legacy.migrate() == [4]
-    assert legacy.schema_version() == 4
+    assert legacy.migrate() == [4, 5]
+    assert legacy.schema_version() == 5
     with legacy.read() as conn:
         slot = conn.execute("SELECT start_slot, end_slot FROM waitlist WHERE id = 'W-9'").fetchone()
         complaint = conn.execute("SELECT seat_id FROM complaints WHERE id = 'C-9'").fetchone()

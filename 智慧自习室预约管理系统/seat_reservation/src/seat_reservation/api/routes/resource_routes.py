@@ -14,18 +14,22 @@
 * ``POST /admin/seat-blocks/{block_id}/release``  按记录解封
 * ``POST /admin/seats/bulk``                      批量建座
 * ``GET  /admin/rooms/{room_id}/impact``          停用影响预览
+* ``GET  /admin/rooms/{room_id}/qr-sheet``        座位桌贴打印页
 """
 
 from __future__ import annotations
 
+import html
 from datetime import datetime
 
+import segno
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from ...domain.engine import DomainEngine
 from ...domain.models import Actor
+from ...errors import NotFound
 from ..deps import client_ip, get_actor, read_engine, render, write_engine
 
 router = APIRouter(tags=["admin-resource"])
@@ -125,3 +129,70 @@ def room_impact(
     engine: DomainEngine = Depends(read_engine),
 ) -> JSONResponse:
     return render(engine.room_impact(actor, room_id, status))
+
+
+@router.get(
+    "/admin/rooms/{room_id}/qr-sheet",
+    summary="座位桌贴打印页",
+    response_class=HTMLResponse,
+)
+def qr_sheet(
+    room_id: str,
+    request: Request,
+    actor: Actor = Depends(get_actor),
+    engine: DomainEngine = Depends(read_engine),
+) -> HTMLResponse:
+    """生成可直接打印的 A4 桌贴页：一桌一码，扫码后按预约与签到窗口校验。"""
+    room = next(
+        (item for item in engine.list_rooms_admin(actor) if item["id"] == room_id), None
+    )
+    if room is None:
+        raise NotFound(f"自习室 {room_id} 不存在")
+    seats = engine.list_seats_admin(actor, room_id)
+    settings = request.app.state.settings
+    base = (settings.public_base_url or str(request.base_url)).rstrip("/")
+    cards: list[str] = []
+    for seat in seats:
+        token = engine.seat_qr_token(seat["id"])
+        svg = segno.make(f"{base}/q/{token}", error="m").svg_inline(
+            scale=3, border=0, omitsize=True
+        )
+        cards.append(
+            '<figure class="ticket">'
+            f'<div class="qr">{svg}</div>'
+            f"<figcaption>{html.escape(room['name'])} · {html.escape(seat['id'])}</figcaption>"
+            '<small>扫码签到</small>'
+            "</figure>"
+        )
+    body = "".join(cards) or '<p class="empty">该自习室还没有座位。</p>'
+    return HTMLResponse(
+        f"""<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>座位桌贴 · {html.escape(room['name'])}</title>
+<style>
+  @page {{ size: A4; margin: 12mm; }}
+  * {{ box-sizing: border-box; }}
+  body {{ font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+         margin: 0; padding: 16px; color: #1c1c1e; background: #fff; }}
+  header {{ display: flex; justify-content: space-between; align-items: baseline;
+            margin-bottom: 14px; }}
+  h1 {{ font-size: 18px; margin: 0 0 4px; }}
+  p {{ margin: 0; color: #6b6b70; font-size: 12px; }}
+  .grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }}
+  .ticket {{ margin: 0; border: 1px dashed #c7c7cc; border-radius: 10px;
+             padding: 10px 8px 8px; text-align: center; break-inside: avoid; }}
+  .qr svg {{ width: 100%; height: auto; display: block; }}
+  figcaption {{ margin-top: 6px; font-size: 12px; font-weight: 600; }}
+  small {{ color: #8e8e93; font-size: 10px; }}
+  .empty {{ padding: 40px; text-align: center; color: #8e8e93; }}
+  @media print {{ body {{ padding: 0; }} .hint {{ display: none; }} }}
+</style></head>
+<body>
+<header>
+  <div><h1>{html.escape(room['name'])} · 座位桌贴</h1>
+  <p>共 {len(seats)} 张 · 扫码后需登录并持有该座位当前时段的预约</p></div>
+  <p class="hint">打印前请确认访问地址：{html.escape(base)}</p>
+</header>
+<div class="grid">{body}</div>
+</body></html>"""
+    )

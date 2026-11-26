@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Iterator
@@ -10,6 +11,7 @@ from ..config import Settings
 from ..domain.engine import DomainEngine
 from ..domain.params import ParamSet
 from ..logging_setup import get_logger
+from ..security import QR_SECRET_KEY
 from ..storage.database import Database
 from ..storage.repository import SqliteRepository
 from ..storage.seed import (
@@ -38,12 +40,21 @@ class AppContext:
     def initialize(self, *, demo: bool = False, demo_password: str | None = None) -> None:
         applied = self.db.migrate()
         self.db.ensure_writable()
+        self._ensure_qr_secret()
         if applied:
             logger.info("database migrated: %s", applied)
         if demo:
             created = seed_if_empty(self.db, datetime.now(), password=demo_password)
             if created:
                 logger.info("demo data seeded")
+
+    def _ensure_qr_secret(self) -> None:
+        """首次启动生成座位二维码签名密钥；之后保持不变，已打印的桌贴继续有效。"""
+        with self.db.transaction() as conn:
+            repo = SqliteRepository(conn)
+            if repo.get_secret(QR_SECRET_KEY) is None:
+                repo.put_secret(QR_SECRET_KEY, secrets.token_urlsafe(32), datetime.now())
+                logger.info("generated seat QR signing secret")
 
     def bootstrap_admin(self, password: str | None = None) -> str | None:
         """正式库首次初始化管理员；返回一次性初始密码（仅创建时）。"""

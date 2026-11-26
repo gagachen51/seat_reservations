@@ -209,6 +209,11 @@ def create_app(settings: Settings | None = None, *, context: AppContext | None =
         async def index() -> FileResponse:
             return FileResponse(WEB_DIR / "index.html")
 
+        @app.get("/q/{token}", include_in_schema=False)
+        async def qr_entry(token: str) -> FileResponse:
+            """座位桌贴入口：返回单页应用，由前端读取令牌并完成签到。"""
+            return FileResponse(WEB_DIR / "index.html")
+
         @app.get("/favicon.svg", include_in_schema=False)
         async def favicon() -> FileResponse:
             return FileResponse(WEB_DIR / "favicon.svg")

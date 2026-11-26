@@ -2,6 +2,7 @@
 fastapi==0.115.6
 uvicorn==0.34.0
 pydantic==2.10.4
+segno==1.6.6
 
 
 # 测试与开发依赖
