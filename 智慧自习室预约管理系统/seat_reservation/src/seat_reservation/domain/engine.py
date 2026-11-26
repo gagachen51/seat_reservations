@@ -771,6 +771,8 @@ class DomainEngine:
             has_power=has_power,
             is_window=is_window,
             only_available=only_available,
+            # L-08：学生不下发他人预约 ID（holder_reservation_id），管理员现场处置需要
+            include_holder=resource_rules.can_expose_holder(actor.role.value),
         )
         return [view.as_dict() for view in views]
 
@@ -2171,6 +2173,33 @@ class DomainEngine:
         reservation = self._reservation(reservation_id)
         if reservation.status not in OCCUPYING_STATUSES:
             raise RuleViolation("该预约已结束，无法登记现场违约", rule="ST-12")
+        # M-05：同一预约的同类现场违约只允许登记一次，避免重复扣信用
+        existing = self.repo.list_violations_of_reservation(
+            reservation_id, violation_type=ViolationType.MANUAL_INSPECTION.value
+        )
+        if resource_rules.is_duplicate_manual_violation(
+            existing, reservation_id, ViolationType.MANUAL_INSPECTION.value
+        ):
+            self.audit_event(
+                actor,
+                "manual_violation_duplicate",
+                "reservation",
+                reservation_id,
+                result="denied",
+                details={
+                    "mode": mode,
+                    "violation_ids": [item.id for item in existing],
+                },
+                now=now,
+                ip=ip,
+            )
+            # 用 Result.failure 而不是抛异常：需要把“重复被拒绝”的审计落库
+            # （抛 AppError 会让外层写事务回滚，拒绝记录随之丢失）。
+            return Result.failure(
+                "DUPLICATE_VIOLATION",
+                "该预约已登记现场违约，不能重复登记；如需追加处置请走违规申诉复核",
+                rule="BR-18",
+            )
         violation = self._record_violation(
             reservation,
             ViolationType.MANUAL_INSPECTION.value,
@@ -2644,7 +2673,14 @@ class DomainEngine:
         close_time: time | None,
         now: datetime,
         ip: str = "",
+        cascade_release: bool = False,
     ) -> Result:
+        """修改自习室。
+
+        ``cascade_release=True`` 时（资源 mutation 入口使用），关闭自习室会在
+        同一事务内调用 ``release_affected_reservations`` 取消仍有效的预约（M-04）；
+        默认 ``False`` 保持既有契约，供 C 等调用方自行决定是否级联。
+        """
         self._require(actor, {Role.ROOM_ADMIN, Role.SYS_ADMIN}, "PR-05")
         room = self.repo.get_room(room_id)
         if room is None:
@@ -2667,6 +2703,27 @@ class DomainEngine:
             )
             room.open_slot, room.close_slot = open_slot, close_slot
         self.repo.save_room(room)
+        released: list[str] = []
+        if cascade_release and room.status == "closed":
+            released = self.release_affected_reservations(
+                room_id=room.id,
+                seat_id=None,
+                reason=f"自习室 {room.name or room.id} 关闭",
+                actor=actor,
+                now=now,
+            )
+            self.audit_event(
+                actor,
+                "room_close_release",
+                "room",
+                room.id,
+                result="success" if released else "noop",
+                details={"affected": released, "target_status": "closed"},
+                now=now,
+                ip=ip,
+            )
+        data = room.as_dict()
+        data["released_reservations"] = released
         self._audit(
             actor,
             "room_update",
@@ -2677,7 +2734,7 @@ class DomainEngine:
             now=now,
             ip=ip,
         )
-        return Result.success(room.as_dict(), "自习室已更新")
+        return Result.success(data, "自习室已更新")
 
     @implements("FR-21", "PR-05")
     def list_seats_admin(self, actor: Actor, room_id: str | None = None) -> list[dict[str, Any]]:
@@ -2767,7 +2824,15 @@ class DomainEngine:
         note: str | None,
         now: datetime,
         ip: str = "",
+        cascade_release: bool = False,
     ) -> Result:
+        """修改座位。
+
+        ``cascade_release=True`` 时（资源 mutation 入口使用），把座位改为
+        ``disabled`` / ``maintenance`` 会在同一事务内调用
+        ``release_affected_reservations`` 取消该座位仍有效的预约（M-04）；
+        默认 ``False`` 保持既有契约。
+        """
         self._require(actor, {Role.ROOM_ADMIN, Role.SYS_ADMIN}, "PR-05")
         seat = self.repo.get_seat(seat_id)
         if seat is None:
@@ -2810,8 +2875,28 @@ class DomainEngine:
         if note is not None:
             seat.note = note.strip()
         self.repo.save_seat(seat)
+        released: list[str] = []
+        if cascade_release and seat.admin_status in {"disabled", "maintenance"}:
+            released = self.release_affected_reservations(
+                room_id=None,
+                seat_id=seat.id,
+                reason=f"座位 {seat.id} 状态改为 {seat.admin_status}",
+                actor=actor,
+                now=now,
+            )
+            self.audit_event(
+                actor,
+                "seat_unavailable_release",
+                "seat",
+                seat.id,
+                result="success" if released else "noop",
+                details={"affected": released, "target_status": seat.admin_status},
+                now=now,
+                ip=ip,
+            )
         after = seat.as_dict()
         after["admin_status"] = seat.admin_status
+        after["released_reservations"] = released
         self._audit(
             actor,
             "seat_update",
