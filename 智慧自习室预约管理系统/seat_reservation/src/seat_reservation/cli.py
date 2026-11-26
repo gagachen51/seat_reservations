@@ -20,6 +20,7 @@ from .domain.models import Actor, Role
 from .domain.timeutil import parse_datetime
 from .errors import AppError
 from .logging_setup import configure_logging
+from .network import print_access_addresses
 from .security import hash_password
 from .service.container import AppContext
 from .storage.repository import SqliteRepository
@@ -74,13 +75,17 @@ def cmd_seed(args: argparse.Namespace) -> int:
 def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
 
+    settings = Settings.from_env()
+    host = "0.0.0.0" if args.lan else (args.host or settings.host)
+    port = args.port if args.port is not None else settings.port
     if args.db:
         os.environ["SEAT_DB_PATH"] = str(Path(args.db))
     os.environ["SEAT_DEMO_MODE"] = "true" if args.demo else "false"
+    print_access_addresses(host, port)
     uvicorn.run(
         "seat_reservation.api.app:app",
-        host=args.host,
-        port=args.port,
+        host=host,
+        port=port,
         reload=args.reload,
         log_level="info",
     )
@@ -253,6 +258,16 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 0
 
 
+def _port(value: str) -> int:
+    try:
+        port = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("端口必须是整数") from exc
+    if not 1 <= port <= 65535:
+        raise argparse.ArgumentTypeError("端口必须在 1 到 65535 之间")
+    return port
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="seat-reservation", description="智慧自习室预约管理系统")
     parser.add_argument("--version", action="version", version=__version__)
@@ -268,8 +283,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_seed)
 
     p = sub.add_parser("serve", help="启动 HTTP 服务")
-    p.add_argument("--host", default="127.0.0.1")
-    p.add_argument("--port", type=int, default=8010)
+    bind = p.add_mutually_exclusive_group()
+    bind.add_argument("--host", help="监听地址，默认使用 SEAT_HOST 或 127.0.0.1")
+    bind.add_argument("--lan", action="store_true", help="监听所有 IPv4 网卡，供同一局域网设备访问")
+    p.add_argument("--port", type=_port, help="端口，默认使用 SEAT_PORT 或 8010")
     p.add_argument("--reload", action="store_true")
     p.add_argument("--demo", action="store_true", help="首次启动写入演示数据")
     p.set_defaults(func=cmd_serve)
