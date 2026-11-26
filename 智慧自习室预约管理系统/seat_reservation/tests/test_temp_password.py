@@ -124,19 +124,19 @@ def test_auth_service_reset_defaults_to_temp(ctx) -> None:  # noqa: ANN001
     assert user.must_change_password is True
 
 
-def test_bootstrap_admin_still_uses_high_strength_random_password(tmp_path: Path) -> None:
+def test_bootstrap_admin_uses_fixed_delivery_password(tmp_path: Path) -> None:
     ctx = AppContext(Settings.for_tests(tmp_path / "bootstrap.db"))
     ctx.initialize(demo=False)
     password = bootstrap_admin(ctx.db, datetime.now())
     assert password is not None
-    assert password != "12345678"
-    assert len(password) >= 12
-    assert not password_change_error(password)
+    assert password == "12345678"
+    assert len(password) == 8
+    assert password_change_error(password)  # 该密码仅允许作为初始密码
     assert (tmp_path / "initial_admin_credentials.txt").exists()
     with ctx.db.read() as conn:
         admin = SqliteRepository(conn).get_user("Y0001")
     assert admin is not None
-    assert admin.must_change_password is True
+    assert admin.must_change_password is False
     assert verify_password(password, admin.password_hash)
 
 

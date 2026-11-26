@@ -73,37 +73,6 @@ def logout(request: Request, ctx: AppContext = Depends(get_context)) -> JSONResp
     return response
 
 
-@router.get("/demo-accounts", summary="演示账号（仅演示数据可用时）")
-def demo_accounts(ctx: AppContext = Depends(get_context)) -> JSONResponse:
-    """只返回演示账号的公开信息。
-
-    * 演示模式，或桌面版在「系统」页初始化过演示数据后可用；
-    * 生产环境始终不可用；
-    * 演示密码属于部署凭据，只能由初始化渠道一次性展示，
-      **不得**通过 HTTP 接口返回，避免任何访问者直接获得登录凭据。
-    """
-    if ctx.settings.is_production or not (
-        ctx.settings.demo_mode or ctx.demo_data_loaded()
-    ):
-        raise NotFound("演示账号不可用")
-    with ctx.db.read() as conn:
-        rows = conn.execute(
-            "SELECT id, name, role, class_name FROM users "
-            "WHERE id IN (SELECT MIN(id) FROM users GROUP BY role) ORDER BY CASE role "
-            "WHEN 'student' THEN 1 WHEN 'teacher' THEN 2 WHEN 'room_admin' THEN 3 ELSE 4 END, id"
-        ).fetchall()
-    return success(
-        [
-            {
-                "username": row["id"],
-                "name": row["name"],
-                "role": row["role"],
-                "class_name": row["class_name"],
-            }
-            for row in rows
-        ]
-    )
-
 
 @router.get("/me", summary="当前登录用户")
 def me(

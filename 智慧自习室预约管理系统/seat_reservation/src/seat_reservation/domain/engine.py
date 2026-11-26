@@ -2529,19 +2529,18 @@ class DomainEngine:
             raise ValidationFailed("初始密码须为 8～128 字符")
         if self.repo.get_user(user_id) is not None:
             raise Conflict("账号已存在")
-        initial_password = password if password is not None else DEFAULT_TEMP_PASSWORD
+        initial_password = DEFAULT_TEMP_PASSWORD
         user = User(
             id=user_id, name=name, role=new_role.value, department=department,
             class_name=class_name, password_hash=hash_password(initial_password),
-            must_change_password=True, created_at=now, updated_at=now,
+            must_change_password=new_role != Role.SYS_ADMIN, created_at=now, updated_at=now,
         )
         self.repo.save_user(user)
         self._audit(actor, "user_create", "user", user.id, before=None,
                     after=user.as_dict(), now=now, ip=ip)
         data = {"user": user.as_dict()}
-        if password is None:
-            data["initial_password"] = initial_password
-        return Result.success(data, "账号已创建，首次登录需修改密码")
+        data["initial_password"] = initial_password
+        return Result.success(data, "账号已创建，非系统管理员首次登录需修改密码")
 
     @implements("PR-14")
     def set_user_status(
@@ -2584,12 +2583,12 @@ class DomainEngine:
             raise NotFound("账号不存在")
         initial_password = DEFAULT_TEMP_PASSWORD
         user.password_hash = hash_password(initial_password)
-        user.must_change_password, user.updated_at = True, now
+        user.must_change_password, user.updated_at = user.role != Role.SYS_ADMIN.value, now
         self.repo.save_user(user)
         revoked = self.repo.delete_sessions(user.id)
         # 与 AuthService.reset_password 相同的原语，在本次引擎事务中原子完成，避免嵌套写锁。
         self._audit(actor, "user_reset_password", "user", user.id, before=None,
-                    after={"must_change_password": True, "revoked": revoked}, now=now, ip=ip)
+                    after={"must_change_password": user.must_change_password, "revoked": revoked}, now=now, ip=ip)
         return Result.success({"initial_password": initial_password}, "密码已重置，所有设备需重新登录")
 
     def list_user_sessions(

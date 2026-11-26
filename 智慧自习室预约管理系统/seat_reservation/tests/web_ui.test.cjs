@@ -143,28 +143,6 @@ test('analytics metric guide is Chinese-only and rendered as 4x2 cards with form
   }
 });
 
-test('desktop export calls pywebview save bridge with BOM and reports saved path', async () => {
-  const h = harness();
-  let saved = null;
-  h.window.pywebview = {
-    api: {
-      save_export_file: async (name, content) => {
-        saved = { name, content };
-        return { ok: true, path: 'D:/导出/预约记录.csv' };
-      },
-    },
-  };
-  h.setFetch(async () => ({ ok: true, status: 200, text: async () => 'a,b\n1,2' }));
-  const messages = [];
-  h.setToast((message) => messages.push(message));
-  await h.a.exportAdminCsv('reservations', '预约记录');
-  assert.ok(saved);
-  assert.match(saved.name, /^reservations-\d{8}-\d{4}\.csv$/);
-  assert.ok(saved.content.startsWith('\ufeff'));
-  assert.match(messages[messages.length - 1], /已保存到 D:\/导出\/预约记录\.csv/);
-  assert.equal(h.created.length, 0);
-});
-
 test('web export falls back to Blob download when no desktop bridge exists', async () => {
   const h = harness();
   h.setFetch(async () => ({ ok: true, status: 200, text: async () => 'x,y\n3,4' }));
@@ -174,24 +152,4 @@ test('web export falls back to Blob download when no desktop bridge exists', asy
   assert.match(link.download, /^audit-\d{8}-\d{4}\.csv$/);
   assert.equal(link.clicked, true);
   assert.ok(h.appended.includes(link));
-});
-
-test('demo init success sheet explains that the existing admin password is preserved', () => {
-  const h = harness();
-  h.a.demoInitializedSheet({
-    demo_password: 'Demo-Pass-123456',
-    admin_password_preserved: true,
-    counts: { users: 9, rooms: 3, seats: 24 },
-    accounts: [
-      { username: 'S2023001', name: '张伟', role: 'student', role_label: '学生' },
-      { username: 'T7001', name: '刘明', role: 'teacher', role_label: '教师' },
-      { username: 'A9001', name: '王丽', role: 'room_admin', role_label: '自习室管理员' },
-      { username: 'Y0001', name: '陈刚', role: 'sys_admin', role_label: '系统管理员', password_preserved: true },
-    ],
-  });
-  const body = h.panels[0].body;
-  assert.match(body, /当前系统管理员原有密码已保留/);
-  assert.match(body, /原密码保留/);
-  assert.match(body, /统一密码仅适用于学生、教师与自习室管理员演示账号/);
-  assert.match(body, /Demo-Pass-123456/);
 });

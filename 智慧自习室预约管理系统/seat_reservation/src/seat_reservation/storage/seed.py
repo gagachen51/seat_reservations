@@ -4,7 +4,7 @@
 * 仅通过仓储写入，不绕过约束。
 * 演示密码**不再硬编码**：默认随机生成，只能通过 ``SEAT_DEMO_PASSWORD``
   或调用方显式传入；调用方只在初始化渠道展示一次。
-* 正式库首次初始化用 ``bootstrap_admin``：随机密码 + 强制首次登录改密。
+* 正式库首次初始化用 ``bootstrap_admin``：固定初始密码 12345678，系统管理员免首次强制改密。
 * 历史信用补差使用一条显式 ``credit_logs``（原因含“演示数据”），避免伪造违规记录。
 """
 
@@ -44,7 +44,7 @@ from ..domain.models import (
 )
 from ..domain.params import ParamSet
 from ..domain.timeutil import add_minutes, datetime_at, fmt_datetime, slot_of_time
-from ..security import generate_initial_password, hash_password
+from ..security import DEFAULT_TEMP_PASSWORD, generate_initial_password, hash_password
 from .database import Database
 from .repository import SqliteRepository
 
@@ -574,7 +574,7 @@ def initial_admin_credentials_path(db: Database) -> Path:
 def write_initial_admin_credentials(
     db: Database, *, user_id: str, name: str, password: str, created_at: datetime
 ) -> Path:
-    """把首次初始化的管理员凭据写入本地数据目录，便于部署者复制随机密码。
+    """把首次初始化的管理员凭据写入本地数据目录，便于部署者查看初始密码。
 
     文件包含明文密码，属于一次性运行期凭据：首次改密成功后由
     ``AuthService.change_password`` 自动删除，调用方不得写入仓库或日志。
@@ -591,7 +591,7 @@ def write_initial_admin_credentials(
             f"生成时间：{created_at.strftime('%Y-%m-%d %H:%M:%S')}",
             "",
             "安全提示：",
-            "1. 首次登录后系统将强制要求修改密码。",
+            "1. 系统管理员免首次强制改密；非管理员首次登录必须修改密码。",
             "2. 改密完成后请删除此文件以防凭据残留（系统会自动删除）。",
             "3. 请勿将本文件提交到版本库或发送给无关人员。",
             "",
@@ -623,19 +623,19 @@ def bootstrap_admin(
     department: str = "信息化中心",
     password: str | None = None,
 ) -> str | None:
-    """正式库首次初始化：创建一个随机密码的系统管理员。
+    """正式库首次初始化：只创建 Y0001，初始密码 12345678，免首次强制改密。
 
     * 只在 ``users`` 为空时执行；重复调用是幂等的（返回 ``None``）。
-    * 密码随机生成（或调用方显式传入），不在源码/日志中留痕。
+    * 按交付约定统一初始密码，重复启动不重置已有管理员密码。
     * 首次创建时在数据库同级的运行期数据目录写入一次性凭据文件
       （``initial_admin_credentials.txt``，已被 ``.gitignore`` 排除），
       首次改密成功后自动删除。
-    * ``must_change_password=True``：首次登录后必须先修改密码。
+    * ``must_change_password=False``：系统管理员免首次强制改密。
     * 建号、默认参数与审计记录在**同一个写事务**中，失败不会留下半初始化数据。
 
     返回值仅在本次真正创建时返回明文密码，供初始化渠道一次性展示。
     """
-    password = password or generate_initial_password()
+    password = DEFAULT_TEMP_PASSWORD
     # 密码策略与 hash_password 一致，提前失败，避免事务内才抛错。
     if len(password) < 8:
         raise ValueError("初始密码至少 8 位")
@@ -660,7 +660,7 @@ def bootstrap_admin(
                 class_name="",
                 credit=100,
                 password_hash=hash_password(password),
-                must_change_password=True,
+                must_change_password=False,
                 created_at=now,
                 updated_at=now,
             )
@@ -674,7 +674,7 @@ def bootstrap_admin(
                 target_type="user",
                 target_id=user_id,
                 before=None,
-                after={"role": Role.SYS_ADMIN.value, "must_change_password": True},
+                after={"role": Role.SYS_ADMIN.value, "must_change_password": False},
                 ip="127.0.0.1",
                 created_at=now,
             )

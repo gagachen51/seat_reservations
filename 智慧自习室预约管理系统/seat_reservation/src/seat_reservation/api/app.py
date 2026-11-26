@@ -117,7 +117,9 @@ def create_app(settings: Settings | None = None, *, context: AppContext | None =
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
-        context.initialize(demo=settings.demo_mode)
+        context.initialize(demo=False)
+        if not settings.is_test:
+            context.bootstrap_admin()
         context.start_background_jobs()
         logger.info("service started %s", settings.public_summary())
         try:

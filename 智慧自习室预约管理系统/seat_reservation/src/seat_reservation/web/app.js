@@ -371,23 +371,6 @@
   // ---------------------------------------------------------------------------
   // 登录
   // ---------------------------------------------------------------------------
-  async function loadDemoAccounts() {
-    const box = $('#demoBox');
-    try {
-      // /api/health 按 L-02 只返回状态，不能再作为演示模式的判断依据；
-      // 演示账号接口自身会校验演示模式/演示数据，不可用时返回 404。
-      const accounts = await api('/auth/demo-accounts');
-      if (!Array.isArray(accounts) || !accounts.length) { box.hidden = true; return; }
-      box.hidden = false;
-      box.innerHTML = '<h3>演示账号</h3><div class="demo-grid">' + accounts.map((account) =>
-        '<button class="demo-btn" type="button" data-demo-user="' + esc(account.username) + '">' +
-        '<strong>' + esc(account.name) + '</strong><small>' + esc(ROLE_TEXT[account.role] || account.role) + ' · ' + esc(account.username) + '</small></button>').join('') + '</div>' +
-        '<p class="demo-hint">点击选择账号后手动输入演示密码（由部署者在初始化时生成，不通过接口下发）。</p>';
-    } catch (error) {
-      box.hidden = true;
-    }
-  }
-
   function clearLoginSecrets() {
     const loginPassword = $('#password');
     if (loginPassword) loginPassword.value = '';
@@ -424,9 +407,6 @@
     $('#boot').hidden = true;
     const errorBox = $('#loginError');
     if (message) { errorBox.hidden = false; errorBox.textContent = message; } else { errorBox.hidden = true; }
-    // 每次回到登录页都重新探测：演示数据可能刚刚在「系统」页初始化完成，
-    // 不能沿用首次加载时的“不可用”结论。
-    loadDemoAccounts();
     setTimeout(() => $('#username').focus(), 50);
   }
 
@@ -2445,7 +2425,7 @@
     const departments = mergeOptions(directory.map((user) => user.department), DEPARTMENT_PRESETS);
     const classes = mergeOptions(directory.map((user) => user.class_name), CLASS_PRESETS);
     openAccountPanel({
-      title: '新建账号', subtitle: '新账号首次登录需要修改密码',
+      title: '新建账号', subtitle: '初始密码 12345678；非系统管理员首次登录需改密',
       body: '<form id="accountForm" class="account-form">' +
         '<label class="field"><span>账号</span><input id="accountId" required maxlength="64" autocomplete="off" placeholder="例如 S2026001"></label>' +
         '<label class="field"><span>姓名</span><input id="accountName" required maxlength="100" autocomplete="off" placeholder="例如 张三"></label>' +
@@ -2457,7 +2437,7 @@
         '<label class="field"><span>班级（选填，可直接输入）</span>' +
           '<input id="accountClass" maxlength="100" list="accountClassOptions" autocomplete="off" placeholder="例如：计科2301">' +
           '<datalist id="accountClassOptions">' + datalistOptions(classes) + '</datalist></label>' +
-        '<label class="field"><span>初始密码（留空则使用临时密码 12345678）</span><input id="accountPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password" placeholder="留空 = 12345678，首次登录必须修改"></label>' +
+        '<p class="small muted">初始密码统一为 12345678；非系统管理员首次登录必须修改。</p>' +
         '<p class="tiny tertiary">院系与班级可留空；下拉项来自已有账号与常用预设，也可以直接输入任意文本。</p></form>',
       actions: [
         { label: '取消', kind: 'secondary', onClick: closeSheet },
@@ -2465,13 +2445,12 @@
           if (!$('#accountForm').reportValidity()) return;
           const body = { id: $('#accountId').value.trim(), name: $('#accountName').value.trim(), role: $('#accountRole').value,
             department: $('#accountDepartment').value.trim(), class_name: $('#accountClass').value.trim() };
-          const password = $('#accountPassword').value;
-          if (password) body.password = password;
+
           const data = await api('/admin/users', { method: 'POST', body });
           state.page = 1;
           renderView();
           if (data.initial_password) initialPasswordSheet(data.user.id, data.initial_password);
-          else { closeSheet(); toast('账号已创建，首次登录需修改密码'); }
+          else { closeSheet(); toast('账号已创建，非系统管理员首次登录需修改密码'); }
         } },
       ],
       onMount: (wrap) => $('#accountForm', wrap).addEventListener('submit', (event) => event.preventDefault()),
@@ -2481,8 +2460,8 @@
   function initialPasswordSheet(userId, password) {
     openAccountPanel({
       title: '临时密码', subtitle: userId,
-      body: '<p class="small muted">已将临时密码重置为 12345678，该账号下次登录时必须修改为新密码。</p>' +
-        '<p class="tiny tertiary">该密码只用于本次登录入口，请私下交给账号使用者；首次登录会强制改密。</p>' +
+      body: '<p class="small muted">初始密码统一为 12345678；非系统管理员下次登录时必须修改为新密码。</p>' +
+        '<p class="tiny tertiary">该密码只用于本次登录入口，请私下交给账号使用者；非系统管理员首次登录会强制改密。</p>' +
         '<label class="field account-secret"><span>临时密码</span><input id="accountInitialPassword" readonly autocomplete="off" value="' + esc(password) + '"></label>',
       actions: [{ label: '已保存，关闭', kind: 'primary', onClick: () => {
         closeSheet();
@@ -2515,7 +2494,7 @@
   function accountResetSheet(config) {
     openAccountPanel({
       title: '重置密码', subtitle: config.name + ' · ' + config.id,
-      body: '<p class="small muted">重置后临时密码固定为 12345678，旧密码立即失效，所有设备退出；该账号下次登录时必须修改为新密码。</p>',
+      body: '<p class="small muted">重置后临时密码固定为 12345678，旧密码立即失效，所有设备退出；非系统管理员下次登录时必须修改为新密码。</p>',
       actions: [
         { label: '取消', kind: 'secondary', onClick: closeSheet },
         { label: '确认重置', kind: 'danger', onClick: async () => {
@@ -2713,8 +2692,7 @@
     const uptimeSeconds = Number(health?.uptime_seconds);
     const uptimeText = Number.isFinite(uptimeSeconds) ? Math.floor(uptimeSeconds / 60) + ' 分钟' : '—';
     const statusText = health?.status === 'ok' ? '正常' : health?.status === 'degraded' ? '降级' : '未知';
-    const demoData = health?.demo_data === true;
-    const modeText = health?.demo_data ? '演示数据已初始化' : health?.demo_mode ? '演示模式' : '正式数据';
+    const modeText = '正式数据';
     const sched = scheduler || health?.scheduler || {};
     const schedEnabled = sched?.enabled !== undefined ? Boolean(sched.enabled) : Boolean(health?.scheduler?.enabled);
     const schedRunning = sched?.running === true;
@@ -2737,23 +2715,9 @@
       '<div class="card"><dl class="detail-list" style="padding:4px 16px">' + rows.map(([label, value]) =>
         '<div class="detail-row"><dt>' + label + '</dt><dd>' + esc(value) + '</dd></div>').join('') + '</dl></div>' +
       (sched?.last_error ? '<div class="banner danger" style="margin-top:12px">' + icon('alert') + '<div>最近一次任务失败：' + esc(sched.last_error) + '</div></div>' : '') +
-      '<div class="section"><div class="section-head"><h2>演示数据（课程演示与测试）</h2></div>' +
-        '<div class="card card-pad">' +
-          '<p class="small muted">' + (demoData
-            ? '当前库已包含标准演示数据。重新初始化会再次清空业务数据并生成新的统一演示密码。'
-            : '可在当前库中一键写入标准演示自习室、座位与四个角色账号，便于课程演示与验收。') + '</p>' +
-          '<ul class="small muted" style="margin:8px 0 12px;padding-left:18px">' +
-            '<li>会清空现有账号、预约、资源等业务数据，<strong>审计日志保留</strong>。</li>' +
-            '<li>写入 3 个自习室、24 个座位，以及 S2023001、T7001、A9001、Y0001 演示账号。</li>' +
-            '<li>所有演示账号使用<strong>同一个统一初始密码</strong>，密码只在成功提示中显示一次。</li>' +
-            '<li>初始化后当前登录会话会失效，需要使用演示账号重新登录。</li>' +
-          '</ul>' +
-          '<button class="btn btn-danger" type="button" data-action="system-init-demo">' +
-            (demoData ? '重新初始化演示数据' : '初始化演示数据') + '</button>' +
-        '</div></div>' +
       '<div class="section"><div class="section-head"><h2>数据导出</h2></div><div class="list">' +
         [['reservations', '预约记录'], ['violations', '违规记录'], ['audit', '审计日志'], ['complaints', '投诉记录'], ['blacklist', '黑名单记录'], ['credit_logs', '信用流水'], ['waitlist', '候补记录']].map(([kind, label]) =>
-          '<button class="list-row clickable" type="button" data-action="export-csv" data-kind="' + kind + '" data-label="' + label + '"><div class="row-main"><div class="row-title">' + label + '</div><div class="row-sub">CSV · UTF-8 BOM · 桌面版弹出另存为</div></div><div class="row-side">' + icon('download', 'row-chevron') + '</div></button>').join('') +
+          '<button class="list-row clickable" type="button" data-action="export-csv" data-kind="' + kind + '" data-label="' + label + '"><div class="row-main"><div class="row-title">' + label + '</div><div class="row-sub">CSV · UTF-8 BOM · 浏览器下载</div></div><div class="row-side">' + icon('download', 'row-chevron') + '</div></button>').join('') +
       '</div></div>' +
       '<div class="section"><div class="section-head"><h2>运维提示</h2></div><div class="card card-pad small muted">' +
         '<p>· 数据库为单机 SQLite（WAL），备份时请同时复制 <span class="mono">.db</span> 与 <span class="mono">-wal</span> 文件，或先停止服务再复制。</p>' +
@@ -2789,16 +2753,6 @@
     // response.text() 可能吃掉 BOM；Excel 打开中文 CSV 需要 UTF-8 BOM。
     if (!content.startsWith('\ufeff')) content = '\ufeff' + content;
     const filename = exportFilename(kind);
-    const bridge = window.pywebview && window.pywebview.api;
-    if (bridge && typeof bridge.save_export_file === 'function') {
-      const result = await bridge.save_export_file(filename, content);
-      if (result && result.canceled) { toast('已取消保存'); return; }
-      if (!result || result.ok !== true) {
-        throw new ApiError((result && result.error) || '保存失败，请重试', 'EXPORT_SAVE_FAILED');
-      }
-      toast('已保存到 ' + result.path);
-      return;
-    }
     // 网页版：标准 Blob 下载。
     const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -2813,69 +2767,6 @@
     toast('已开始下载 ' + label + ' CSV');
   }
 
-  function initDemoDataSheet() {
-    confirmSheet({
-      title: '初始化演示数据',
-      subtitle: '仅用于课程演示与测试',
-      message: '此操作会清空当前库中的账号、预约、资源等业务数据，写入标准演示数据（审计日志保留）。'
-        + '学生、教师、自习室管理员演示账号会使用统一初始密码；若已有活跃系统管理员，其原有密码与资料会保留。'
-        + '统一演示密码只显示一次；当前登录会话会立即失效。确认继续？',
-      confirmLabel: '确认初始化',
-      danger: true,
-      onConfirm: async () => {
-        const data = await api('/admin/system/demo-data', {
-          method: 'POST',
-          body: { confirm: 'INITIALIZE_DEMO_DATA' },
-        });
-        demoInitializedSheet(data || {});
-      },
-    });
-  }
-
-  function demoInitializedSheet(data) {
-    const accounts = Array.isArray(data.accounts) ? data.accounts : [];
-    const password = data.demo_password || '';
-    const preserved = data.admin_password_preserved === true;
-    const accountRows = accounts.map((account) =>
-      '<div class="detail-row"><dt>' + esc(account.role_label || ROLE_TEXT[account.role] || account.role) + '</dt>' +
-      '<dd><span class="mono">' + esc(account.username) + '</span> · ' + esc(account.name) +
-      (account.password_preserved ? ' <span class="pill gray">原密码保留</span>' : '') + '</dd></div>').join('');
-    openAccountPanel({
-      title: '演示数据已初始化',
-      subtitle: preserved ? '演示账号统一密码只显示这一次' : '统一演示密码只显示这一次',
-      body: '<p class="small muted">请立即记录以下统一初始密码。关闭本窗口后系统不再展示，遗忘只能重新初始化演示数据。</p>' +
-        '<label class="field account-secret"><span>演示账号统一初始密码</span><input id="demoInitialPassword" readonly autocomplete="off" value="' + esc(password) + '"></label>' +
-        (preserved
-          ? '<div class="banner" style="margin-top:12px;background:#f2f2f7;border-radius:10px;padding:10px 12px">' + icon('check') +
-            '<div>当前系统管理员原有密码已保留，请继续使用原密码登录；上方统一密码仅适用于学生、教师与自习室管理员演示账号。</div></div>'
-          : '') +
-        '<div class="card card-pad" style="margin-top:12px"><dl class="detail-list">' + accountRows + '</dl></div>' +
-        '<p class="tiny tertiary" style="margin-top:12px">演示数据已写入；当前登录会话已失效，请' +
-        (preserved ? '使用学生/教师/自习室管理员账号与统一密码，或使用系统管理员原密码' : '使用上述任一演示账号与统一密码') +
-        '重新登录。' +
-        (data.counts ? '（账号 ' + Number(data.counts.users || 0) + ' · 自习室 ' + Number(data.counts.rooms || 0) + ' · 座位 ' + Number(data.counts.seats || 0) + '）' : '') + '</p>',
-      actions: [
-        { label: '复制密码', kind: 'secondary', onClick: async () => {
-            const input = $('#demoInitialPassword');
-            try {
-              await navigator.clipboard.writeText(input ? input.value : password);
-              toast('统一演示密码已复制');
-            } catch (error) {
-              if (input) { input.focus(); input.select(); }
-              toast('请手动复制选中的密码');
-            }
-          } },
-        { label: '重新登录', kind: 'primary', onClick: () => {
-            closeSheet();
-            showLogin('演示数据已初始化，请使用演示账号与提示中的密码重新登录');
-          } },
-      ],
-    });
-  }
-
-  // ---------------------------------------------------------------------------
-  // 视图：管理员 · 资源管理（FR-21）
-  // ---------------------------------------------------------------------------
   async function resourcesView() {
     const [roomData, seatData, blockData] = await Promise.all([
       api('/admin/rooms'),
@@ -3091,7 +2982,6 @@
     'analytics-range': (el) => setAnalyticsRange(el.dataset.range),
     'analytics-room': (el) => setAnalyticsRoom(el.dataset.room),
     'account-create': () => accountSheet(),
-    'system-init-demo': () => initDemoDataSheet(),
     'export-csv': (el) => exportAdminCsv(el.dataset.kind, el.dataset.label || '').catch(handleError),
     'account-status': (el) => accountStatusSheet({ id: el.dataset.id, name: el.dataset.name, status: el.dataset.status }),
     'account-reset': (el) => accountResetSheet({ id: el.dataset.id, name: el.dataset.name }),
@@ -3317,7 +3207,7 @@
   // PASSWORD_CHANGE_REQUIRED；因此进入应用前先判断标记，避免把 403
   // 当成登录失败而清空会话，陷入“密码正确却进不去”的死锁。
   function passwordChangeRequired(user) {
-    return Boolean(user && user.must_change_password);
+    return Boolean(user && user.role !== 'sys_admin' && user.must_change_password);
   }
 
   function promptForcedPasswordChange() {
@@ -3372,13 +3262,6 @@
   // 事件绑定
   // ---------------------------------------------------------------------------
   document.addEventListener('click', (event) => {
-    const demo = event.target.closest('[data-demo-user]');
-    if (demo) {
-      $('#username').value = demo.dataset.demoUser;
-      $('#password').value = '';
-      $('#password').focus();
-      return;
-    }
     const actionEl = event.target.closest('[data-action]');
     if (!actionEl) return;
     const handler = ACTIONS[actionEl.dataset.action];

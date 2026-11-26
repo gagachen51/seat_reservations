@@ -23,7 +23,6 @@ from .network import print_access_addresses
 from .security import DEFAULT_TEMP_PASSWORD, hash_password
 from .service.container import AppContext
 from .storage.repository import SqliteRepository
-from .storage.seed import resolve_demo_password, seed_if_empty
 
 
 def _settings(args: argparse.Namespace) -> Settings:
@@ -38,13 +37,6 @@ def _settings(args: argparse.Namespace) -> Settings:
         settings.validate()
     return settings
 
-
-def _announce_demo_password(password: str) -> None:
-    """演示密码只在一个初始化渠道展示一次；由环境变量指定时不回显。"""
-    if os.environ.get("SEAT_DEMO_PASSWORD"):
-        print("演示密码：使用 SEAT_DEMO_PASSWORD 指定的值（不回显）")
-    else:
-        print(f"演示密码（仅本次显示，请立即记录）：{password}")
 
 
 def _ctx(args: argparse.Namespace) -> AppContext:
@@ -66,22 +58,9 @@ def cmd_init_db(args: argparse.Namespace) -> int:
     applied = ctx.db.migrate()
     print(f"数据库：{ctx.settings.db_path}")
     print(f"迁移完成，新增版本：{applied or '无（已是最新）'}")
-    if args.demo:
-        password = resolve_demo_password()
-        counts = ctx.seed_demo(datetime.now(), password=password)
-        print(f"演示数据：{json.dumps(counts, ensure_ascii=False)}")
-        _announce_demo_password(password)
+    ctx.bootstrap_admin()
     return 0
 
-
-def cmd_seed(args: argparse.Namespace) -> int:
-    ctx = _ctx(args)
-    now = parse_datetime(args.at) if args.at else datetime.now()
-    password = resolve_demo_password()
-    counts = ctx.seed_demo(now, password=password)
-    print(f"演示数据已写入：{json.dumps(counts, ensure_ascii=False)}")
-    _announce_demo_password(password)
-    return 0
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
@@ -92,17 +71,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     port = args.port if args.port is not None else settings.port
     if args.db:
         os.environ["SEAT_DB_PATH"] = str(Path(args.db))
-    os.environ["SEAT_DEMO_MODE"] = "true" if args.demo else "false"
-    if args.demo:
-        # 在启动服务前完成演示库初始化，把随机密码展示在本次启动输出里，
-        # 而不是让 lifespan 在后台悄悄生成一个无人知晓的密码。
-        ctx = _ctx(args)
-        password = resolve_demo_password()
-        created = seed_if_empty(ctx.db, datetime.now(), password=password)
-        if created:
-            _announce_demo_password(password)
-        else:
-            print("演示库已有数据，沿用既有账号；如需重置演示数据请执行 seed 命令")
+    os.environ["SEAT_DEMO_MODE"] = "false"
     print_access_addresses(host, port)
     uvicorn.run(
         "seat_reservation.api.app:app",
@@ -139,8 +108,7 @@ def cmd_user(args: argparse.Namespace) -> int:
         return 0
     if args.user_command == "create":
         # 需求 §7.4：不指定密码时使用统一临时密码 12345678，并强制首次登录修改。
-        generated = not args.password
-        password = args.password or DEFAULT_TEMP_PASSWORD
+        password = DEFAULT_TEMP_PASSWORD
         with ctx.db.transaction() as conn:
             repo = SqliteRepository(conn)
             if repo.get_user(args.id):
@@ -158,26 +126,18 @@ def cmd_user(args: argparse.Namespace) -> int:
                     class_name=args.class_name or "",
                     credit=100,
                     password_hash=hash_password(password),
-                    must_change_password=True,
+                    must_change_password=args.role != Role.SYS_ADMIN.value,
                     created_at=now,
                     updated_at=now,
                 )
             )
-        if generated:
-            print(f"已创建 {args.id}（{args.role}），系统生成初始密码：{password}")
-        else:
-            print(f"已创建 {args.id}（{args.role}），初始密码为指定值")
-        print("该账号首次登录会被要求修改密码")
+        print(f"已创建 {args.id}（{args.role}），初始密码：{password}")
+        print("非系统管理员首次登录需修改密码")
         return 0
     if args.user_command == "passwd":
-        generated = not args.password
-        password = args.password or DEFAULT_TEMP_PASSWORD
+        password = DEFAULT_TEMP_PASSWORD
         ctx.auth.reset_password(args.id, password)
-        print(
-            f"已重置 {args.id} 的密码"
-            + (f"，临时密码：{password}" if generated else "")
-            + "，并要求下次登录修改"
-        )
+        print(f"已重置 {args.id}，初始密码：{password}；非系统管理员下次登录需改密")
         return 0
     if args.user_command == "role":
         with ctx.db.transaction() as conn:
@@ -276,7 +236,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             reservations = conn.execute("SELECT COUNT(*) AS c FROM reservations").fetchone()["c"]
         print(f"账号 / 预约 {users} / {reservations}")
     else:
-        print("提示        运行 `seat-reservation init-db --demo` 初始化")
+        print("提示        运行 `seat-reservation init-db` 初始化")
     return 0
 
 
@@ -297,12 +257,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("init-db", help="执行数据库迁移")
-    p.add_argument("--demo", action="store_true", help="同时写入演示数据")
+    p.set_defaults(demo=False)
     p.set_defaults(func=cmd_init_db)
-
-    p = sub.add_parser("seed", help="写入演示数据（会清空业务表）")
-    p.add_argument("--at", help="固定基准时间，例如 '2025-10-20 08:00'")
-    p.set_defaults(func=cmd_seed)
 
     p = sub.add_parser("serve", help="启动 HTTP 服务")
     bind = p.add_mutually_exclusive_group()
@@ -310,7 +266,7 @@ def build_parser() -> argparse.ArgumentParser:
     bind.add_argument("--lan", action="store_true", help="监听所有 IPv4 网卡，供同一局域网设备访问")
     p.add_argument("--port", type=_port, help="端口，默认使用 SEAT_PORT 或 8010")
     p.add_argument("--reload", action="store_true")
-    p.add_argument("--demo", action="store_true", help="首次启动写入演示数据")
+    p.set_defaults(demo=False)
     p.set_defaults(func=cmd_serve)
 
     p = sub.add_parser("sweep", help="执行一次超时扫描")
@@ -324,12 +280,10 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("id")
     create.add_argument("name")
     create.add_argument("--role", default="student", choices=[role.value for role in Role])
-    create.add_argument("--password", help="不填则由系统生成随机初始密码")
     create.add_argument("--department", default="")
     create.add_argument("--class-name", dest="class_name", default="")
     passwd = user_sub.add_parser("passwd", help="重置密码")
     passwd.add_argument("id")
-    passwd.add_argument("--password", help="不填则由系统生成随机密码")
     role = user_sub.add_parser("role", help="调整角色")
     role.add_argument("id")
     role.add_argument("role", choices=[item.value for item in Role])

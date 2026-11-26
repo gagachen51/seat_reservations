@@ -343,7 +343,7 @@ class AuthService:
             if user is None:
                 raise Unauthenticated("账号不存在")
             user.password_hash = hash_password(new_password)
-            user.must_change_password = True
+            user.must_change_password = user.role != Role.SYS_ADMIN.value
             user.updated_at = now
             repo.save_user(user)
             conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))

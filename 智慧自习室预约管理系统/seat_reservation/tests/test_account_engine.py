@@ -22,7 +22,7 @@ def create(env, **kwargs):
 def test_create_roles_and_secret_only_returned_once(env, role):
     data = create(env, role=role)
     user = env.user("NEW1")
-    assert user.role == role and user.must_change_password and user.credit == 100
+    assert user.role == role and user.must_change_password == (role != "sys_admin") and user.credit == 100
     assert verify_password(data["initial_password"], user.password_hash)
     with env.ctx.db.read() as conn:
         audit = conn.execute("SELECT after_json FROM audit_logs WHERE action='user_create'").fetchone()[0]
@@ -32,9 +32,9 @@ def test_create_roles_and_secret_only_returned_once(env, role):
 
 def test_create_with_supplied_password_and_trimmed_fields(env):
     data = create(env, user_id=" NEW1 ", name=" 新同学 ", password=PASSWORD)
-    assert "initial_password" not in data
+    assert data["initial_password"] == "12345678"
     assert env.user("NEW1").name == "新同学"
-    assert verify_password(PASSWORD, env.user("NEW1").password_hash)
+    assert verify_password("12345678", env.user("NEW1").password_hash)
 
 
 @pytest.mark.parametrize("values", [dict(role="root"), dict(user_id=""), dict(user_id="a/b"),
