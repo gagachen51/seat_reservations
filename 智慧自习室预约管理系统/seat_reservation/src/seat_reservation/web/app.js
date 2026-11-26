@@ -275,7 +275,12 @@
   const reduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // 页面翻起默认关闭：把 pageTurn 改成 true 即可启用（2.5° / 7px / 260ms）。
-  const MOTION = { pageTurn: false };
+  const MOTION = { pageTurn: true };
+
+  // 测试桩没有 classList，这里做存在性判断，浏览器中正常生效。
+  if (MOTION.pageTurn && document.body && document.body.classList) {
+    document.body.classList.add('page-turn');
+  }
 
   let stampCount = 0;
 
@@ -411,7 +416,7 @@
 
     if (MOTION.pageTurn && entered) {
       root.animate([
-        { transform: 'perspective(900px) rotateX(2.5deg) translateY(7px)', opacity: 0.65 },
+        { transform: 'perspective(900px) rotateX(2.5deg) translateY(7px)', opacity: 0.88 },
         { transform: 'perspective(900px) rotateX(0deg) translateY(0)', opacity: 1 },
       ], { duration: 260, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' });
     }
