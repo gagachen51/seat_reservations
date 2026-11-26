@@ -10,7 +10,7 @@
 | 项目 | 内容 |
 |---|---|
 | 模块 | C（预约、签到/签退、暂离/返座、续约、候补、超时扫描） |
-| 分支 | `feature/reservation-module` |
+| 分支 / commit | `feature/reservation-module` / `115cce9` |
 | 修复问题 | M-04 / M-06 / M-07 / L-07 |
 | B 的资源-预约契约 | `release_affected_reservations`；`cancelled`；`end_reason=resource_unavailable` |
 | 测试命令 | `cd SR && .venv/bin/python -m pytest -q` |
@@ -191,7 +191,7 @@ $ .venv/bin/python -m pytest -q
 
 ```text
 模块：C
-分支/commit：feature/reservation-module / 见本次提交
+分支/commit：feature/reservation-module / 115cce9
 修复问题：M-04 / M-06 / M-07 / L-07
 B 的资源-预约契约：release_affected_reservations；cancelled；end_reason=resource_unavailable
 修改文件：
